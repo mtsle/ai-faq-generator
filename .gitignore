@@ -1,0 +1,34 @@
+# === Zależności ===
+/node_modules/
+/vendor/
+
+# === Wynik buildu ===
+/build/
+/dist/
+
+# === Środowisko / sekrety (NIGDY do repo) ===
+.env
+.env.*
+*.key
+*.pem
+wp-cli.local.yml
+
+# === Lokalny WordPress (wp-env korzysta z Dockera — nic lokalnego nie commitujemy) ===
+/.wp-env/
+/wordpress/
+
+# === Narzędzia PHP / testy ===
+.phpunit.result.cache
+/coverage/
+
+# === Spakowana wtyczka ===
+/*.zip
+
+# === System / edytor ===
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
