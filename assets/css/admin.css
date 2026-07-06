@@ -1,0 +1,68 @@
+/**
+ * Style panelu administracyjnego wtyczki AI FAQ Generator.
+ * Ładowane wyłącznie na ekranach wtyczki (patrz class-menu.php).
+ */
+
+.aifaq-wrap {
+	--aifaq-accent: #0f766e;
+	--aifaq-accent-soft: #dcefec;
+	max-width: 900px;
+}
+
+.aifaq-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.aifaq-title .dashicons {
+	color: var(--aifaq-accent);
+	font-size: 26px;
+	width: 26px;
+	height: 26px;
+}
+
+.aifaq-title .aifaq-sub {
+	font-size: 14px;
+	font-weight: 400;
+	color: #646970;
+	padding-left: 8px;
+	margin-left: 4px;
+	border-left: 1px solid #dcdcde;
+}
+
+.aifaq-card {
+	position: relative;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-left: 4px solid var(--aifaq-accent);
+	border-radius: 6px;
+	padding: 20px 22px;
+	margin-top: 18px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.aifaq-card h2 {
+	margin: 0 0 6px;
+	font-size: 16px;
+}
+
+.aifaq-card p {
+	margin: 0;
+	max-width: 70ch;
+	color: #50575e;
+}
+
+.aifaq-badge {
+	position: absolute;
+	top: 16px;
+	right: 18px;
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	color: var(--aifaq-accent);
+	background: var(--aifaq-accent-soft);
+	padding: 3px 9px;
+	border-radius: 999px;
+}
