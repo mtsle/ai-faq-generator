@@ -1,0 +1,13 @@
+# Normalizacja końców linii — spójne LF w repo, niezależnie od systemu
+* text=auto eol=lf
+
+# Pliki binarne — bez konwersji
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.zip  binary
+*.woff  binary
+*.woff2 binary
