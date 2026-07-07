@@ -4,7 +4,9 @@ Lekka wtyczka WordPress do szybkiego generowania sekcji **FAQ** dla wpisów i st
 z użyciem **API AI** (domyślnie Google Gemini Flash) oraz automatycznego dodawania
 **danych strukturalnych JSON-LD (FAQPage)** zgodnych ze Schema.org.
 
-> **Status:** Krok 0 — plac budowy. Kod wtyczki jeszcze nie powstał.
+> **Status:** w budowie · **v0.2.0** — ukończone Krok 1 (szkielet: menu + 3 podstrony, tabela historii)
+> i Krok 2 (Ustawienia / konfiguracja API: klucz, model, temperatura, maks. pytań, „Test połączenia").
+> Dalej: Krok 3 — Provider AI (Gemini).
 
 ## Założenia
 - **Prosto, szybko, bez obciążania strony** — całe AI działa w panelu (AJAX/REST);

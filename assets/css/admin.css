@@ -66,3 +66,70 @@
 	padding: 3px 9px;
 	border-radius: 999px;
 }
+
+/* --- Ustawienia --- */
+.aifaq-provider {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.aifaq-pill-free {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.03em;
+	color: #15803d;
+	background: #dcf0e2;
+	padding: 2px 7px;
+	border-radius: 999px;
+}
+
+.aifaq-key-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.aifaq-key-row #aifaq-api-key {
+	font-family: Consolas, Monaco, monospace;
+	letter-spacing: 0.03em;
+}
+
+.aifaq-range {
+	width: 240px;
+	max-width: 100%;
+	vertical-align: middle;
+	accent-color: var(--aifaq-accent);
+}
+
+#aifaq-temp-value {
+	color: var(--aifaq-accent);
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+
+.aifaq-test-status {
+	font-size: 13px;
+	font-weight: 600;
+}
+
+.aifaq-test-status.is-loading {
+	color: #646970;
+}
+
+.aifaq-test-status.is-ok {
+	color: #15803d;
+}
+
+.aifaq-test-status.is-ok::before {
+	content: "\2713\00a0";
+}
+
+.aifaq-test-status.is-err {
+	color: #be123c;
+}
+
+.aifaq-test-status.is-err::before {
+	content: "\2715\00a0";
+}

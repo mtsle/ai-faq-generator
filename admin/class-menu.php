@@ -128,5 +128,27 @@ class AIFAQ_Admin_Menu {
 			array(),
 			AIFAQ_VERSION
 		);
+
+		// Skrypt tylko na podstronie Ustawienia.
+		if ( false !== strpos( $hook_suffix, self::SLUG_SETTINGS ) ) {
+			wp_enqueue_script(
+				'aifaq-settings',
+				AIFAQ_PLUGIN_URL . 'assets/js/settings.js',
+				array(),
+				AIFAQ_VERSION,
+				true
+			);
+			wp_localize_script(
+				'aifaq-settings',
+				'aifaqSettings',
+				array(
+					'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
+					'checking' => __( 'Sprawdzam połączenie…', 'ai-faq-generator' ),
+					'error'    => __( 'Błąd połączenia.', 'ai-faq-generator' ),
+					'show'     => __( 'Pokaż', 'ai-faq-generator' ),
+					'hide'     => __( 'Ukryj', 'ai-faq-generator' ),
+				)
+			);
+		}
 	}
 }

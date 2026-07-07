@@ -28,6 +28,11 @@ final class AIFAQ_Plugin {
 	private ?AIFAQ_Admin_Menu $admin_menu = null;
 
 	/**
+	 * Ustawienia / konfiguracja API.
+	 */
+	private ?AIFAQ_Settings $settings = null;
+
+	/**
 	 * Zwraca (i przy pierwszym wywołaniu tworzy) instancję wtyczki.
 	 */
 	public static function instance(): AIFAQ_Plugin {
@@ -50,6 +55,7 @@ final class AIFAQ_Plugin {
 	 */
 	private function load_dependencies(): void {
 		if ( is_admin() ) {
+			require_once AIFAQ_PLUGIN_DIR . 'includes/class-settings.php';
 			require_once AIFAQ_PLUGIN_DIR . 'admin/class-menu.php';
 		}
 	}
@@ -61,6 +67,10 @@ final class AIFAQ_Plugin {
 		add_action( 'init', array( $this, 'load_textdomain' ) );
 
 		if ( is_admin() ) {
+			$this->settings = new AIFAQ_Settings();
+			add_action( 'admin_init', array( $this->settings, 'register' ) );
+			add_action( 'wp_ajax_' . AIFAQ_Settings::AJAX_TEST, array( $this->settings, 'ajax_test_connection' ) );
+
 			$this->admin_menu = new AIFAQ_Admin_Menu();
 			add_action( 'admin_menu', array( $this->admin_menu, 'register_menu' ) );
 			add_action( 'admin_enqueue_scripts', array( $this->admin_menu, 'enqueue_assets' ) );
