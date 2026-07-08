@@ -1,6 +1,6 @@
 <?php
 /**
- * Ustawienia wtyczki — konfiguracja API.
+ * Ustawienia wtyczki — konfiguracja API i trasy publicznej.
  *
  * Przechowuje opcje w wp_options pod kluczem `aifaq_settings`,
  * rejestruje je przez Settings API (z sanityzacją) oraz obsługuje
@@ -9,6 +9,8 @@
  * @package AI_FAQ_Generator
  */
 
+namespace AIFAQ\Core;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -16,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Warstwa ustawień i konfiguracji API.
  */
-class AIFAQ_Settings {
+class Settings {
 
 	/**
 	 * Nazwa opcji w wp_options.
@@ -31,8 +33,8 @@ class AIFAQ_Settings {
 	/**
 	 * Akcja i nonce dla testu połączenia.
 	 */
-	const AJAX_TEST   = 'aifaq_test_connection';
-	const NONCE_TEST  = 'aifaq_test_connection';
+	const AJAX_TEST  = 'aifaq_test_connection';
+	const NONCE_TEST = 'aifaq_test_connection';
 
 	/**
 	 * Uprawnienie wymagane do zmian ustawień.
@@ -52,6 +54,7 @@ class AIFAQ_Settings {
 			'temperature'   => 0.4,
 			'max_questions' => 20,
 			'language'      => 'pl',
+			'page_slug'     => 'faqgenerator',
 		);
 	}
 
@@ -142,14 +145,14 @@ class AIFAQ_Settings {
 		}
 
 		// Model — tylko z whitelisty.
-		$models        = array_keys( self::models() );
-		$out['model']  = ( isset( $input['model'] ) && in_array( $input['model'], $models, true ) )
+		$models       = array_keys( self::models() );
+		$out['model'] = ( isset( $input['model'] ) && in_array( $input['model'], $models, true ) )
 			? $input['model']
 			: $defaults['model'];
 
 		// Temperatura — zakres 0.0–1.0, krok 0.1.
-		$temp                = isset( $input['temperature'] ) ? (float) $input['temperature'] : $defaults['temperature'];
-		$out['temperature']  = max( 0.0, min( 1.0, round( $temp, 1 ) ) );
+		$temp               = isset( $input['temperature'] ) ? (float) $input['temperature'] : $defaults['temperature'];
+		$out['temperature'] = max( 0.0, min( 1.0, round( $temp, 1 ) ) );
 
 		// Maksymalna liczba pytań — zakres 5–20.
 		$maxq                 = isset( $input['max_questions'] ) ? (int) $input['max_questions'] : $defaults['max_questions'];
@@ -160,6 +163,12 @@ class AIFAQ_Settings {
 		$out['language'] = ( isset( $input['language'] ) && in_array( $input['language'], $langs, true ) )
 			? $input['language']
 			: $defaults['language'];
+
+		// Slug publicznej trasy — bezpieczny slug, z fallbackiem na domyślny.
+		if ( isset( $input['page_slug'] ) ) {
+			$slug              = sanitize_title( $input['page_slug'] );
+			$out['page_slug']  = ( '' !== $slug ) ? $slug : $defaults['page_slug'];
+		}
 
 		return $out;
 	}

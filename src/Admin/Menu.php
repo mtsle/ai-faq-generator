@@ -3,10 +3,12 @@
  * Menu wtyczki w panelu administracyjnym.
  *
  * Rejestruje pozycję „AI FAQ Generator" z trzema podstronami:
- * Dashboard, Ustawienia, Historia.
+ * Dashboard, Ustawienia, Historia. Widoki leżą w src/Admin/views.
  *
  * @package AI_FAQ_Generator
  */
+
+namespace AIFAQ\Admin;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -15,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Obsługa menu i ładowania widoków podstron.
  */
-class AIFAQ_Admin_Menu {
+class Menu {
 
 	/**
 	 * Uprawnienie wymagane do wszystkich ekranów wtyczki.
@@ -97,7 +99,7 @@ class AIFAQ_Admin_Menu {
 	}
 
 	/**
-	 * Wczytuje plik widoku z katalogu admin/views.
+	 * Wczytuje plik widoku z katalogu src/Admin/views.
 	 *
 	 * @param string $view Nazwa widoku (bez rozszerzenia).
 	 */
@@ -106,14 +108,14 @@ class AIFAQ_Admin_Menu {
 			wp_die( esc_html__( 'Brak uprawnień do tej strony.', 'ai-faq-generator' ) );
 		}
 
-		$path = AIFAQ_PLUGIN_DIR . 'admin/views/' . $view . '.php';
+		$path = AIFAQ_PLUGIN_DIR . 'src/Admin/views/' . $view . '.php';
 		if ( is_readable( $path ) ) {
 			require $path;
 		}
 	}
 
 	/**
-	 * Ładuje zasoby (CSS) tylko na ekranach wtyczki.
+	 * Ładuje zasoby (CSS/JS) tylko na ekranach wtyczki.
 	 *
 	 * @param string $hook_suffix Identyfikator bieżącego ekranu admina.
 	 */

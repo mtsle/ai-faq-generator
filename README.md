@@ -1,18 +1,33 @@
 # AI FAQ Generator
 
-Lekka wtyczka WordPress do szybkiego generowania sekcji **FAQ** dla wpisów i stron
-z użyciem **API AI** (domyślnie Google Gemini Flash) oraz automatycznego dodawania
-**danych strukturalnych JSON-LD (FAQPage)** zgodnych ze Schema.org.
+Wtyczka WordPress z **generatorem FAQ zawężonym do tematu strony**: gość pyta na
+publicznej podstronie `/faqgenerator`, a odpowiedź powstaje **wyłącznie w temacie
+treści tej strony** (RAG + embeddingi Gemini) — pytania off-topic są odrzucane.
+Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 
-> **Status:** w budowie · **v0.2.0** — ukończone Krok 1 (szkielet: menu + 3 podstrony, tabela historii)
-> i Krok 2 (Ustawienia / konfiguracja API: klucz, model, temperatura, maks. pytań, „Test połączenia").
-> Dalej: Krok 3 — Provider AI (Gemini).
+> **Status:** w budowie · **v0.3.0** — Krok 1 v2 (refaktor rdzenia na moduły
+> `src/` z autoloaderem, 4 tabele bazy, trasa publiczna `/faqgenerator`).
+> Wcześniej: Krok 0–2 (menu + 3 podstrony, Ustawienia / „Test połączenia").
+> Dalej: Krok 3 — Provider AI (Gemini: generacja + embeddingi).
 
 ## Założenia
-- **Prosto, szybko, bez obciążania strony** — całe AI działa w panelu (AJAX/REST);
-  na froncie ląduje tylko gotowy, statyczny HTML + JSON-LD (zero zapytań do AI).
+- **Dwa miejsca działania** — kokpit wp-admin (dla właściciela) oraz publiczna
+  podstrona `/faqgenerator` (dla każdego gościa).
+- **RAG na żywo** — pytanie → trafne fragmenty treści → odpowiedź AI ograniczona
+  do nich → **cache + rate-limit** (ochrona klucza/kosztu), bramka tematu.
 - **BYOK** — właściciel strony wpisuje własny (darmowy) klucz API w Ustawieniach.
 - **Warstwa „Provider"** — domyślnie Gemini, z możliwością dołożenia innych dostawców.
+
+## Struktura kodu (v2)
+Autoloader PSR-4-lite: przestrzeń `AIFAQ\` → katalog `src/`.
+```
+src/Core/      Plugin, Settings, Activator, Deactivator, Router
+src/Data/      Schema (4 tabele) + repozytoria + Migrator
+src/Admin/     Menu + views/ (Dashboard, Ustawienia, Historia)
+src/Providers/ (Krok 3) · src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9)
+```
+Tabele: `wp_aifaq_knowledge` (fragmenty+wektory), `wp_aifaq_qa_log` (dziennik pytań),
+`wp_aifaq_cache` (dedup odpowiedzi), `wp_aifaq_faq` (FAQ pod SEO).
 
 ## Zakres (ze zlecenia)
 1. Menu „AI FAQ Generator" → Dashboard / Ustawienia / Historia

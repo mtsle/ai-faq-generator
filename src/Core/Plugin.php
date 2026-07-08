@@ -1,12 +1,17 @@
 <?php
 /**
- * Główny loader wtyczki (singleton).
+ * Główny loader wtyczki (singleton) — orkiestrator modułów.
  *
- * Ładuje zależności i rejestruje hooki. W kolejnych krokach dojdą tu
- * kolejne moduły (ustawienia, provider AI, REST, schema, edytor…).
+ * Spina wtyczkę w całość: montuje router (front + rewrite `/faqgenerator`),
+ * a w panelu administracyjnym ustawienia i menu. Klasy ładują się leniwie
+ * przez autoloader, więc nie ma tu ręcznych `require`.
  *
  * @package AI_FAQ_Generator
  */
+
+namespace AIFAQ\Core;
+
+use AIFAQ\Admin\Menu;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -15,27 +20,32 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Klasa spinająca wtyczkę w całość.
  */
-final class AIFAQ_Plugin {
+final class Plugin {
 
 	/**
 	 * Jedyna instancja (singleton).
 	 */
-	private static ?AIFAQ_Plugin $instance = null;
+	private static ?Plugin $instance = null;
 
 	/**
-	 * Menu panelu administracyjnego.
+	 * Router publicznej trasy `/faqgenerator`.
 	 */
-	private ?AIFAQ_Admin_Menu $admin_menu = null;
+	private ?Router $router = null;
 
 	/**
 	 * Ustawienia / konfiguracja API.
 	 */
-	private ?AIFAQ_Settings $settings = null;
+	private ?Settings $settings = null;
+
+	/**
+	 * Menu panelu administracyjnego.
+	 */
+	private ?Menu $admin_menu = null;
 
 	/**
 	 * Zwraca (i przy pierwszym wywołaniu tworzy) instancję wtyczki.
 	 */
-	public static function instance(): AIFAQ_Plugin {
+	public static function instance(): Plugin {
 		if ( null === self::$instance ) {
 			self::$instance = new self();
 		}
@@ -46,18 +56,7 @@ final class AIFAQ_Plugin {
 	 * Konstruktor prywatny — inicjalizacja wtyczki.
 	 */
 	private function __construct() {
-		$this->load_dependencies();
 		$this->init_hooks();
-	}
-
-	/**
-	 * Wczytuje pliki klas.
-	 */
-	private function load_dependencies(): void {
-		if ( is_admin() ) {
-			require_once AIFAQ_PLUGIN_DIR . 'includes/class-settings.php';
-			require_once AIFAQ_PLUGIN_DIR . 'admin/class-menu.php';
-		}
 	}
 
 	/**
@@ -66,12 +65,16 @@ final class AIFAQ_Plugin {
 	private function init_hooks(): void {
 		add_action( 'init', array( $this, 'load_textdomain' ) );
 
-		if ( is_admin() ) {
-			$this->settings = new AIFAQ_Settings();
-			add_action( 'admin_init', array( $this->settings, 'register' ) );
-			add_action( 'wp_ajax_' . AIFAQ_Settings::AJAX_TEST, array( $this->settings, 'ajax_test_connection' ) );
+		// Router działa też dla gości (publiczna trasa `/faqgenerator`).
+		$this->router = new Router();
+		$this->router->register();
 
-			$this->admin_menu = new AIFAQ_Admin_Menu();
+		if ( is_admin() ) {
+			$this->settings = new Settings();
+			add_action( 'admin_init', array( $this->settings, 'register' ) );
+			add_action( 'wp_ajax_' . Settings::AJAX_TEST, array( $this->settings, 'ajax_test_connection' ) );
+
+			$this->admin_menu = new Menu();
 			add_action( 'admin_menu', array( $this->admin_menu, 'register_menu' ) );
 			add_action( 'admin_enqueue_scripts', array( $this->admin_menu, 'enqueue_assets' ) );
 		}

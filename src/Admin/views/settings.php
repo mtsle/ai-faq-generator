@@ -3,19 +3,21 @@
  * Widok: Ustawienia (konfiguracja API).
  *
  * Formularz zapisywany przez Settings API (options.php).
- * Sanityzacja odbywa się w AIFAQ_Settings::sanitize().
+ * Sanityzacja odbywa się w AIFAQ\Core\Settings::sanitize().
  *
  * @package AI_FAQ_Generator
  */
+
+use AIFAQ\Core\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-$aifaq        = AIFAQ_Settings::get();
-$aifaq_models = AIFAQ_Settings::models();
-$aifaq_langs  = AIFAQ_Settings::languages();
-$aifaq_test   = wp_create_nonce( AIFAQ_Settings::NONCE_TEST );
+$aifaq        = Settings::get();
+$aifaq_models = Settings::models();
+$aifaq_langs  = Settings::languages();
+$aifaq_test   = wp_create_nonce( Settings::NONCE_TEST );
 ?>
 <div class="wrap aifaq-wrap">
 	<h1 class="aifaq-title">
@@ -31,7 +33,7 @@ $aifaq_test   = wp_create_nonce( AIFAQ_Settings::NONCE_TEST );
 	<?php endif; ?>
 
 	<form method="post" action="options.php" class="aifaq-settings-form">
-		<?php settings_fields( AIFAQ_Settings::GROUP ); ?>
+		<?php settings_fields( Settings::GROUP ); ?>
 
 		<table class="form-table" role="presentation">
 			<tbody>
@@ -145,6 +147,24 @@ $aifaq_test   = wp_create_nonce( AIFAQ_Settings::NONCE_TEST );
 								</option>
 							<?php endforeach; ?>
 						</select>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-page-slug"><?php esc_html_e( 'Adres publicznej strony', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<code><?php echo esc_html( trailingslashit( home_url( '/' ) ) ); ?></code>
+						<input
+							type="text"
+							id="aifaq-page-slug"
+							name="aifaq_settings[page_slug]"
+							value="<?php echo esc_attr( $aifaq['page_slug'] ); ?>"
+							class="regular-text"
+							style="width:14rem"
+						>
+						<p class="description"><?php esc_html_e( 'Slug publicznego generatora dla gości (domyślnie „faqgenerator"). Po zmianie zapisz ustawienia stałych bezpośrednich, jeśli trasa nie zadziała.', 'ai-faq-generator' ); ?></p>
 					</td>
 				</tr>
 
