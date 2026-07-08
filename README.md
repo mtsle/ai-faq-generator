@@ -5,10 +5,11 @@ publicznej podstronie `/faqgenerator`, a odpowiedź powstaje **wyłącznie w tem
 treści tej strony** (RAG + embeddingi Gemini) — pytania off-topic są odrzucane.
 Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 
-> **Status:** w budowie · **v0.3.0** — Krok 1 v2 (refaktor rdzenia na moduły
-> `src/` z autoloaderem, 4 tabele bazy, trasa publiczna `/faqgenerator`).
-> Wcześniej: Krok 0–2 (menu + 3 podstrony, Ustawienia / „Test połączenia").
-> Dalej: Krok 3 — Provider AI (Gemini: generacja + embeddingi).
+> **Status:** w budowie · **v0.4.0** — Krok 3 (warstwa AI za interfejsem:
+> `ProviderInterface`, `GeminiProvider`, `ProviderFactory` + generyczny transport HTTP
+> `AIFAQ\Http`; generacja `gemini-2.5-flash`, embeddingi `gemini-embedding-001` @ 768).
+> Wcześniej: Krok 1 v2 (moduły `src/`, 4 tabele, trasa `/faqgenerator`).
+> Dalej: Krok 4 — warstwa danych / Indexer.
 
 ## Założenia
 - **Dwa miejsca działania** — kokpit wp-admin (dla właściciela) oraz publiczna
@@ -23,8 +24,10 @@ Autoloader PSR-4-lite: przestrzeń `AIFAQ\` → katalog `src/`.
 ```
 src/Core/      Plugin, Settings, Activator, Deactivator, Router
 src/Data/      Schema (4 tabele) + repozytoria + Migrator
+src/Http/      HttpClient (interfejs) + WpHttpClient — generyczny transport HTTP
+src/Providers/ ProviderInterface, GeminiProvider, ProviderFactory — warstwa AI (BYOK)
 src/Admin/     Menu + views/ (Dashboard, Ustawienia, Historia)
-src/Providers/ (Krok 3) · src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9)
+src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9)
 ```
 Tabele: `wp_aifaq_knowledge` (fragmenty+wektory), `wp_aifaq_qa_log` (dziennik pytań),
 `wp_aifaq_cache` (dedup odpowiedzi), `wp_aifaq_faq` (FAQ pod SEO).

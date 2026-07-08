@@ -50,7 +50,8 @@ class Settings {
 		return array(
 			'provider'      => 'gemini',
 			'api_key'       => '',
-			'model'         => 'gemini-1.5-flash',
+			'model'         => 'gemini-2.5-flash',
+			'embed_model'   => 'gemini-embedding-001',
 			'temperature'   => 0.4,
 			'max_questions' => 20,
 			'language'      => 'pl',
@@ -65,9 +66,22 @@ class Settings {
 	 */
 	public static function models(): array {
 		return array(
-			'gemini-1.5-flash'    => __( 'Gemini 1.5 Flash (szybki, darmowy)', 'ai-faq-generator' ),
-			'gemini-1.5-flash-8b' => __( 'Gemini 1.5 Flash-8B (najlżejszy)', 'ai-faq-generator' ),
-			'gemini-1.5-pro'      => __( 'Gemini 1.5 Pro (jakość)', 'ai-faq-generator' ),
+			'gemini-2.5-flash'    => __( 'Gemini 2.5 Flash (szybki, zalecany)', 'ai-faq-generator' ),
+			'gemini-2.5-pro'      => __( 'Gemini 2.5 Pro (jakość)', 'ai-faq-generator' ),
+			'gemini-2.0-flash'    => __( 'Gemini 2.0 Flash', 'ai-faq-generator' ),
+			'gemini-flash-latest' => __( 'Gemini Flash (najnowszy)', 'ai-faq-generator' ),
+		);
+	}
+
+	/**
+	 * Dostępne modele embeddingów (whitelista + etykiety).
+	 *
+	 * @return array<string,string>
+	 */
+	public static function embed_models(): array {
+		return array(
+			'gemini-embedding-001' => __( 'Google gemini-embedding-001 (768 wymiarów)', 'ai-faq-generator' ),
+			'gemini-embedding-2'   => __( 'Google gemini-embedding-2 (nowszy)', 'ai-faq-generator' ),
 		);
 	}
 
@@ -149,6 +163,12 @@ class Settings {
 		$out['model'] = ( isset( $input['model'] ) && in_array( $input['model'], $models, true ) )
 			? $input['model']
 			: $defaults['model'];
+
+		// Model embeddingów — tylko z whitelisty.
+		$embed_models       = array_keys( self::embed_models() );
+		$out['embed_model'] = ( isset( $input['embed_model'] ) && in_array( $input['embed_model'], $embed_models, true ) )
+			? $input['embed_model']
+			: $defaults['embed_model'];
 
 		// Temperatura — zakres 0.0–1.0, krok 0.1.
 		$temp               = isset( $input['temperature'] ) ? (float) $input['temperature'] : $defaults['temperature'];
