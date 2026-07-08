@@ -79,9 +79,10 @@ class Settings {
 	 * @return array<string,string>
 	 */
 	public static function embed_models(): array {
+		// Tylko modele zweryfikowane na żywym API. NIE dodawać niesprawdzonych
+		// (klient mógłby wybrać nieistniejący model i dostać błąd przy generacji).
 		return array(
 			'gemini-embedding-001' => __( 'Google gemini-embedding-001 (768 wymiarów)', 'ai-faq-generator' ),
-			'gemini-embedding-2'   => __( 'Google gemini-embedding-2 (nowszy)', 'ai-faq-generator' ),
 		);
 	}
 
@@ -212,17 +213,16 @@ class Settings {
 			wp_send_json_error( array( 'message' => __( 'Podaj klucz API.', 'ai-faq-generator' ) ) );
 		}
 
-		$url = add_query_arg(
-			'key',
-			rawurlencode( $api_key ),
-			'https://generativelanguage.googleapis.com/v1beta/models'
-		);
-
+		// Klucz WYŁĄCZNIE w nagłówku (jak w GeminiProvider) — nigdy w URL,
+		// bo adresy URL bywają logowane przez serwery/proxy (bezpieczeństwo klucza).
 		$response = wp_remote_get(
-			$url,
+			'https://generativelanguage.googleapis.com/v1beta/models',
 			array(
 				'timeout' => 15,
-				'headers' => array( 'Accept' => 'application/json' ),
+				'headers' => array(
+					'Accept'         => 'application/json',
+					'x-goog-api-key' => $api_key,
+				),
 			)
 		);
 
