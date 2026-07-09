@@ -12,6 +12,7 @@
 namespace AIFAQ\Core;
 
 use AIFAQ\Admin\Menu;
+use AIFAQ\Admin\IndexController;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -41,6 +42,11 @@ final class Plugin {
 	 * Menu panelu administracyjnego.
 	 */
 	private ?Menu $admin_menu = null;
+
+	/**
+	 * Kontroler indeksowania (akcje AJAX Dashboardu).
+	 */
+	private ?IndexController $index_controller = null;
 
 	/**
 	 * Zwraca (i przy pierwszym wywołaniu tworzy) instancję wtyczki.
@@ -77,6 +83,10 @@ final class Plugin {
 			$this->admin_menu = new Menu();
 			add_action( 'admin_menu', array( $this->admin_menu, 'register_menu' ) );
 			add_action( 'admin_enqueue_scripts', array( $this->admin_menu, 'enqueue_assets' ) );
+
+			$this->index_controller = new IndexController();
+			add_action( 'wp_ajax_' . IndexController::AJAX_REINDEX, array( $this->index_controller, 'ajax_reindex' ) );
+			add_action( 'wp_ajax_' . IndexController::AJAX_CLEAR, array( $this->index_controller, 'ajax_clear' ) );
 		}
 	}
 

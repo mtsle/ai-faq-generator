@@ -72,15 +72,26 @@ class KnowledgeRepository extends Repository {
 	 * jest uzupełniany kolejnością na liście. `post_id` z argumentu nadpisuje ten
 	 * z pojedynczych fragmentów (spójność).
 	 *
+	 * Operacja jest atomowa (transakcja): przy błędzie zapisu któregokolwiek
+	 * fragmentu całość jest wycofywana (ROLLBACK), więc wpis nigdy nie zostaje
+	 * z niekompletnym zestawem fragmentów. Na silnikach bez transakcji (MyISAM)
+	 * `START TRANSACTION` jest cichym no-opem — zachowanie degraduje się do
+	 * nieatomowego, bez błędu.
+	 *
 	 * @param int                             $post_id ID wpisu źródłowego.
 	 * @param array<int,array<string,mixed>>  $chunks  Lista fragmentów (jak w {@see save_chunk()}).
-	 * @return int Liczba faktycznie wstawionych fragmentów.
+	 * @return int Liczba faktycznie wstawionych fragmentów (0 przy wycofaniu).
 	 */
 	public function replace_for_post( int $post_id, array $chunks ): int {
+		global $wpdb;
+
+		$wpdb->query( 'START TRANSACTION' ); // phpcs:ignore WordPress.DB
+
 		$this->delete_by_post( $post_id );
 
 		$inserted = 0;
 		$index    = 0;
+		$failed   = false;
 
 		foreach ( $chunks as $chunk ) {
 			$chunk['post_id']     = $post_id;
@@ -88,11 +99,20 @@ class KnowledgeRepository extends Repository {
 
 			if ( $this->save_chunk( $chunk ) > 0 ) {
 				++$inserted;
+			} else {
+				$failed = true;
+				break;
 			}
 
 			++$index;
 		}
 
+		if ( $failed ) {
+			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB
+			return 0;
+		}
+
+		$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB
 		return $inserted;
 	}
 
@@ -116,6 +136,33 @@ class KnowledgeRepository extends Repository {
 		global $wpdb;
 		$table = static::table();
 		return (int) $wpdb->query( "DELETE FROM {$table}" ); // phpcs:ignore WordPress.DB
+	}
+
+	/**
+	 * Usuwa fragmenty wpisów spoza podanej listy (pruning osieroconych).
+	 *
+	 * Po indeksowaniu wpis, który zniknął ze źródła (usunięty, odpublikowany,
+	 * przeniesiony do kosza), musi też zniknąć z bazy wiedzy — inaczej Retriever
+	 * dalej serwowałby treść, której właściciel nie publikuje. Pusta lista =
+	 * nic nie zostaje (równoważne {@see clear_all()}).
+	 *
+	 * @param array<int,int> $keep_post_ids ID wpisów, które MAJĄ zostać.
+	 * @return int Liczba usuniętych fragmentów.
+	 */
+	public function delete_missing( array $keep_post_ids ): int {
+		global $wpdb;
+
+		if ( array() === $keep_post_ids ) {
+			return $this->clear_all();
+		}
+
+		$ids          = array_values( array_unique( array_map( 'intval', $keep_post_ids ) ) );
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$table        = static::table();
+
+		return (int) $wpdb->query( // phpcs:ignore WordPress.DB
+			$wpdb->prepare( "DELETE FROM {$table} WHERE post_id NOT IN ({$placeholders})", ...$ids ) // phpcs:ignore WordPress.DB
+		);
 	}
 
 	// -----------------------------------------------------------------------

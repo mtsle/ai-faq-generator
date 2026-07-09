@@ -131,6 +131,36 @@ class Menu {
 			AIFAQ_VERSION
 		);
 
+		// Skrypt indeksowania tylko na Dashboardzie (główny ekran, nie Ustawienia/Historia).
+		$is_settings  = false !== strpos( $hook_suffix, self::SLUG_SETTINGS );
+		$is_history   = false !== strpos( $hook_suffix, self::SLUG_HISTORY );
+		if ( ! $is_settings && ! $is_history ) {
+			wp_enqueue_script(
+				'aifaq-indexer',
+				AIFAQ_PLUGIN_URL . 'assets/js/indexer.js',
+				array(),
+				AIFAQ_VERSION,
+				true
+			);
+			wp_localize_script(
+				'aifaq-indexer',
+				'aifaqIndexer',
+				array(
+					'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+					'nonce'         => wp_create_nonce( \AIFAQ\Admin\IndexController::NONCE ),
+					'actionReindex' => \AIFAQ\Admin\IndexController::AJAX_REINDEX,
+					'actionClear'   => \AIFAQ\Admin\IndexController::AJAX_CLEAR,
+					'i18n'          => array(
+						'running'      => __( 'Indeksuję treść…', 'ai-faq-generator' ),
+						'clearing'     => __( 'Czyszczę bazę…', 'ai-faq-generator' ),
+						'confirmClear' => __( 'Na pewno wyczyścić całą bazę wiedzy? Trzeba będzie zaindeksować treść od nowa.', 'ai-faq-generator' ),
+						'error'        => __( 'Wystąpił błąd. Spróbuj ponownie.', 'ai-faq-generator' ),
+						'done'         => __( 'Gotowe.', 'ai-faq-generator' ),
+					),
+				)
+			);
+		}
+
 		// Skrypt tylko na podstronie Ustawienia.
 		if ( false !== strpos( $hook_suffix, self::SLUG_SETTINGS ) ) {
 			wp_enqueue_script(
