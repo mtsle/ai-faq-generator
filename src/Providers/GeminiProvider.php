@@ -43,6 +43,14 @@ class GeminiProvider implements ProviderInterface {
 	const EMBED_DIMENSIONS = 768;
 
 	/**
+	 * Limit czasu żądania w sekundach.
+	 *
+	 * Dłuższy niż domyślne 15 s transportu — `gemini-2.5-flash` domyślnie „myśli",
+	 * a batch embeddingów bywa duży; zbyt krótki timeout dawał twardy błąd bez retry.
+	 */
+	const REQUEST_TIMEOUT = 60;
+
+	/**
 	 * Klient HTTP używany do wszystkich żądań (wstrzyknięty).
 	 *
 	 * @var HttpClient
@@ -122,6 +130,26 @@ class GeminiProvider implements ProviderInterface {
 			return $data;
 		}
 
+		// Prompt zablokowany (safety) — brak kandydatów, ale jest powód blokady.
+		if ( isset( $data['promptFeedback']['blockReason'] ) ) {
+			return new \WP_Error(
+				'aifaq_gemini_blocked',
+				/* translators: %s: powód blokady zwrócony przez API */
+				sprintf( __( 'Zapytanie odrzucone przez model (%s).', 'ai-faq-generator' ), (string) $data['promptFeedback']['blockReason'] )
+			);
+		}
+
+		// Kandydat przerwany z powodu innego niż normalne zakończenie/limit tokenów
+		// (np. SAFETY/RECITATION) — zwykle bez użytecznego tekstu; nie udawaj sukcesu.
+		$finish = (string) ( $data['candidates'][0]['finishReason'] ?? '' );
+		if ( '' !== $finish && ! in_array( $finish, array( 'STOP', 'MAX_TOKENS' ), true ) ) {
+			return new \WP_Error(
+				'aifaq_gemini_blocked',
+				/* translators: %s: powód zatrzymania generacji */
+				sprintf( __( 'Model przerwał generowanie (%s).', 'ai-faq-generator' ), $finish )
+			);
+		}
+
 		// Wyciągamy tekst z pierwszego kandydata.
 		if ( ! isset( $data['candidates'][0]['content']['parts'][0]['text'] ) ) {
 			return new \WP_Error( 'aifaq_gemini_parse', 'Nieoczekiwana odpowiedź API.' );
@@ -182,6 +210,43 @@ class GeminiProvider implements ProviderInterface {
 	}
 
 	/**
+	 * Lekki test autoryzacji klucza — pyta o listę modeli (GET), nic nie generuje.
+	 *
+	 * Klucz idzie WYŁĄCZNIE w nagłówku `x-goog-api-key` (nigdy w URL). Zwraca
+	 * `true` przy 200, w przeciwnym razie `\WP_Error` z komunikatem z API.
+	 *
+	 * @return true|\WP_Error
+	 */
+	public function verify() {
+		$resp = $this->http->request(
+			'GET',
+			rtrim( self::API_BASE, '/' ),
+			array(
+				'headers' => array(
+					'x-goog-api-key' => $this->api_key,
+					'Accept'         => 'application/json',
+				),
+				'timeout' => self::REQUEST_TIMEOUT,
+			)
+		);
+
+		if ( is_wp_error( $resp ) ) {
+			return $resp;
+		}
+
+		if ( 200 === (int) ( $resp['status'] ?? 0 ) ) {
+			return true;
+		}
+
+		$data    = json_decode( (string) ( $resp['body'] ?? '' ), true );
+		$message = isset( $data['error']['message'] )
+			? (string) $data['error']['message']
+			: sprintf( 'Błąd API (kod %d).', (int) ( $resp['status'] ?? 0 ) );
+
+		return new \WP_Error( 'aifaq_gemini_http', $message );
+	}
+
+	/**
 	 * Wykonuje żądanie POST z ciałem JSON i zwraca zdekodowaną odpowiedź.
 	 *
 	 * Wspólna ścieżka dla {@see generate()} i {@see embed()}. Klucz API trafia
@@ -203,6 +268,7 @@ class GeminiProvider implements ProviderInterface {
 					'Content-Type'   => 'application/json',
 				),
 				'body'    => wp_json_encode( $payload ),
+				'timeout' => self::REQUEST_TIMEOUT,
 			)
 		);
 

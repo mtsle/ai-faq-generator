@@ -48,7 +48,10 @@ class WpContentSource implements ContentSource {
 				'post_status'      => 'publish',
 				'numberposts'      => -1,
 				'has_password'     => false, // nie indeksuj treści chronionej hasłem.
-				'suppress_filters' => false,
+				// M14: indeks ma objąć CAŁĄ opublikowaną treść niezależnie od filtrów
+				// wtyczek (WPML/Polylang zawężają do bieżącego języka). Bez tego
+				// pruning kasowałby przy każdym reindeksie wpisy pozostałych języków.
+				'suppress_filters' => true,
 				'orderby'          => 'ID',
 				'order'            => 'ASC',
 			)

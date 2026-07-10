@@ -49,4 +49,15 @@ interface ProviderInterface {
 	 *         błędy są zwracane jako `\WP_Error`.
 	 */
 	public function embed( array $texts );
+
+	/**
+	 * Lekki test autoryzacji klucza (używany przez „Test połączenia").
+	 *
+	 * NIE generuje treści ani nie liczy embeddingów — jedynie sprawdza, czy klucz
+	 * autoryzuje u dostawcy. Dzięki temu test idzie tą samą ścieżką co realne
+	 * żądania (bez duplikowania adresów/nagłówków w warstwie ustawień).
+	 *
+	 * @return true|\WP_Error `true`, gdy klucz działa; `\WP_Error` przy błędzie.
+	 */
+	public function verify();
 }

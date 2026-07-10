@@ -33,8 +33,24 @@ class Router {
 	 */
 	public function register(): void {
 		add_action( 'init', array( $this, 'add_rewrite_rules' ) );
+		add_action( 'init', array( $this, 'maybe_flush_rewrite' ), 20 );
 		add_filter( 'query_vars', array( $this, 'register_query_var' ) );
 		add_action( 'template_redirect', array( $this, 'maybe_render' ) );
+	}
+
+	/**
+	 * Przy ustawionej fladze (po zmianie sluga trasy) przebudowuje reguły rewrite raz.
+	 *
+	 * Uruchamiane na `init` z priorytetem 20 — PO {@see add_rewrite_rules()}
+	 * (priorytet 10), więc świeża reguła nowego sluga jest już zarejestrowana,
+	 * zanim `flush_rewrite_rules()` przeliczy i zapisze reguły. Bez tego zmiana
+	 * sluga w Ustawieniach kończy się 404 na nowym adresie.
+	 */
+	public function maybe_flush_rewrite(): void {
+		if ( get_option( Settings::FLUSH_FLAG ) ) {
+			flush_rewrite_rules();
+			delete_option( Settings::FLUSH_FLAG );
+		}
 	}
 
 	/**

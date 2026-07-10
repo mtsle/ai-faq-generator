@@ -93,6 +93,14 @@
 
 		var html = '<p>' + lines.join( ' · ' ) + '</p>';
 
+		if ( report.warnings && report.warnings.length ) {
+			html += '<p><strong>Uwagi:</strong></p><ul style="color:#996800;">';
+			report.warnings.forEach( function ( w ) {
+				html += '<li>' + escapeHtml( w ) + '</li>';
+			} );
+			html += '</ul>';
+		}
+
 		if ( report.errors && report.errors.length ) {
 			html += '<p><strong>Błędy:</strong></p><ul style="color:#b32d2e;">';
 			report.errors.forEach( function ( e ) {

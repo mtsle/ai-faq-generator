@@ -37,6 +37,11 @@ class Settings {
 	const NONCE_TEST = 'aifaq_test_connection';
 
 	/**
+	 * Flaga „przebuduj reguły rewrite" (ustawiana przy zmianie sluga trasy).
+	 */
+	const FLUSH_FLAG = 'aifaq_flush_needed';
+
+	/**
 	 * Uprawnienie wymagane do zmian ustawień.
 	 */
 	const CAPABILITY = 'manage_options';
@@ -146,52 +151,75 @@ class Settings {
 	 * @return array<string,mixed>
 	 */
 	public static function sanitize( $input ): array {
-		$defaults = self::defaults();
-		$current  = self::get();
-		$input    = is_array( $input ) ? $input : array();
-		$out      = $current;
+		$current = self::get();
+		$input   = is_array( $input ) ? $input : array();
+		$out     = $current; // Start od bieżących — pola nieprzysłane/niepoprawne ZOSTAJĄ (nie reset do domyślnych).
 
 		// Dostawca (na razie tylko Gemini).
 		$out['provider'] = 'gemini';
 
-		// Klucz API — bez tagów i białych znaków brzegowych.
+		// Klucz API — aktualizowany TYLKO, gdy wpisano nową wartość. Pusty submit
+		// zachowuje zapisany klucz (pole w formularzu jest zamaskowane — patrz widok).
 		if ( isset( $input['api_key'] ) ) {
-			$out['api_key'] = trim( sanitize_text_field( $input['api_key'] ) );
+			$submitted = trim( sanitize_text_field( wp_unslash( $input['api_key'] ) ) );
+			if ( '' !== $submitted ) {
+				$out['api_key'] = $submitted;
+			}
 		}
 
-		// Model — tylko z whitelisty.
-		$models       = array_keys( self::models() );
-		$out['model'] = ( isset( $input['model'] ) && in_array( $input['model'], $models, true ) )
-			? $input['model']
-			: $defaults['model'];
+		// Model — nadpisujemy tylko wartością z whitelisty; inaczej zostaje bieżąca.
+		if ( isset( $input['model'] ) && in_array( $input['model'], array_keys( self::models() ), true ) ) {
+			$out['model'] = $input['model'];
+		}
 
-		// Model embeddingów — tylko z whitelisty.
-		$embed_models       = array_keys( self::embed_models() );
-		$out['embed_model'] = ( isset( $input['embed_model'] ) && in_array( $input['embed_model'], $embed_models, true ) )
-			? $input['embed_model']
-			: $defaults['embed_model'];
+		// Model embeddingów — jw.
+		if ( isset( $input['embed_model'] ) && in_array( $input['embed_model'], array_keys( self::embed_models() ), true ) ) {
+			$out['embed_model'] = $input['embed_model'];
+		}
 
-		// Temperatura — zakres 0.0–1.0, krok 0.1.
-		$temp               = isset( $input['temperature'] ) ? (float) $input['temperature'] : $defaults['temperature'];
-		$out['temperature'] = max( 0.0, min( 1.0, round( $temp, 1 ) ) );
+		// Temperatura — zakres 0.0–1.0, krok 0.1 (tylko gdy przysłano).
+		if ( isset( $input['temperature'] ) ) {
+			$out['temperature'] = max( 0.0, min( 1.0, round( (float) $input['temperature'], 1 ) ) );
+		}
 
-		// Maksymalna liczba pytań — zakres 5–20.
-		$maxq                 = isset( $input['max_questions'] ) ? (int) $input['max_questions'] : $defaults['max_questions'];
-		$out['max_questions'] = max( 5, min( 20, $maxq ) );
+		// Maksymalna liczba pytań — zakres 5–20 (tylko gdy przysłano).
+		if ( isset( $input['max_questions'] ) ) {
+			$out['max_questions'] = max( 5, min( 20, (int) $input['max_questions'] ) );
+		}
 
-		// Język — tylko z whitelisty.
-		$langs           = array_keys( self::languages() );
-		$out['language'] = ( isset( $input['language'] ) && in_array( $input['language'], $langs, true ) )
-			? $input['language']
-			: $defaults['language'];
+		// Język — tylko z whitelisty; inaczej zostaje bieżący.
+		if ( isset( $input['language'] ) && in_array( $input['language'], array_keys( self::languages() ), true ) ) {
+			$out['language'] = $input['language'];
+		}
 
-		// Slug publicznej trasy — bezpieczny slug, z fallbackiem na domyślny.
+		// Slug publicznej trasy — bezpieczny slug; pusty/niepoprawny → zostaje bieżący.
 		if ( isset( $input['page_slug'] ) ) {
-			$slug              = sanitize_title( $input['page_slug'] );
-			$out['page_slug']  = ( '' !== $slug ) ? $slug : $defaults['page_slug'];
+			$slug = sanitize_title( wp_unslash( $input['page_slug'] ) );
+			if ( '' !== $slug ) {
+				$out['page_slug'] = $slug;
+			}
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Reakcja na zapis ustawień: przy ZMIANIE sluga trasy publicznej ustawia flagę,
+	 * by przy najbliższym `init` przebudować reguły rewrite. Bez tego zmiana sluga
+	 * w panelu kończy się 404 na nowym adresie (reguły są cache'owane w opcji).
+	 *
+	 * Podpięte pod `update_option_{OPTION}` (patrz {@see \AIFAQ\Core\Plugin}).
+	 *
+	 * @param mixed $old_value Poprzednia wartość opcji.
+	 * @param mixed $new_value Nowa wartość opcji.
+	 */
+	public function on_settings_updated( $old_value, $new_value ): void {
+		$old_slug = is_array( $old_value ) ? (string) ( $old_value['page_slug'] ?? '' ) : '';
+		$new_slug = is_array( $new_value ) ? (string) ( $new_value['page_slug'] ?? '' ) : '';
+
+		if ( $old_slug !== $new_slug ) {
+			update_option( self::FLUSH_FLAG, '1' );
+		}
 	}
 
 	/**
@@ -209,52 +237,30 @@ class Settings {
 
 		$api_key = isset( $_POST['api_key'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) ) : '';
 
+		// Pole klucza bywa zamaskowane (po zapisie) — użyj wtedy klucza z ustawień.
+		if ( '' === $api_key ) {
+			$api_key = (string) self::get_field( 'api_key', '' );
+		}
+
 		if ( '' === $api_key ) {
 			wp_send_json_error( array( 'message' => __( 'Podaj klucz API.', 'ai-faq-generator' ) ) );
 		}
 
-		// Klucz WYŁĄCZNIE w nagłówku (jak w GeminiProvider) — nigdy w URL,
-		// bo adresy URL bywają logowane przez serwery/proxy (bezpieczeństwo klucza).
-		$response = wp_remote_get(
-			'https://generativelanguage.googleapis.com/v1beta/models',
-			array(
-				'timeout' => 15,
-				'headers' => array(
-					'Accept'         => 'application/json',
-					'x-goog-api-key' => $api_key,
-				),
-			)
-		);
+		// GA1: test idzie przez providera (ta sama ścieżka autoryzacji co realna
+		// generacja) — Settings nie zna już adresu Gemini ani nagłówków. Klucz
+		// trafia do nagłówka w providerze, nigdy do URL.
+		$provider = \AIFAQ\Providers\ProviderFactory::make_with_key( $api_key );
+		$result   = $provider->verify();
 
-		if ( is_wp_error( $response ) ) {
+		if ( is_wp_error( $result ) ) {
 			wp_send_json_error(
 				array(
-					/* translators: %s: komunikat błędu sieci */
-					'message' => sprintf( __( 'Błąd sieci: %s', 'ai-faq-generator' ), $response->get_error_message() ),
+					/* translators: %s: komunikat błędu z providera */
+					'message' => sprintf( __( 'Błąd: %s', 'ai-faq-generator' ), $result->get_error_message() ),
 				)
 			);
 		}
 
-		$code = (int) wp_remote_retrieve_response_code( $response );
-
-		if ( 200 === $code ) {
-			wp_send_json_success( array( 'message' => __( 'Połączenie OK — klucz działa.', 'ai-faq-generator' ) ) );
-		}
-
-		$body  = json_decode( wp_remote_retrieve_body( $response ), true );
-		$error = '';
-		if ( is_array( $body ) && isset( $body['error']['message'] ) ) {
-			$error = (string) $body['error']['message'];
-		} else {
-			/* translators: %d: kod odpowiedzi HTTP */
-			$error = sprintf( __( 'kod odpowiedzi %d', 'ai-faq-generator' ), $code );
-		}
-
-		wp_send_json_error(
-			array(
-				/* translators: %s: komunikat błędu z API */
-				'message' => sprintf( __( 'Błąd: %s', 'ai-faq-generator' ), $error ),
-			)
-		);
+		wp_send_json_success( array( 'message' => __( 'Połączenie OK — klucz działa.', 'ai-faq-generator' ) ) );
 	}
 }

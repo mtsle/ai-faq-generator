@@ -39,21 +39,33 @@ class CacheRepository extends Repository {
 	}
 
 	/**
-	 * Zapisuje odpowiedź w cache (nadpisuje przy tym samym hashu).
+	 * Zapisuje odpowiedź w cache; przy tym samym hashu pytania NADPISUJE odpowiedź.
+	 *
+	 * Kolumna `question_hash` ma `UNIQUE KEY`, więc zwykły INSERT drugi raz padłby
+	 * na duplikacie. Używamy `INSERT ... ON DUPLICATE KEY UPDATE` — wpis powstaje
+	 * przy pierwszym pytaniu, a kolejne odświeżają odpowiedź (bez błędu, bez wyścigu).
 	 *
 	 * @param string $question Treść pytania.
 	 * @param string $answer   Odpowiedź do zapamiętania.
+	 * @return int ID wiersza (0, gdy nie udało się ustalić).
 	 */
 	public function put( string $question, string $answer ): int {
-		return $this->insert(
-			array(
-				'question_hash' => self::hash( $question ),
-				'question'      => $question,
-				'answer'        => $answer,
-				'hits'          => 0,
-				'created_at'    => current_time( 'mysql' ),
+		global $wpdb;
+		$table = static::table();
+
+		$wpdb->query( // phpcs:ignore WordPress.DB
+			$wpdb->prepare(
+				"INSERT INTO {$table} (question_hash, question, answer, hits, created_at)
+				 VALUES (%s, %s, %s, 0, %s)
+				 ON DUPLICATE KEY UPDATE answer = VALUES(answer), created_at = VALUES(created_at)",
+				self::hash( $question ),
+				$question,
+				$answer,
+				current_time( 'mysql' )
 			)
 		);
+
+		return (int) $wpdb->insert_id;
 	}
 
 	/**

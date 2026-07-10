@@ -112,6 +112,7 @@ class SpyProvider implements ProviderInterface {
 	public $embed_calls = 0;
 	public $mode = 'ok';
 	public function generate( string $prompt, array $options = array() ) { return ''; }
+	public function verify() { return true; }
 	public function embed( array $texts ) {
 		++$this->embed_calls;
 		if ( 'error' === $this->mode ) { return new WP_Error( 'boom', 'awaria API' ); }

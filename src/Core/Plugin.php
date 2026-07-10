@@ -79,6 +79,8 @@ final class Plugin {
 			$this->settings = new Settings();
 			add_action( 'admin_init', array( $this->settings, 'register' ) );
 			add_action( 'wp_ajax_' . Settings::AJAX_TEST, array( $this->settings, 'ajax_test_connection' ) );
+			// H2: po zmianie sluga trasy przebuduj reguły rewrite (inaczej nowy slug = 404).
+			add_action( 'update_option_' . Settings::OPTION, array( $this->settings, 'on_settings_updated' ), 10, 2 );
 
 			$this->admin_menu = new Menu();
 			add_action( 'admin_menu', array( $this->admin_menu, 'register_menu' ) );

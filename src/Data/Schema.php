@@ -83,9 +83,9 @@ class Schema {
 			tokens smallint(5) unsigned NOT NULL DEFAULT 0,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
-			KEY post_id (post_id),
+			UNIQUE KEY post_chunk (post_id,chunk_index),
 			KEY content_hash (content_hash)
-		) {$charset_collate};";
+		) ENGINE=InnoDB {$charset_collate};";
 
 		// Dziennik pytań gości.
 		$out[] = "CREATE TABLE {$qa_log} (
@@ -101,7 +101,7 @@ class Schema {
 			PRIMARY KEY  (id),
 			KEY created_at (created_at),
 			KEY status (status)
-		) {$charset_collate};";
+		) ENGINE=InnoDB {$charset_collate};";
 
 		// Cache odpowiedzi (dedup po hashu pytania).
 		$out[] = "CREATE TABLE {$cache} (
@@ -113,7 +113,7 @@ class Schema {
 			created_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			UNIQUE KEY question_hash (question_hash)
-		) {$charset_collate};";
+		) ENGINE=InnoDB {$charset_collate};";
 
 		// Gotowe pary FAQ pod SEO.
 		$out[] = "CREATE TABLE {$faq} (
@@ -126,7 +126,7 @@ class Schema {
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY post_id (post_id)
-		) {$charset_collate};";
+		) ENGINE=InnoDB {$charset_collate};";
 
 		return $out;
 	}

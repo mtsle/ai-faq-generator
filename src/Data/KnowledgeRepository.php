@@ -87,33 +87,40 @@ class KnowledgeRepository extends Repository {
 
 		$wpdb->query( 'START TRANSACTION' ); // phpcs:ignore WordPress.DB
 
-		$this->delete_by_post( $post_id );
+		// try/finally: wyjątek między START a COMMIT/ROLLBACK NIE może zostawić
+		// otwartej transakcji (zablokowane wiersze do końca requestu).
+		try {
+			$this->delete_by_post( $post_id );
 
-		$inserted = 0;
-		$index    = 0;
-		$failed   = false;
+			$inserted = 0;
+			$index    = 0;
+			$failed   = false;
 
-		foreach ( $chunks as $chunk ) {
-			$chunk['post_id']     = $post_id;
-			$chunk['chunk_index'] = $chunk['chunk_index'] ?? $index;
+			foreach ( $chunks as $chunk ) {
+				$chunk['post_id']     = $post_id;
+				$chunk['chunk_index'] = $chunk['chunk_index'] ?? $index;
 
-			if ( $this->save_chunk( $chunk ) > 0 ) {
-				++$inserted;
-			} else {
-				$failed = true;
-				break;
+				if ( $this->save_chunk( $chunk ) > 0 ) {
+					++$inserted;
+				} else {
+					$failed = true;
+					break;
+				}
+
+				++$index;
 			}
 
-			++$index;
-		}
+			if ( $failed ) {
+				$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB
+				return 0;
+			}
 
-		if ( $failed ) {
+			$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB
+			return $inserted;
+		} catch ( \Throwable $e ) {
 			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB
 			return 0;
 		}
-
-		$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB
-		return $inserted;
 	}
 
 	/**
@@ -143,8 +150,11 @@ class KnowledgeRepository extends Repository {
 	 *
 	 * Po indeksowaniu wpis, który zniknął ze źródła (usunięty, odpublikowany,
 	 * przeniesiony do kosza), musi też zniknąć z bazy wiedzy — inaczej Retriever
-	 * dalej serwowałby treść, której właściciel nie publikuje. Pusta lista =
-	 * nic nie zostaje (równoważne {@see clear_all()}).
+	 * dalej serwowałby treść, której właściciel nie publikuje.
+	 *
+	 * BEZPIECZEŃSTWO: pusta lista `keep` = NO-OP (return 0), NIE czyszczenie całości.
+	 * Pusty wynik źródła to prawie zawsze bug/wyścig/filtr wtyczki, a nie świadoma
+	 * decyzja „skasuj wszystko" — pełny reset musi iść jawnie przez {@see clear_all()}.
 	 *
 	 * @param array<int,int> $keep_post_ids ID wpisów, które MAJĄ zostać.
 	 * @return int Liczba usuniętych fragmentów.
@@ -153,7 +163,7 @@ class KnowledgeRepository extends Repository {
 		global $wpdb;
 
 		if ( array() === $keep_post_ids ) {
-			return $this->clear_all();
+			return 0; // NIE kasujemy całej bazy na pustym wejściu (ochrona przed wipe).
 		}
 
 		$ids          = array_values( array_unique( array_map( 'intval', $keep_post_ids ) ) );
@@ -198,14 +208,17 @@ class KnowledgeRepository extends Repository {
 	/**
 	 * Zwraca wszystkie fragmenty z embeddingami (do liczenia podobieństwa).
 	 *
-	 * Wektor jest dekodowany z JSON do tablicy liczb (klucz `embedding`).
+	 * NIE pobiera kolumny `content` (longtext) — do samego scoringu potrzebny jest
+	 * wyłącznie wektor. Treść top-K fragmentów Retriever dociąga osobno przez
+	 * {@see contents_for()}. Uwaga (dług F4): metoda ładuje CAŁĄ bazę naraz —
+	 * przy dużej witrynie użyj stronicowania {@see embeddings_page()} zamiast tej.
 	 *
-	 * @return array<int,array<string,mixed>>
+	 * @return array<int,array<string,mixed>> Wiersze `id, post_id, embedding` (wektor zdekodowany).
 	 */
 	public function all_with_embeddings(): array {
 		global $wpdb;
 		$table = static::table();
-		$rows  = $wpdb->get_results( "SELECT id, post_id, content, embedding FROM {$table} WHERE embedding IS NOT NULL", ARRAY_A ); // phpcs:ignore WordPress.DB
+		$rows  = $wpdb->get_results( "SELECT id, post_id, embedding FROM {$table} WHERE embedding IS NOT NULL", ARRAY_A ); // phpcs:ignore WordPress.DB
 
 		if ( ! is_array( $rows ) ) {
 			return array();
@@ -217,6 +230,79 @@ class KnowledgeRepository extends Repository {
 		unset( $row );
 
 		return $rows;
+	}
+
+	/**
+	 * Liczba fragmentów z policzonym embeddingiem (do stronicowania scoringu).
+	 *
+	 * @return int
+	 */
+	public function count_embedded(): int {
+		global $wpdb;
+		$table = static::table();
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE embedding IS NOT NULL" ); // phpcs:ignore WordPress.DB
+	}
+
+	/**
+	 * Jedna strona fragmentów z embeddingami (bez `content`) — do scoringu wsadowego.
+	 *
+	 * Pozwala Retrieverowi (Krok 6) przejść bazę partiami i utrzymać w pamięci
+	 * tylko bieżącą stronę + top-K, zamiast ładować wszystko naraz (dług F4).
+	 *
+	 * @param int $limit  Rozmiar strony (>0).
+	 * @param int $offset Przesunięcie (>=0).
+	 * @return array<int,array<string,mixed>> Wiersze `id, post_id, embedding` (wektor zdekodowany).
+	 */
+	public function embeddings_page( int $limit, int $offset ): array {
+		global $wpdb;
+		$table = static::table();
+		$limit  = max( 1, $limit );
+		$offset = max( 0, $offset );
+		$rows   = $wpdb->get_results(
+			$wpdb->prepare( "SELECT id, post_id, embedding FROM {$table} WHERE embedding IS NOT NULL ORDER BY id LIMIT %d OFFSET %d", $limit, $offset ), // phpcs:ignore WordPress.DB
+			ARRAY_A
+		);
+
+		if ( ! is_array( $rows ) ) {
+			return array();
+		}
+
+		foreach ( $rows as &$row ) {
+			$row['embedding'] = self::decode_embedding( $row['embedding'] ?? null );
+		}
+		unset( $row );
+
+		return $rows;
+	}
+
+	/**
+	 * Dociąga treść wskazanych fragmentów (mapa id => content) — tylko dla top-K.
+	 *
+	 * @param array<int,int> $ids ID fragmentów.
+	 * @return array<int,string> Mapa id => content.
+	 */
+	public function contents_for( array $ids ): array {
+		global $wpdb;
+
+		$ids = array_values( array_unique( array_map( 'intval', $ids ) ) );
+		if ( array() === $ids ) {
+			return array();
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$table        = static::table();
+		$rows         = $wpdb->get_results(
+			$wpdb->prepare( "SELECT id, content FROM {$table} WHERE id IN ({$placeholders})", ...$ids ), // phpcs:ignore WordPress.DB
+			ARRAY_A
+		);
+
+		$map = array();
+		if ( is_array( $rows ) ) {
+			foreach ( $rows as $row ) {
+				$map[ (int) $row['id'] ] = (string) $row['content'];
+			}
+		}
+		return $map;
 	}
 
 	/**

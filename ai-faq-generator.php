@@ -3,7 +3,7 @@
  * Plugin Name:       AI FAQ Generator
  * Plugin URI:        https://github.com/mtsle/ai-faq-generator
  * Description:       Generator FAQ zawężony do tematu strony (RAG + embeddingi Gemini): gość pyta i dostaje odpowiedź wyłącznie w temacie treści strony. Dane strukturalne JSON-LD (FAQPage) zgodne ze Schema.org.
- * Version:           0.6.0
+ * Version:           0.7.0
  * Requires at least: 6.4
  * Requires PHP:      8.0
  * Author:            mtsle
@@ -22,8 +22,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // --- Stałe wtyczki ---------------------------------------------------------
-define( 'AIFAQ_VERSION', '0.6.0' );
-define( 'AIFAQ_DB_VERSION', '2' );
+define( 'AIFAQ_VERSION', '0.7.0' );
+define( 'AIFAQ_DB_VERSION', '3' );
 define( 'AIFAQ_PLUGIN_FILE', __FILE__ );
 define( 'AIFAQ_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIFAQ_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

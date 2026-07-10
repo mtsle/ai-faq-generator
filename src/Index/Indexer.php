@@ -55,37 +55,51 @@ class Indexer {
 	private KnowledgeRepository $repo;
 
 	/**
+	 * Podpis przestrzeni embeddingów (dostawca|model|wymiary).
+	 *
+	 * Wchodzi do hasha fragmentu, więc zmiana modelu/wymiarów embeddingu unieważnia
+	 * skip-unchanged i wymusza ponowne zwektoryzowanie — inaczej w bazie zostałyby
+	 * wektory z innej przestrzeni, a Retriever liczyłby podobieństwo do śmieci.
+	 *
+	 * @var string
+	 */
+	private string $index_signature;
+
+	/**
 	 * Konstruktor (wszystkie zależności wstrzykiwane — pełna testowalność).
 	 *
-	 * @param ContentSource       $source  Źródło treści.
-	 * @param Chunker             $chunker Chunker.
-	 * @param EmbeddingBatcher    $batcher Batcher embeddingów.
-	 * @param KnowledgeRepository $repo    Repozytorium bazy wiedzy.
+	 * @param ContentSource       $source          Źródło treści.
+	 * @param Chunker             $chunker         Chunker.
+	 * @param EmbeddingBatcher    $batcher         Batcher embeddingów.
+	 * @param KnowledgeRepository $repo            Repozytorium bazy wiedzy.
+	 * @param string              $index_signature Podpis przestrzeni embeddingów (patrz {@see $index_signature}).
 	 */
-	public function __construct( ContentSource $source, Chunker $chunker, EmbeddingBatcher $batcher, KnowledgeRepository $repo ) {
-		$this->source  = $source;
-		$this->chunker = $chunker;
-		$this->batcher = $batcher;
-		$this->repo    = $repo;
+	public function __construct( ContentSource $source, Chunker $chunker, EmbeddingBatcher $batcher, KnowledgeRepository $repo, string $index_signature = '' ) {
+		$this->source          = $source;
+		$this->chunker         = $chunker;
+		$this->batcher         = $batcher;
+		$this->repo            = $repo;
+		$this->index_signature = $index_signature;
 	}
 
 	/**
 	 * Uruchamia indeksowanie całej treści.
 	 *
-	 * @return array{posts:int,indexed:int,skipped:int,cleared:int,pruned:int,chunks:int,errors:array<int,string>}
+	 * @return array{posts:int,indexed:int,skipped:int,cleared:int,pruned:int,chunks:int,errors:array<int,string>,warnings:array<int,string>}
 	 *         Raport: liczba wpisów, zaindeksowanych, pominiętych (bez zmian),
 	 *         wyczyszczonych (utraciły treść), usuniętych osieroconych, zapisanych
-	 *         fragmentów i błędów.
+	 *         fragmentów, błędów oraz ostrzeżeń (rzeczy pominiętych świadomie).
 	 */
 	public function run(): array {
 		$report = array(
-			'posts'   => 0,
-			'indexed' => 0,
-			'skipped' => 0,
-			'cleared' => 0,
-			'pruned'  => 0,
-			'chunks'  => 0,
-			'errors'  => array(),
+			'posts'    => 0,
+			'indexed'  => 0,
+			'skipped'  => 0,
+			'cleared'  => 0,
+			'pruned'   => 0,
+			'chunks'   => 0,
+			'errors'   => array(),
+			'warnings' => array(),
 		);
 
 		$seen = array();
@@ -104,7 +118,15 @@ class Indexer {
 				continue;
 			}
 
-			$hashes = array_map( array( KnowledgeRepository::class, 'hash' ), $pieces );
+			// M1: podpis przestrzeni embeddingów wchodzi do hasha — zmiana modelu/
+			// wymiarów unieważnia skip-unchanged i wymusza ponowne embedowanie.
+			$sig    = $this->index_signature;
+			$hashes = array_map(
+				static function ( $piece ) use ( $sig ) {
+					return KnowledgeRepository::hash( '' !== $sig ? $sig . "\n" . $piece : $piece );
+				},
+				$pieces
+			);
 
 			// Pomiń, jeśli zestaw fragmentów identyczny jak w bazie (zero kosztu API).
 			if ( $this->unchanged( $hashes, $this->repo->hashes_for_post( $post_id ) ) ) {
@@ -130,14 +152,26 @@ class Indexer {
 				);
 			}
 
-			$saved             = $this->repo->replace_for_post( $post_id, $chunks );
-			$report['chunks'] += $saved;
-			++$report['indexed'];
+			// H3: zapis atomowy zwraca 0 przy ROLLBACK (błąd/lock) — NIE licz tego
+			// jako sukces. Embeddingi zostały opłacone, więc sygnalizujemy błąd.
+			$saved = $this->repo->replace_for_post( $post_id, $chunks );
+			if ( $saved > 0 ) {
+				$report['chunks'] += $saved;
+				++$report['indexed'];
+			} else {
+				/* translators: %d: ID wpisu */
+				$report['errors'][] = sprintf( __( 'Wpis %d: zapis fragmentów nie powiódł się (zmiany wycofane).', 'ai-faq-generator' ), $post_id );
+			}
 		}
 
-		// Pruning: usuń z bazy wiedzy fragmenty wpisów, których już nie ma w źródle
-		// (usunięte, odpublikowane, w koszu) — inaczej Retriever serwowałby je dalej.
-		$report['pruned'] = $this->repo->delete_missing( array_keys( $seen ) );
+		// H1: pruning tylko, gdy źródło COKOLWIEK zwróciło. Pusty wynik to prawie
+		// zawsze bug/wyścig/filtr wtyczki, więc NIE kasujemy całej bazy — chronimy
+		// (drogie) embeddingi. Pełny reset zostaje jawną akcją „Wyczyść bazę".
+		if ( array() !== $seen ) {
+			$report['pruned'] = $this->repo->delete_missing( array_keys( $seen ) );
+		} else {
+			$report['warnings'][] = __( 'Źródło nie zwróciło żadnych wpisów — pominięto usuwanie osieroconych. Baza wiedzy nietknięta.', 'ai-faq-generator' );
+		}
 
 		return $report;
 	}

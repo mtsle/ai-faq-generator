@@ -37,6 +37,11 @@ class IndexController {
 	const NONCE        = 'aifaq_index';
 
 	/**
+	 * Transient-lock chroniący przed równoczesnym reindeksem/czyszczeniem (F5).
+	 */
+	const LOCK = 'aifaq_indexing_lock';
+
+	/**
 	 * Wymagane uprawnienie.
 	 */
 	const CAPABILITY = 'manage_options';
@@ -51,6 +56,21 @@ class IndexController {
 			wp_send_json_error( array( 'message' => __( 'Najpierw zapisz klucz API w Ustawieniach.', 'ai-faq-generator' ) ) );
 		}
 
+		// F5: lock na równoczesny reindeks — drugie żądanie (inna karta, drugi
+		// admin, bezpośredni POST) nie odpali drugiego, płatnego przebiegu ani
+		// nie przeplecie się z czyszczeniem bazy.
+		if ( get_transient( self::LOCK ) ) {
+			wp_send_json_error( array( 'message' => __( 'Indeksowanie już trwa — poczekaj na zakończenie.', 'ai-faq-generator' ) ), 409 );
+		}
+		set_transient( self::LOCK, 1, 15 * MINUTE_IN_SECONDS );
+		// Backstop: zwolnij lock nawet przy fatalu w trakcie run() (exit pomija finally).
+		$lock = self::LOCK;
+		register_shutdown_function(
+			static function () use ( $lock ) {
+				delete_transient( $lock );
+			}
+		);
+
 		// Indeksowanie może potrwać (embeddingi) — zdejmujemy limit czasu, jeśli wolno.
 		if ( function_exists( 'set_time_limit' ) ) {
 			@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
@@ -60,15 +80,19 @@ class IndexController {
 			new WpContentSource(),
 			new Chunker(),
 			new EmbeddingBatcher( ProviderFactory::make() ),
-			new KnowledgeRepository()
+			new KnowledgeRepository(),
+			self::index_signature()
 		);
 
 		$report = $indexer->run();
+		$stats  = ( new KnowledgeRepository() )->stats();
+
+		delete_transient( self::LOCK );
 
 		wp_send_json_success(
 			array(
 				'report' => $report,
-				'stats'  => ( new KnowledgeRepository() )->stats(),
+				'stats'  => $stats,
 			)
 		);
 	}
@@ -79,6 +103,11 @@ class IndexController {
 	public function ajax_clear(): void {
 		$this->guard();
 
+		// Nie czyść w trakcie indeksowania — inaczej clear i zapis przeplotą się (F5).
+		if ( get_transient( self::LOCK ) ) {
+			wp_send_json_error( array( 'message' => __( 'Indeksowanie w toku — spróbuj wyczyścić po jego zakończeniu.', 'ai-faq-generator' ) ), 409 );
+		}
+
 		$removed = ( new KnowledgeRepository() )->clear_all();
 
 		wp_send_json_success(
@@ -87,6 +116,20 @@ class IndexController {
 				'stats'   => ( new KnowledgeRepository() )->stats(),
 			)
 		);
+	}
+
+	/**
+	 * Podpis przestrzeni embeddingów (dostawca|model|wymiary) dla skip-unchanged (M1).
+	 *
+	 * Zmiana modelu embeddingów lub liczby wymiarów zmienia ten podpis, co wymusza
+	 * ponowne zwektoryzowanie treści zamiast pozostawienia wektorów z innej przestrzeni.
+	 *
+	 * @return string
+	 */
+	private static function index_signature(): string {
+		return (string) Settings::get_field( 'provider', 'gemini' ) . '|'
+			. (string) Settings::get_field( 'embed_model', '' ) . '|'
+			. \AIFAQ\Providers\GeminiProvider::EMBED_DIMENSIONS;
 	}
 
 	/**

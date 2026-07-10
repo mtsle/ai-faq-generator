@@ -57,19 +57,58 @@ class ProviderFactory {
 			return self::$override;
 		}
 
+		return self::build( (string) Settings::get_field( 'api_key', '' ), $http );
+	}
+
+	/**
+	 * Jak {@see make()}, ale z jawnie podanym kluczem API.
+	 *
+	 * Używane przez „Test połączenia", który sprawdza świeżo wpisany, jeszcze
+	 * niezapisany klucz. Pozostała konfiguracja (dostawca, modele) idzie z ustawień.
+	 *
+	 * @param string          $api_key Klucz API do przetestowania/użycia.
+	 * @param HttpClient|null $http    Transport (domyślnie {@see WpHttpClient}).
+	 * @return ProviderInterface
+	 */
+	public static function make_with_key( string $api_key, ?HttpClient $http = null ): ProviderInterface {
+		if ( null !== self::$override ) {
+			return self::$override;
+		}
+
+		return self::build( $api_key, $http );
+	}
+
+	/**
+	 * Składa providera wg ustawień, z podanym kluczem i transportem.
+	 *
+	 * @param string          $api_key Klucz API.
+	 * @param HttpClient|null $http    Transport (domyślnie {@see WpHttpClient}).
+	 * @return ProviderInterface
+	 */
+	private static function build( string $api_key, ?HttpClient $http ): ProviderInterface {
 		// GA5: domyślny transport, chyba że wstrzyknięto atrapę.
 		$http = $http ?? new WpHttpClient();
 
 		// GA4: dostawca i modele wyłącznie z ustawień.
+		$defaults    = Settings::defaults();
 		$provider    = (string) Settings::get_field( 'provider', 'gemini' );
-		$api_key     = (string) Settings::get_field( 'api_key', '' );
 		$model       = (string) Settings::get_field( 'model', '' );
 		$embed_model = (string) Settings::get_field( 'embed_model', '' );
+
+		// M9: pusty model dałby URL `.../models/:generateContent` (404 z mylącym
+		// komunikatem) — przy braku konfiguracji dobierz wartość domyślną.
+		if ( '' === $model ) {
+			$model = (string) $defaults['model'];
+		}
+		if ( '' === $embed_model ) {
+			$embed_model = (string) $defaults['embed_model'];
+		}
 
 		switch ( $provider ) {
 			// Punkt rozszerzenia — kolejni dostawcy dokładani tutaj, np.:
 			// case 'openai': return new OpenAiProvider( $http, $api_key, $model, $embed_model );
-			// case 'groq':   return new GroqProvider( $http, $api_key, $model, $embed_model );
+			// Uwaga: `provider` jest ograniczony do 'gemini' przez Settings::sanitize(),
+			// więc `default` to jedyna realna wartość, nie cichy fallback.
 			case 'gemini':
 			default:
 				return new GeminiProvider( $http, $api_key, $model, $embed_model );

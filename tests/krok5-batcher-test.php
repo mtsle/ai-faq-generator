@@ -37,6 +37,7 @@ class SpyProvider implements ProviderInterface {
 	public $batch_sizes = array();
 	public $mode        = 'ok'; // 'ok' | 'error' | 'short'
 	public function generate( string $prompt, array $options = array() ) { return ''; }
+	public function verify() { return true; }
 	public function embed( array $texts ) {
 		$this->batch_sizes[] = count( $texts );
 		if ( 'error' === $this->mode ) {

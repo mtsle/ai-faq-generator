@@ -26,6 +26,11 @@ class WpHttpClient implements HttpClient {
 	const DEFAULT_TIMEOUT = 15;
 
 	/**
+	 * Górny limit czasu (sekundy) — zabezpiecza przed zawieszeniem workera.
+	 */
+	const MAX_TIMEOUT = 120;
+
+	/**
 	 * Wykonuje żądanie HTTP przez `wp_remote_request`.
 	 *
 	 * @param string               $method  Metoda HTTP (np. „GET", „POST").
@@ -37,10 +42,17 @@ class WpHttpClient implements HttpClient {
 	 *         przy błędzie sieci/transportu obiekt `\WP_Error`.
 	 */
 	public function request( string $method, string $url, array $options = array() ) {
+		// Jawny timeout. 0/ujemne = „czekaj w nieskończoność" w cURL → wiszący
+		// worker; traktujemy je jak brak wartości i klampujemy do MAX_TIMEOUT.
+		$timeout = isset( $options['timeout'] ) ? (int) $options['timeout'] : self::DEFAULT_TIMEOUT;
+		if ( $timeout <= 0 ) {
+			$timeout = self::DEFAULT_TIMEOUT;
+		}
+		$timeout = min( $timeout, self::MAX_TIMEOUT );
+
 		$args = array(
 			'method'  => $method,
-			// GP2: zawsze jawny timeout — domyślny, gdy nie podano.
-			'timeout' => isset( $options['timeout'] ) ? (int) $options['timeout'] : self::DEFAULT_TIMEOUT,
+			'timeout' => $timeout,
 		);
 
 		if ( isset( $options['headers'] ) && is_array( $options['headers'] ) ) {

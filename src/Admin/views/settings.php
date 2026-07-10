@@ -14,10 +14,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-$aifaq        = Settings::get();
-$aifaq_models = Settings::models();
-$aifaq_langs  = Settings::languages();
-$aifaq_test   = wp_create_nonce( Settings::NONCE_TEST );
+$aifaq         = Settings::get();
+$aifaq_models  = Settings::models();
+$aifaq_langs   = Settings::languages();
+$aifaq_test    = wp_create_nonce( Settings::NONCE_TEST );
+$aifaq_has_key = '' !== (string) ( $aifaq['api_key'] ?? '' );
 ?>
 <div class="wrap aifaq-wrap">
 	<h1 class="aifaq-title">
@@ -60,7 +61,8 @@ $aifaq_test   = wp_create_nonce( Settings::NONCE_TEST );
 								type="password"
 								id="aifaq-api-key"
 								name="aifaq_settings[api_key]"
-								value="<?php echo esc_attr( $aifaq['api_key'] ); ?>"
+								value=""
+								placeholder="<?php echo $aifaq_has_key ? esc_attr__( 'Klucz zapisany — wklej nowy, aby zmienić', 'ai-faq-generator' ) : esc_attr__( 'Wklej klucz API Gemini', 'ai-faq-generator' ); ?>"
 								class="regular-text"
 								autocomplete="off"
 								spellcheck="false"
