@@ -95,12 +95,14 @@ class ProviderFactory {
 		$model       = (string) Settings::get_field( 'model', '' );
 		$embed_model = (string) Settings::get_field( 'embed_model', '' );
 
-		// M9: pusty model dałby URL `.../models/:generateContent` (404 z mylącym
-		// komunikatem) — przy braku konfiguracji dobierz wartość domyślną.
-		if ( '' === $model ) {
+		// M9 + utwardzenie (v0.8.0): pusty LUB nieznany model → dobierz domyślny.
+		// Nieznany = spoza aktualnej whitelisty, np. model wycofany przez dostawcę
+		// (Google usunął serię `gemini-1.5-*`). Bez tego zapisany, nieistniejący
+		// model daje mylące 404 z API i psuje generację u klienta — samo-naprawa.
+		if ( '' === $model || ! array_key_exists( $model, Settings::models() ) ) {
 			$model = (string) $defaults['model'];
 		}
-		if ( '' === $embed_model ) {
+		if ( '' === $embed_model || ! array_key_exists( $embed_model, Settings::embed_models() ) ) {
 			$embed_model = (string) $defaults['embed_model'];
 		}
 

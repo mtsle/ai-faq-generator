@@ -61,6 +61,16 @@ class Settings {
 			'max_questions' => 20,
 			'language'      => 'pl',
 			'page_slug'     => 'faqgenerator',
+
+			// --- RAG (Krok 6) — pokrętła rdzenia generatora zawężonego do tematu strony. ---
+			'rag_threshold'          => 0.7,   // Próg cosinusa bramki tematu (0.0–1.0).
+			'rag_top_k'              => 5,     // Ile najlepszych fragmentów bierze Answerer (1–10).
+			'rag_rate_limit'         => 30,    // Pytań/godz. na gościa (0 = wyłączony; 0–200).
+			'rag_temperature'        => 0.2,   // Temperatura odpowiedzi RAG (osobna od `temperature`).
+			'rag_max_tokens'         => 500,   // Limit długości odpowiedzi (64–2048).
+			'rag_refusal_message_pl' => 'Przepraszam, potrafię odpowiadać wyłącznie na pytania dotyczące tej strony.',
+			'rag_refusal_message_en' => 'Sorry, I can only answer questions related to this website.',
+			'rag_refusal_message_de' => 'Entschuldigung, ich kann nur Fragen zu dieser Website beantworten.',
 		);
 	}
 
@@ -197,6 +207,45 @@ class Settings {
 			$slug = sanitize_title( wp_unslash( $input['page_slug'] ) );
 			if ( '' !== $slug ) {
 				$out['page_slug'] = $slug;
+			}
+		}
+
+		// --- RAG (Krok 6) — każdy knob z twardym zakresem i bezpiecznym clampem (GC2). ---
+		// Fail-safe: wejście spoza zakresu → granica przedziału, nigdy fail-open (np. próg 0).
+
+		// Próg podobieństwa bramki tematu — 0.0–1.0.
+		if ( isset( $input['rag_threshold'] ) ) {
+			$out['rag_threshold'] = max( 0.0, min( 1.0, round( (float) $input['rag_threshold'], 2 ) ) );
+		}
+
+		// Liczba fragmentów top-K — 1–10.
+		if ( isset( $input['rag_top_k'] ) ) {
+			$out['rag_top_k'] = max( 1, min( 10, (int) $input['rag_top_k'] ) );
+		}
+
+		// Limit zapytań/godz. na gościa — 0–200 (0 = wyłączony).
+		if ( isset( $input['rag_rate_limit'] ) ) {
+			$out['rag_rate_limit'] = max( 0, min( 200, (int) $input['rag_rate_limit'] ) );
+		}
+
+		// Temperatura odpowiedzi RAG — 0.0–1.0 (osobna od `temperature` FAQ).
+		if ( isset( $input['rag_temperature'] ) ) {
+			$out['rag_temperature'] = max( 0.0, min( 1.0, round( (float) $input['rag_temperature'], 1 ) ) );
+		}
+
+		// Limit długości odpowiedzi — 64–2048 tokenów.
+		if ( isset( $input['rag_max_tokens'] ) ) {
+			$out['rag_max_tokens'] = max( 64, min( 2048, (int) $input['rag_max_tokens'] ) );
+		}
+
+		// Komunikaty odmowy per język — sanitize_textarea_field; pusty submit ZOSTAWIA bieżący (M11/GC2).
+		foreach ( array( 'pl', 'en', 'de' ) as $lang ) {
+			$key = 'rag_refusal_message_' . $lang;
+			if ( isset( $input[ $key ] ) ) {
+				$msg = sanitize_textarea_field( wp_unslash( $input[ $key ] ) );
+				if ( '' !== $msg ) {
+					$out[ $key ] = $msg;
+				}
 			}
 		}
 

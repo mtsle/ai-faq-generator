@@ -19,6 +19,13 @@ $aifaq_models  = Settings::models();
 $aifaq_langs   = Settings::languages();
 $aifaq_test    = wp_create_nonce( Settings::NONCE_TEST );
 $aifaq_has_key = '' !== (string) ( $aifaq['api_key'] ?? '' );
+
+// Etykiety języków dla komunikatów odmowy (RAG) — spójne z whitelistą języków.
+$aifaq_refusal_langs = array(
+	'pl' => __( 'polski', 'ai-faq-generator' ),
+	'en' => __( 'angielski', 'ai-faq-generator' ),
+	'de' => __( 'niemiecki', 'ai-faq-generator' ),
+);
 ?>
 <div class="wrap aifaq-wrap">
 	<h1 class="aifaq-title">
@@ -169,6 +176,122 @@ $aifaq_has_key = '' !== (string) ( $aifaq['api_key'] ?? '' );
 						<p class="description"><?php esc_html_e( 'Slug publicznego generatora dla gości (domyślnie „faqgenerator"). Po zmianie zapisz ustawienia stałych bezpośrednich, jeśli trasa nie zadziała.', 'ai-faq-generator' ); ?></p>
 					</td>
 				</tr>
+
+				<tr>
+					<th scope="row" colspan="2" class="aifaq-section-head">
+						<h2 style="margin:1.5em 0 .2em;"><?php esc_html_e( 'Generator zawężony do tematu (RAG)', 'ai-faq-generator' ); ?></h2>
+						<p class="description" style="font-weight:normal;"><?php esc_html_e( 'Pokrętła publicznego generatora dla gości: dobór trafnych fragmentów, odcięcie pytań spoza tematu strony i ochrona kosztu klucza.', 'ai-faq-generator' ); ?></p>
+					</th>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-rag-threshold"><?php esc_html_e( 'Próg dopasowania tematu', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-rag-threshold"
+							name="aifaq_settings[rag_threshold]"
+							min="0" max="1" step="0.05"
+							value="<?php echo esc_attr( $aifaq['rag_threshold'] ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( 'Minimalne podobieństwo pytania do treści strony (0–1). Poniżej progu → grzeczna odmowa. Wyżej = ostrzej.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-rag-top-k"><?php esc_html_e( 'Liczba fragmentów (top-K)', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-rag-top-k"
+							name="aifaq_settings[rag_top_k]"
+							min="1" max="10"
+							value="<?php echo esc_attr( $aifaq['rag_top_k'] ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( 'Ile najlepiej pasujących fragmentów trafia do odpowiedzi (1–10).', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-rag-rate-limit"><?php esc_html_e( 'Limit pytań na godzinę', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-rag-rate-limit"
+							name="aifaq_settings[rag_rate_limit]"
+							min="0" max="200"
+							value="<?php echo esc_attr( $aifaq['rag_rate_limit'] ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( 'Maks. pytań od jednego gościa w ciągu godziny. 0 = bez limitu.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-rag-temperature">
+							<?php esc_html_e( 'Temperatura odpowiedzi', 'ai-faq-generator' ); ?>
+							· <span id="aifaq-rag-temp-value"><?php echo esc_html( number_format( (float) $aifaq['rag_temperature'], 1 ) ); ?></span>
+						</label>
+					</th>
+					<td>
+						<input
+							type="range"
+							id="aifaq-rag-temperature"
+							name="aifaq_settings[rag_temperature]"
+							min="0" max="1" step="0.1"
+							value="<?php echo esc_attr( $aifaq['rag_temperature'] ); ?>"
+							class="aifaq-range"
+						>
+						<p class="description"><?php esc_html_e( 'Niska (≈0.2) = odpowiedzi trzymają się treści strony. Osobna od temperatury generacji FAQ.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-rag-max-tokens"><?php esc_html_e( 'Maks. długość odpowiedzi', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-rag-max-tokens"
+							name="aifaq_settings[rag_max_tokens]"
+							min="64" max="2048"
+							value="<?php echo esc_attr( $aifaq['rag_max_tokens'] ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( 'Górny limit długości odpowiedzi w tokenach (64–2048).', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<?php foreach ( $aifaq_refusal_langs as $aifaq_lang => $aifaq_lang_label ) : ?>
+					<tr>
+						<th scope="row">
+							<label for="aifaq-rag-refusal-<?php echo esc_attr( $aifaq_lang ); ?>">
+								<?php
+								/* translators: %s: nazwa języka */
+								echo esc_html( sprintf( __( 'Komunikat odmowy (%s)', 'ai-faq-generator' ), $aifaq_lang_label ) );
+								?>
+							</label>
+						</th>
+						<td>
+							<textarea
+								id="aifaq-rag-refusal-<?php echo esc_attr( $aifaq_lang ); ?>"
+								name="aifaq_settings[rag_refusal_message_<?php echo esc_attr( $aifaq_lang ); ?>]"
+								rows="2"
+								class="large-text"
+							><?php echo esc_textarea( (string) ( $aifaq[ 'rag_refusal_message_' . $aifaq_lang ] ?? '' ) ); ?></textarea>
+						</td>
+					</tr>
+				<?php endforeach; ?>
 
 			</tbody>
 		</table>
