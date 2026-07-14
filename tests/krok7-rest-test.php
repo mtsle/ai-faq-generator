@@ -91,8 +91,8 @@ $routes = $GLOBALS['__aifaq_routes'];
 $by_route = array();
 foreach ( $routes as $r ) { $by_route[ $r['route'] ] = $r; }
 
-check( count( $routes ) === 4, 'zarejestrowano dokładnie 4 trasy' );
-check( isset( $by_route['/ask'], $by_route['/admin/status'], $by_route['/admin/reindex'], $by_route['/admin/clear'] ), 'komplet ścieżek /ask + /admin/{status,reindex,clear}' );
+check( count( $routes ) === 6, 'zarejestrowano dokładnie 6 tras' );
+check( isset( $by_route['/ask'], $by_route['/admin/status'], $by_route['/admin/reindex'], $by_route['/admin/clear'], $by_route['/admin/settings'], $by_route['/admin/verify'] ), 'komplet ścieżek /ask + /admin/{status,reindex,clear,settings,verify}' );
 
 $all_ns = array_unique( array_map( static function ( $r ) { return $r['ns']; }, $routes ) );
 check( array( 'aifaq/v1' ) === array_values( $all_ns ), 'wszystkie trasy w namespace aifaq/v1' );
@@ -109,7 +109,9 @@ check( ( $ask['args']['question']['sanitize_callback'] ?? '' ) === 'sanitize_tex
 check( 'GET' === ( $by_route['/admin/status']['args']['methods'] ?? '' ), '/admin/status metoda GET' );
 check( 'POST' === ( $by_route['/admin/reindex']['args']['methods'] ?? '' ), '/admin/reindex metoda POST' );
 check( 'POST' === ( $by_route['/admin/clear']['args']['methods'] ?? '' ), '/admin/clear metoda POST' );
-foreach ( array( '/admin/status', '/admin/reindex', '/admin/clear' ) as $ar ) {
+check( 'POST' === ( $by_route['/admin/settings']['args']['methods'] ?? '' ), '/admin/settings metoda POST' );
+check( 'POST' === ( $by_route['/admin/verify']['args']['methods'] ?? '' ), '/admin/verify metoda POST' );
+foreach ( array( '/admin/status', '/admin/reindex', '/admin/clear', '/admin/settings', '/admin/verify' ) as $ar ) {
 	$pc = $by_route[ $ar ]['args']['permission_callback'] ?? null;
 	$ok = is_array( $pc ) && $pc[0] instanceof RestController && 'require_admin' === $pc[1];
 	check( $ok, "$ar permission_callback = require_admin" );

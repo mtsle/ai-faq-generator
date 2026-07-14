@@ -1,0 +1,212 @@
+/**
+ * Powłoka apki `/faqgenerator` dla zalogowanego właściciela (rola-aware).
+ *
+ * Ładowana WYŁĄCZNIE, gdy render dzieje się dla admina (patrz GeneratorPage::
+ * render_standalone). Reużywa zmiennych --aifaq-* z generator.css (dziedziczone
+ * z .aifaq-body), więc trzyma ten sam kierunek „czysty / asystent", jasny/ciemny.
+ */
+
+.aifaq-page .aifaq-app { flex: 1 0 auto; }
+
+/* Pasek panelu: plakietka roli + zakładki. */
+.aifaq-app__bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px 16px;
+	margin-bottom: clamp(22px, 4vh, 34px);
+}
+.aifaq-app__badge {
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: .06em;
+	text-transform: uppercase;
+	color: var(--aifaq-accent);
+	background: var(--aifaq-accent-ring);
+	padding: 4px 10px;
+	border-radius: 999px;
+	white-space: nowrap;
+}
+
+/* Zakładki — segmentowany pasek na tle powierzchni. */
+.aifaq-app__tabs {
+	display: inline-flex;
+	gap: 2px;
+	padding: 4px;
+	background: var(--aifaq-surface);
+	border: 1px solid var(--aifaq-border);
+	border-radius: 999px;
+	flex-wrap: wrap;
+}
+.aifaq-app__tab {
+	appearance: none;
+	border: 0;
+	background: transparent;
+	color: var(--aifaq-muted);
+	font: inherit;
+	font-size: 14px;
+	font-weight: 600;
+	padding: 8px 16px;
+	border-radius: 999px;
+	cursor: pointer;
+	transition: background .15s ease, color .15s ease;
+}
+.aifaq-app__tab:hover { color: var(--aifaq-text); }
+.aifaq-app__tab.is-active {
+	background: var(--aifaq-accent);
+	color: var(--aifaq-accent-fg);
+}
+.aifaq-app__tab:focus-visible { outline: 2px solid var(--aifaq-accent); outline-offset: 2px; }
+
+/* Panele. */
+.aifaq-app__panel[hidden] { display: none; }
+.aifaq-app__panel { animation: aifaq-fade .18s ease both; }
+
+/* Karta (indeksowanie i przyszłe zakładki). */
+.aifaq-card {
+	background: var(--aifaq-surface);
+	border: 1px solid var(--aifaq-border);
+	border-radius: var(--aifaq-radius);
+	box-shadow: var(--aifaq-shadow);
+	padding: 22px 24px;
+}
+.aifaq-card__h { margin: 0 0 6px; font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.aifaq-card__p { margin: 0 0 18px; color: var(--aifaq-muted); font-size: 14.5px; line-height: 1.55; }
+.aifaq-card__stats { margin: 0 0 18px; font-size: 14.5px; }
+.aifaq-card__stats strong { font-variant-numeric: tabular-nums; }
+
+.aifaq-card__actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px 12px;
+}
+.aifaq-btn2 {
+	appearance: none;
+	border: 1px solid var(--aifaq-border);
+	background: var(--aifaq-surface);
+	color: var(--aifaq-text);
+	font: inherit;
+	font-weight: 600;
+	font-size: 14px;
+	padding: 9px 16px;
+	border-radius: 999px;
+	cursor: pointer;
+	transition: background .15s ease, border-color .15s ease, opacity .15s ease;
+}
+.aifaq-btn2:hover { border-color: var(--aifaq-accent); }
+.aifaq-btn2:focus-visible { outline: 2px solid var(--aifaq-accent); outline-offset: 2px; }
+.aifaq-btn2:disabled { opacity: .55; cursor: default; }
+.aifaq-btn2--primary {
+	background: var(--aifaq-accent);
+	border-color: var(--aifaq-accent);
+	color: var(--aifaq-accent-fg);
+}
+.aifaq-btn2--primary:hover { background: var(--aifaq-accent-strong); border-color: var(--aifaq-accent-strong); }
+
+.aifaq-card__status {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--aifaq-muted);
+}
+
+/* Raport indeksowania. */
+.aifaq-card__report {
+	margin-top: 18px;
+	padding-top: 16px;
+	border-top: 1px dashed var(--aifaq-border);
+	font-size: 14px;
+	line-height: 1.6;
+}
+.aifaq-card__report[hidden] { display: none; }
+.aifaq-card__report ul { margin: 6px 0 0; padding-left: 20px; }
+
+/* Formularz zakładki „Ustawienia". */
+.aifaq-set { margin-top: 4px; }
+.aifaq-set__row { margin-bottom: 20px; }
+.aifaq-set__label {
+	display: block;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--aifaq-muted);
+	margin-bottom: 8px;
+}
+.aifaq-set__key {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: center;
+}
+.aifaq-set__input,
+.aifaq-set__select {
+	appearance: none;
+	background: var(--aifaq-surface);
+	border: 1px solid var(--aifaq-border);
+	border-radius: var(--aifaq-radius-sm);
+	color: var(--aifaq-text);
+	font: inherit;
+	font-size: 14.5px;
+	padding: 10px 14px;
+	outline: none;
+	transition: border-color .15s ease, box-shadow .15s ease;
+}
+.aifaq-set__input {
+	flex: 1 1 260px;
+	min-width: 0;
+	font-family: Consolas, Monaco, monospace;
+	letter-spacing: .02em;
+}
+.aifaq-set__select { min-width: 220px; }
+.aifaq-set__input:focus,
+.aifaq-set__select:focus {
+	border-color: var(--aifaq-accent);
+	box-shadow: 0 0 0 3px var(--aifaq-accent-ring);
+}
+.aifaq-set__range { width: 260px; max-width: 100%; accent-color: var(--aifaq-accent); vertical-align: middle; }
+.aifaq-set__hint { margin: 8px 0 0; font-size: 12.5px; color: var(--aifaq-faint); }
+#aifaq-set-temp-val { color: var(--aifaq-accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.aifaq-set__actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-top: 6px;
+}
+.aifaq-set__status {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--aifaq-muted);
+}
+.aifaq-set__status.is-ok { color: var(--aifaq-accent); }
+.aifaq-set__status.is-ok::before { content: "\2713\00a0"; }
+.aifaq-set__status.is-err { color: var(--aifaq-error); }
+.aifaq-set__status.is-err::before { content: "\2715\00a0"; }
+
+.aifaq-set__adv {
+	margin: 18px 0 0;
+	padding-top: 16px;
+	border-top: 1px dashed var(--aifaq-border);
+	font-size: 13px;
+	color: var(--aifaq-faint);
+}
+.aifaq-set__adv a { color: var(--aifaq-accent); text-decoration: none; font-weight: 600; }
+.aifaq-set__adv a:hover { text-decoration: underline; }
+
+/* Placeholder zakładek w przygotowaniu. */
+.aifaq-app__soon {
+	background: var(--aifaq-surface);
+	border: 1px dashed var(--aifaq-border);
+	border-radius: var(--aifaq-radius);
+	padding: 28px 24px;
+	color: var(--aifaq-muted);
+	font-size: 14.5px;
+	text-align: center;
+}
+
+@keyframes aifaq-fade {
+	from { opacity: 0; transform: translateY(4px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.aifaq-app__panel { animation: none; }
+}

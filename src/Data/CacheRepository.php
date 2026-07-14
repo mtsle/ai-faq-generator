@@ -69,6 +69,24 @@ class CacheRepository extends Repository {
 	}
 
 	/**
+	 * Usuwa CAŁY cache odpowiedzi (TRUNCATE).
+	 *
+	 * Wołane przy czyszczeniu i ponownym indeksowaniu bazy wiedzy — bez tego
+	 * zapisane odpowiedzi przeżywają zmianę treści i `/ask` serwuje nieaktualną
+	 * odpowiedź (z pominięciem retrievera i bramki tematu). Cache to funkcja
+	 * bazy wiedzy: znika razem z nią.
+	 *
+	 * @return int Liczba usuniętych wierszy (0, gdy pusto/nieznane).
+	 */
+	public function clear_all(): int {
+		global $wpdb;
+		$table = static::table();
+		$count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" ); // phpcs:ignore WordPress.DB
+		$wpdb->query( "TRUNCATE TABLE {$table}" ); // phpcs:ignore WordPress.DB
+		return $count;
+	}
+
+	/**
 	 * Znormalizowany hash pytania (klucz deduplikacji).
 	 *
 	 * @param string $question Treść pytania.

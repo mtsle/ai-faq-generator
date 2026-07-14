@@ -13,6 +13,7 @@
 namespace AIFAQ\Admin;
 
 use AIFAQ\Core\Settings;
+use AIFAQ\Data\CacheRepository;
 use AIFAQ\Data\KnowledgeRepository;
 use AIFAQ\Index\Chunker;
 use AIFAQ\Index\EmbeddingBatcher;
@@ -135,7 +136,12 @@ class IndexController {
 		);
 
 		$report = $indexer->run();
-		$stats  = ( new KnowledgeRepository() )->stats();
+
+		// Treść się zmieniła → unieważnij cache odpowiedzi, inaczej `/ask` serwuje
+		// stare odpowiedzi (z pominięciem retrievera i bramki tematu).
+		( new CacheRepository() )->clear_all();
+
+		$stats = ( new KnowledgeRepository() )->stats();
 
 		delete_transient( self::LOCK );
 
@@ -163,6 +169,9 @@ class IndexController {
 		}
 
 		$removed = ( new KnowledgeRepository() )->clear_all();
+
+		// Cache odpowiedzi to funkcja bazy wiedzy — znika razem z nią.
+		( new CacheRepository() )->clear_all();
 
 		return array(
 			'ok'      => true,

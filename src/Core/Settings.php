@@ -213,9 +213,11 @@ class Settings {
 		// --- RAG (Krok 6) — każdy knob z twardym zakresem i bezpiecznym clampem (GC2). ---
 		// Fail-safe: wejście spoza zakresu → granica przedziału, nigdy fail-open (np. próg 0).
 
-		// Próg podobieństwa bramki tematu — 0.0–1.0.
+		// Próg podobieństwa bramki tematu — 0.05–1.0. Dolna podłoga jest DODATNIA
+		// świadomie: próg 0.0 przepuszczałby wszystko (TopicGuard: best≥0 zawsze),
+		// czyli fail-open wyłączający bramkę tematu. Nie pozwalamy go ustawić.
 		if ( isset( $input['rag_threshold'] ) ) {
-			$out['rag_threshold'] = max( 0.0, min( 1.0, round( (float) $input['rag_threshold'], 2 ) ) );
+			$out['rag_threshold'] = max( 0.05, min( 1.0, round( (float) $input['rag_threshold'], 2 ) ) );
 		}
 
 		// Liczba fragmentów top-K — 1–10.
@@ -272,10 +274,51 @@ class Settings {
 	}
 
 	/**
+	 * Zapisuje ustawienia z jawnym przejściem przez {@see sanitize()}.
+	 *
+	 * Ścieżka dla zapisu POZA Settings API (np. REST z frontu) — Settings API
+	 * uruchamia `sanitize` tylko przez `options.php`, więc przy bezpośrednim
+	 * `update_option` musimy zawołać ją sami. Dzięki temu zapis z frontu i z
+	 * kokpitu przechodzi DOKŁADNIE tę samą walidację/clamp (jeden kontrakt).
+	 *
+	 * @param array<string,mixed> $input Surowe pola (whitelistowane w sanitize).
+	 * @return array<string,mixed> Zapisane (zsanityzowane) ustawienia.
+	 */
+	public static function save( array $input ): array {
+		$clean = self::sanitize( $input );
+		update_option( self::OPTION, $clean );
+		return $clean;
+	}
+
+	/**
+	 * Realny, lekki ping klucza do Gemini (wspólny rdzeń testu połączenia).
+	 *
+	 * Idzie przez providera (ta sama ścieżka autoryzacji co generacja) —
+	 * Settings nie zna adresu Gemini ani nagłówków; klucz trafia do nagłówka w
+	 * providerze, nigdy do URL (GA1). Pusty klucz → fallback do zapisanego
+	 * (pole w formularzu bywa zamaskowane po zapisie).
+	 *
+	 * @param string $api_key Klucz do sprawdzenia (pusty = użyj zapisanego).
+	 * @return true|\WP_Error `true` gdy klucz autoryzuje; WP_Error z kodem
+	 *                        `aifaq_no_key` (brak klucza) lub błędem providera.
+	 */
+	public static function verify_key( string $api_key = '' ) {
+		$key = trim( $api_key );
+		if ( '' === $key ) {
+			$key = (string) self::get_field( 'api_key', '' );
+		}
+		if ( '' === $key ) {
+			return new \WP_Error( 'aifaq_no_key', __( 'Podaj klucz API.', 'ai-faq-generator' ) );
+		}
+
+		$result = \AIFAQ\Providers\ProviderFactory::make_with_key( $key )->verify();
+		return is_wp_error( $result ) ? $result : true;
+	}
+
+	/**
 	 * AJAX: „Test połączenia" — realny, lekki ping klucza do Gemini.
 	 *
-	 * Odpytuje endpoint listy modeli (nie generuje FAQ), żeby wyłącznie
-	 * sprawdzić, czy klucz autoryzuje. Zwraca zielony/czerwony komunikat.
+	 * Cienkie opakowanie {@see verify_key()} dla ekranu Ustawień w kokpicie.
 	 */
 	public function ajax_test_connection(): void {
 		check_ajax_referer( self::NONCE_TEST, 'nonce' );
@@ -285,29 +328,14 @@ class Settings {
 		}
 
 		$api_key = isset( $_POST['api_key'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) ) : '';
-
-		// Pole klucza bywa zamaskowane (po zapisie) — użyj wtedy klucza z ustawień.
-		if ( '' === $api_key ) {
-			$api_key = (string) self::get_field( 'api_key', '' );
-		}
-
-		if ( '' === $api_key ) {
-			wp_send_json_error( array( 'message' => __( 'Podaj klucz API.', 'ai-faq-generator' ) ) );
-		}
-
-		// GA1: test idzie przez providera (ta sama ścieżka autoryzacji co realna
-		// generacja) — Settings nie zna już adresu Gemini ani nagłówków. Klucz
-		// trafia do nagłówka w providerze, nigdy do URL.
-		$provider = \AIFAQ\Providers\ProviderFactory::make_with_key( $api_key );
-		$result   = $provider->verify();
+		$result  = self::verify_key( $api_key );
 
 		if ( is_wp_error( $result ) ) {
-			wp_send_json_error(
-				array(
-					/* translators: %s: komunikat błędu z providera */
-					'message' => sprintf( __( 'Błąd: %s', 'ai-faq-generator' ), $result->get_error_message() ),
-				)
-			);
+			$message = ( 'aifaq_no_key' === $result->get_error_code() )
+				? $result->get_error_message()
+				/* translators: %s: komunikat błędu z providera */
+				: sprintf( __( 'Błąd: %s', 'ai-faq-generator' ), $result->get_error_message() );
+			wp_send_json_error( array( 'message' => $message ) );
 		}
 
 		wp_send_json_success( array( 'message' => __( 'Połączenie OK — klucz działa.', 'ai-faq-generator' ) ) );

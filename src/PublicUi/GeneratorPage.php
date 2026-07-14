@@ -15,6 +15,7 @@
 
 namespace AIFAQ\PublicUi;
 
+use AIFAQ\App\AppShell;
 use AIFAQ\Core\Settings;
 use AIFAQ\Rag\RagService;
 
@@ -154,13 +155,17 @@ class GeneratorPage {
 	 * Renderuje pełną stronę standalone (Krok 8) — wołane z {@see \AIFAQ\Core\Router}.
 	 */
 	public static function render_standalone(): void {
-		$lang    = self::lang();
-		$t       = self::strings( $lang );
-		$site    = (string) get_bloginfo( 'name' );
-		$css_url = AIFAQ_PLUGIN_URL . 'assets/css/generator.css';
-		$js_url  = AIFAQ_PLUGIN_URL . 'assets/js/generator.js';
-		$ver     = AIFAQ_VERSION;
-		$config  = wp_json_encode( self::config() );
+		$lang     = self::lang();
+		$t        = self::strings( $lang );
+		$site     = (string) get_bloginfo( 'name' );
+		$css_url  = AIFAQ_PLUGIN_URL . 'assets/css/generator.css';
+		$js_url   = AIFAQ_PLUGIN_URL . 'assets/js/generator.js';
+		$app_css  = AIFAQ_PLUGIN_URL . 'assets/css/app.css';
+		$app_js   = AIFAQ_PLUGIN_URL . 'assets/js/app.js';
+		$ver      = AIFAQ_VERSION;
+		$config   = wp_json_encode( self::config() );
+		$is_owner = AppShell::is_owner();
+		$app_cfg  = $is_owner ? wp_json_encode( AppShell::config() ) : '';
 		$doc_title = $t['title'] . ( '' !== $site ? ' — ' . $site : '' );
 		?>
 <!doctype html>
@@ -171,16 +176,25 @@ class GeneratorPage {
 	<meta name="robots" content="noindex,follow">
 	<title><?php echo esc_html( $doc_title ); ?></title>
 	<link rel="stylesheet" href="<?php echo esc_url( $css_url ); ?>?ver=<?php echo esc_attr( $ver ); ?>">
+	<?php if ( $is_owner ) : ?>
+	<link rel="stylesheet" href="<?php echo esc_url( $app_css ); ?>?ver=<?php echo esc_attr( $ver ); ?>">
+	<?php endif; ?>
 </head>
 <body class="aifaq-body">
 	<main class="aifaq-page">
-		<?php echo self::widget(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup zbudowany z esc_* w widget(). ?>
+		<?php echo AppShell::render_body(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup zbudowany z esc_* w AppShell/widget(). ?>
 		<footer class="aifaq__foot">
 			<a href="<?php echo esc_url( home_url( '/' ) ); ?>">&larr; <?php echo esc_html( $t['back'] ); ?></a>
 		</footer>
 	</main>
 	<script>window.aifaqFront = <?php echo $config; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
+	<?php if ( $is_owner ) : ?>
+	<script>window.aifaqApp = <?php echo $app_cfg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
+	<?php endif; ?>
 	<script src="<?php echo esc_url( $js_url ); ?>?ver=<?php echo esc_attr( $ver ); ?>"></script>
+	<?php if ( $is_owner ) : ?>
+	<script src="<?php echo esc_url( $app_js ); ?>?ver=<?php echo esc_attr( $ver ); ?>"></script>
+	<?php endif; ?>
 </body>
 </html>
 		<?php

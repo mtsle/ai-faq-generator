@@ -114,6 +114,28 @@ class RestController {
 				'permission_callback' => array( $this, 'require_admin' ),
 			)
 		);
+
+		// Panel: zapis ustawień (front dzieli kontrakt sanityzacji z kokpitem).
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/settings',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'handle_settings_save' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+			)
+		);
+
+		// Panel: test połączenia (realny ping klucza).
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/verify',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'handle_verify' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+			)
+		);
 	}
 
 	/**
@@ -297,6 +319,70 @@ class RestController {
 				'removed' => (int) ( $result['removed'] ?? 0 ),
 				'stats'   => $result['stats'] ?? array(),
 			),
+			200
+		);
+	}
+
+	/**
+	 * `POST /admin/settings` — zapisuje ustawienia (whitelistowany podzbiór z frontu).
+	 *
+	 * Front (apka `/faqgenerator`) edytuje tylko rdzeń: klucz, model, temperatura,
+	 * język. Przekazujemy wyłącznie te pola do {@see Settings::save()} — reszta
+	 * (RAG, slug) zostaje nietknięta, a sanityzacja i clamp są wspólne z kokpitem.
+	 *
+	 * @param WP_REST_Request $request Żądanie.
+	 * @return WP_REST_Response
+	 */
+	public function handle_settings_save( WP_REST_Request $request ): WP_REST_Response {
+		$input = array();
+		foreach ( array( 'api_key', 'model', 'temperature', 'language' ) as $field ) {
+			$value = $request->get_param( $field );
+			if ( null !== $value ) {
+				$input[ $field ] = $value;
+			}
+		}
+
+		$saved = Settings::save( $input );
+
+		// Odsyłamy tylko bezpieczne pola (NIGDY klucza) — do potwierdzenia w UI.
+		return new WP_REST_Response(
+			array(
+				'status'   => 'ok',
+				'settings' => array(
+					'model'       => (string) ( $saved['model'] ?? '' ),
+					'temperature' => (float) ( $saved['temperature'] ?? 0 ),
+					'language'    => (string) ( $saved['language'] ?? '' ),
+					'has_key'     => '' !== (string) ( $saved['api_key'] ?? '' ),
+				),
+			),
+			200
+		);
+	}
+
+	/**
+	 * `POST /admin/verify` — test połączenia (realny ping klucza do Gemini).
+	 *
+	 * Pusty `api_key` → sprawdzany jest klucz zapisany (pole bywa zamaskowane).
+	 * Wynik informacyjny: zawsze HTTP 200 z `status` ok|error + komunikatem
+	 * (bramka uprawnień i tak odcina niezalogowanych kodem 401).
+	 *
+	 * @param WP_REST_Request $request Żądanie.
+	 * @return WP_REST_Response
+	 */
+	public function handle_verify( WP_REST_Request $request ): WP_REST_Response {
+		$api_key = (string) $request->get_param( 'api_key' );
+		$result  = Settings::verify_key( $api_key );
+
+		if ( is_wp_error( $result ) ) {
+			$message = ( 'aifaq_no_key' === $result->get_error_code() )
+				? $result->get_error_message()
+				/* translators: %s: komunikat błędu z providera */
+				: sprintf( __( 'Błąd: %s', 'ai-faq-generator' ), $result->get_error_message() );
+			return new WP_REST_Response( array( 'status' => 'error', 'message' => $message ), 200 );
+		}
+
+		return new WP_REST_Response(
+			array( 'status' => 'ok', 'message' => __( 'Połączenie OK — klucz działa.', 'ai-faq-generator' ) ),
 			200
 		);
 	}
