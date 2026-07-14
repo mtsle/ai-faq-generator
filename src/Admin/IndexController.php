@@ -52,15 +52,65 @@ class IndexController {
 	public function ajax_reindex(): void {
 		$this->guard();
 
+		$result = $this->run_reindex();
+		if ( empty( $result['ok'] ) ) {
+			wp_send_json_error( array( 'message' => (string) ( $result['message'] ?? '' ) ), (int) ( $result['status'] ?? 500 ) );
+		}
+
+		wp_send_json_success(
+			array(
+				'report' => $result['report'] ?? array(),
+				'stats'  => $result['stats'] ?? array(),
+			)
+		);
+	}
+
+	/**
+	 * AJAX: czyści całą bazę wiedzy.
+	 */
+	public function ajax_clear(): void {
+		$this->guard();
+
+		$result = $this->run_clear();
+		if ( empty( $result['ok'] ) ) {
+			wp_send_json_error( array( 'message' => (string) ( $result['message'] ?? '' ) ), (int) ( $result['status'] ?? 500 ) );
+		}
+
+		wp_send_json_success(
+			array(
+				'removed' => (int) ( $result['removed'] ?? 0 ),
+				'stats'   => $result['stats'] ?? array(),
+			)
+		);
+	}
+
+	/**
+	 * Rdzeń indeksowania — bez transportu (współdzielony przez AJAX i REST).
+	 *
+	 * NIE sprawdza nonce/uprawnień (to robi warstwa transportu: `guard()` w AJAX,
+	 * `permission_callback` w REST). Egzekwuje logikę biznesową: klucz API + lock
+	 * F5. Zwraca ustrukturyzowany wynik zamiast kończyć żądanie.
+	 *
+	 * @return array{ok:bool,status:int,message?:string,report?:array,stats?:array}
+	 */
+	public function run_reindex(): array {
 		if ( '' === (string) Settings::get_field( 'api_key', '' ) ) {
-			wp_send_json_error( array( 'message' => __( 'Najpierw zapisz klucz API w Ustawieniach.', 'ai-faq-generator' ) ) );
+			return array(
+				'ok'      => false,
+				'status'  => 400,
+				'message' => __( 'Najpierw zapisz klucz API w Ustawieniach.', 'ai-faq-generator' ),
+			);
 		}
 
 		// F5: lock na równoczesny reindeks — drugie żądanie (inna karta, drugi
-		// admin, bezpośredni POST) nie odpali drugiego, płatnego przebiegu ani
-		// nie przeplecie się z czyszczeniem bazy.
+		// admin, bezpośredni POST/REST) nie odpali drugiego, płatnego przebiegu
+		// ani nie przeplecie się z czyszczeniem bazy.
 		if ( get_transient( self::LOCK ) ) {
-			wp_send_json_error( array( 'message' => __( 'Indeksowanie już trwa — poczekaj na zakończenie.', 'ai-faq-generator' ) ), 409 );
+			return array(
+				'ok'      => false,
+				'status'  => 409,
+				'message' => __( 'Indeksowanie już trwa — poczekaj na zakończenie.', 'ai-faq-generator' ),
+			);
 		}
 		set_transient( self::LOCK, 1, 15 * MINUTE_IN_SECONDS );
 		// Backstop: zwolnij lock nawet przy fatalu w trakcie run() (exit pomija finally).
@@ -89,32 +139,36 @@ class IndexController {
 
 		delete_transient( self::LOCK );
 
-		wp_send_json_success(
-			array(
-				'report' => $report,
-				'stats'  => $stats,
-			)
+		return array(
+			'ok'     => true,
+			'status' => 200,
+			'report' => $report,
+			'stats'  => $stats,
 		);
 	}
 
 	/**
-	 * AJAX: czyści całą bazę wiedzy.
+	 * Rdzeń czyszczenia bazy wiedzy — bez transportu (AJAX i REST).
+	 *
+	 * @return array{ok:bool,status:int,message?:string,removed?:int,stats?:array}
 	 */
-	public function ajax_clear(): void {
-		$this->guard();
-
+	public function run_clear(): array {
 		// Nie czyść w trakcie indeksowania — inaczej clear i zapis przeplotą się (F5).
 		if ( get_transient( self::LOCK ) ) {
-			wp_send_json_error( array( 'message' => __( 'Indeksowanie w toku — spróbuj wyczyścić po jego zakończeniu.', 'ai-faq-generator' ) ), 409 );
+			return array(
+				'ok'      => false,
+				'status'  => 409,
+				'message' => __( 'Indeksowanie w toku — spróbuj wyczyścić po jego zakończeniu.', 'ai-faq-generator' ),
+			);
 		}
 
 		$removed = ( new KnowledgeRepository() )->clear_all();
 
-		wp_send_json_success(
-			array(
-				'removed' => $removed,
-				'stats'   => ( new KnowledgeRepository() )->stats(),
-			)
+		return array(
+			'ok'      => true,
+			'status'  => 200,
+			'removed' => $removed,
+			'stats'   => ( new KnowledgeRepository() )->stats(),
 		);
 	}
 

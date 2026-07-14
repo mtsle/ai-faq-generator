@@ -13,6 +13,7 @@ namespace AIFAQ\Core;
 
 use AIFAQ\Admin\Menu;
 use AIFAQ\Admin\IndexController;
+use AIFAQ\Rest\RestController;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -49,6 +50,11 @@ final class Plugin {
 	private ?IndexController $index_controller = null;
 
 	/**
+	 * Kontroler REST `aifaq/v1` (front + panel).
+	 */
+	private ?RestController $rest = null;
+
+	/**
 	 * Zwraca (i przy pierwszym wywołaniu tworzy) instancję wtyczki.
 	 */
 	public static function instance(): Plugin {
@@ -74,6 +80,11 @@ final class Plugin {
 		// Router działa też dla gości (publiczna trasa `/faqgenerator`).
 		$this->router = new Router();
 		$this->router->register();
+
+		// REST `aifaq/v1` — musi rejestrować się także dla gości (`/ask` publiczne),
+		// dlatego montowany POZA gałęzią `is_admin()`.
+		$this->rest = new RestController();
+		$this->rest->register();
 
 		if ( is_admin() ) {
 			$this->settings = new Settings();
