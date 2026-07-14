@@ -32,8 +32,9 @@ class Menu {
 	/**
 	 * Slugi podstron.
 	 */
-	const SLUG_SETTINGS = 'ai-faq-generator-settings';
-	const SLUG_HISTORY  = 'ai-faq-generator-history';
+	const SLUG_GENERATOR = 'ai-faq-generator-generator';
+	const SLUG_SETTINGS  = 'ai-faq-generator-settings';
+	const SLUG_HISTORY   = 'ai-faq-generator-history';
 
 	/**
 	 * Rejestruje menu i podmenu.
@@ -60,6 +61,15 @@ class Menu {
 
 		add_submenu_page(
 			self::SLUG,
+			__( 'Generator', 'ai-faq-generator' ),
+			__( 'Generator', 'ai-faq-generator' ),
+			self::CAPABILITY,
+			self::SLUG_GENERATOR,
+			array( $this, 'render_generator' )
+		);
+
+		add_submenu_page(
+			self::SLUG,
 			__( 'Ustawienia', 'ai-faq-generator' ),
 			__( 'Ustawienia', 'ai-faq-generator' ),
 			self::CAPABILITY,
@@ -82,6 +92,13 @@ class Menu {
 	 */
 	public function render_dashboard(): void {
 		$this->render_view( 'dashboard' );
+	}
+
+	/**
+	 * Renderuje ekran Generatora (ten sam widget Q&A co na froncie).
+	 */
+	public function render_generator(): void {
+		$this->render_view( 'generator' );
 	}
 
 	/**
@@ -131,10 +148,11 @@ class Menu {
 			AIFAQ_VERSION
 		);
 
-		// Skrypt indeksowania tylko na Dashboardzie (główny ekran, nie Ustawienia/Historia).
+		// Skrypt indeksowania tylko na Dashboardzie (nie Generator/Ustawienia/Historia).
+		$is_generator = false !== strpos( $hook_suffix, self::SLUG_GENERATOR );
 		$is_settings  = false !== strpos( $hook_suffix, self::SLUG_SETTINGS );
 		$is_history   = false !== strpos( $hook_suffix, self::SLUG_HISTORY );
-		if ( ! $is_settings && ! $is_history ) {
+		if ( ! $is_generator && ! $is_settings && ! $is_history ) {
 			wp_enqueue_script(
 				'aifaq-indexer',
 				AIFAQ_PLUGIN_URL . 'assets/js/indexer.js',
@@ -180,6 +198,30 @@ class Menu {
 					'show'     => __( 'Pokaż', 'ai-faq-generator' ),
 					'hide'     => __( 'Ukryj', 'ai-faq-generator' ),
 				)
+			);
+		}
+
+		// Ekran Generatora: ten sam widget co front → te same assety.
+		// Skrypt czyta window.aifaqFront (jak na stronie standalone), więc
+		// wystawiamy tę samą konfigurację przez wp_localize_script.
+		if ( $is_generator ) {
+			wp_enqueue_style(
+				'aifaq-generator',
+				AIFAQ_PLUGIN_URL . 'assets/css/generator.css',
+				array(),
+				AIFAQ_VERSION
+			);
+			wp_enqueue_script(
+				'aifaq-generator',
+				AIFAQ_PLUGIN_URL . 'assets/js/generator.js',
+				array(),
+				AIFAQ_VERSION,
+				true
+			);
+			wp_localize_script(
+				'aifaq-generator',
+				'aifaqFront',
+				\AIFAQ\PublicUi\GeneratorPage::config()
 			);
 		}
 	}

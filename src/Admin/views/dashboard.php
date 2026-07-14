@@ -52,8 +52,17 @@ $aifaq_stats = \AIFAQ\Admin\IndexController::stats();
 	</div>
 
 	<div class="aifaq-card">
-		<span class="aifaq-badge"><?php esc_html_e( 'W budowie', 'ai-faq-generator' ); ?></span>
 		<h2><?php esc_html_e( 'Generator FAQ', 'ai-faq-generator' ); ?></h2>
-		<p><?php esc_html_e( 'Tutaj pojawi się formularz generowania: temat artykułu, dodatkowy opis, liczba pytań (5–20) oraz przycisk „Generuj FAQ". Po wygenerowaniu — tabela pytań i odpowiedzi z akcjami, eksport i podgląd JSON-LD.', 'ai-faq-generator' ); ?></p>
+		<p>
+			<?php esc_html_e( 'Przetestuj generator dokładnie tak, jak widzi go gość — na podstronie „Generator" w menu wtyczki (ten sam komponent co publiczna strona).', 'ai-faq-generator' ); ?>
+		</p>
+		<p>
+			<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=' . \AIFAQ\Admin\Menu::SLUG_GENERATOR ) ); ?>">
+				<?php esc_html_e( 'Otwórz generator', 'ai-faq-generator' ); ?>
+			</a>
+			<a class="button" href="<?php echo esc_url( home_url( '/' . ltrim( (string) \AIFAQ\Core\Settings::get_field( 'page_slug', 'faqgenerator' ), '/' ) ) ); ?>" target="_blank" rel="noopener">
+				<?php esc_html_e( 'Zobacz publiczną stronę ↗', 'ai-faq-generator' ); ?>
+			</a>
+		</p>
 	</div>
 </div>

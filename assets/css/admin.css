@@ -133,3 +133,59 @@
 .aifaq-test-status.is-err::before {
 	content: "\2715\00a0";
 }
+
+/* --- Generator (Krok 9: ten sam widget Q&A osadzony w kokpicie) --- */
+.aifaq-lead {
+	max-width: 70ch;
+	margin: 6px 0 0;
+	color: #50575e;
+	font-size: 14px;
+}
+
+/* Kontener nadaje widgetowi jasnoszare tło „strony" — jak na froncie białe
+   karty (pole, odpowiedź) na tym tle się wybijają. */
+.aifaq-embed {
+	margin-top: 18px;
+	padding: clamp(22px, 4vw, 44px);
+	background: #f6f7f8;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+}
+
+/* PRZYPIĘCIE jasnego motywu w kokpicie: pole treści wp-admin jest zawsze
+   jasne, więc auto-dark (prefers-color-scheme z OS) dałby jasny tekst na
+   jasnym tle — nieczytelne. Dwie klasy = wyższa specyficzność niż @media
+   w generator.css, więc wygrywa niezależnie od trybu systemu. */
+.aifaq-embed .aifaq {
+	--aifaq-bg: #f6f7f8;
+	--aifaq-surface: #ffffff;
+	--aifaq-border: #e4e7e9;
+	--aifaq-text: #1b2128;
+	--aifaq-muted: #616a73;
+	--aifaq-faint: #9aa2ab;
+	--aifaq-accent: #0f766e;
+	--aifaq-accent-strong: #0b5f58;
+	--aifaq-accent-fg: #ffffff;
+	--aifaq-accent-ring: rgba(15, 118, 110, .18);
+	--aifaq-refuse: #8a5a00;
+	--aifaq-refuse-soft: #fbf1df;
+	--aifaq-refuse-border: #efd9ab;
+	--aifaq-error: #b3261e;
+	--aifaq-error-soft: #fbe6e4;
+	--aifaq-error-border: #f0c0bc;
+}
+
+/* Na froncie tytuł to duży nagłówek strony; w kokpicie zjeżdżamy rozmiar,
+   by nie konkurował z h1 ekranu admina. */
+.aifaq-embed .aifaq__head {
+	margin-bottom: 22px;
+}
+
+.aifaq-embed .aifaq__title {
+	font-size: 22px;
+}
+
+.aifaq-embed .aifaq__subtitle {
+	font-size: 15px;
+	margin-top: 8px;
+}
