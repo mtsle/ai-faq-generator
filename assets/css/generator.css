@@ -1,0 +1,276 @@
+/**
+ * Publiczny generator FAQ (front) — styl „czysty / asystent".
+ *
+ * Neutralny, minimalistyczny, responsywny; tryb jasny/ciemny automatyczny.
+ * Wszystko pod prefiksem `.aifaq` — bezpieczne do zamontowania w kokpicie (K9).
+ */
+
+.aifaq-body {
+	margin: 0;
+	background: var(--aifaq-bg);
+	color: var(--aifaq-text);
+	font-family: var(--aifaq-sans);
+	font-size: 16px;
+	line-height: 1.6;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+/* Zmienne na obu poziomach: .aifaq-body (strona standalone) ORAZ .aifaq (widget,
+   też montowany w kokpicie K9). Definicja tylko na .aifaq nie dosięgałaby rodzica
+   .aifaq-body (zmienne CSS dziedziczą w dół) → font/tło spadłyby na domyślne. */
+.aifaq-body,
+.aifaq {
+	/* Paleta — jasny motyw (domyślny). */
+	--aifaq-bg: #f6f7f8;
+	--aifaq-surface: #ffffff;
+	--aifaq-border: #e4e7e9;
+	--aifaq-text: #1b2128;
+	--aifaq-muted: #616a73;
+	--aifaq-faint: #9aa2ab;
+	--aifaq-accent: #0f766e;
+	--aifaq-accent-strong: #0b5f58;
+	--aifaq-accent-fg: #ffffff;
+	--aifaq-accent-ring: rgba(15, 118, 110, .18);
+	--aifaq-refuse: #8a5a00;
+	--aifaq-refuse-soft: #fbf1df;
+	--aifaq-refuse-border: #efd9ab;
+	--aifaq-error: #b3261e;
+	--aifaq-error-soft: #fbe6e4;
+	--aifaq-error-border: #f0c0bc;
+	--aifaq-radius: 16px;
+	--aifaq-radius-sm: 12px;
+	--aifaq-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	--aifaq-shadow: 0 1px 2px rgba(20, 30, 26, .05), 0 18px 40px -24px rgba(20, 30, 26, .28);
+}
+
+@media (prefers-color-scheme: dark) {
+	.aifaq-body,
+	.aifaq {
+		--aifaq-bg: #121619;
+		--aifaq-surface: #1a2024;
+		--aifaq-border: #2c343a;
+		--aifaq-text: #e8eef1;
+		--aifaq-muted: #9aa6ae;
+		--aifaq-faint: #6d7982;
+		--aifaq-accent: #2dd4bf;
+		--aifaq-accent-strong: #5ee0d0;
+		--aifaq-accent-fg: #08110f;
+		--aifaq-accent-ring: rgba(45, 212, 191, .22);
+		--aifaq-refuse: #e6b466;
+		--aifaq-refuse-soft: #2a2413;
+		--aifaq-refuse-border: #4a3f1f;
+		--aifaq-error: #f6a49d;
+		--aifaq-error-soft: #2c1614;
+		--aifaq-error-border: #4d2622;
+		--aifaq-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 20px 44px -26px rgba(0, 0, 0, .75);
+	}
+}
+
+/* Layout strony standalone (na froncie). */
+.aifaq-page {
+	max-width: 680px;
+	margin: 0 auto;
+	min-height: 100vh;
+	display: flex;
+	flex-direction: column;
+	padding: clamp(28px, 7vh, 96px) 20px 40px;
+}
+.aifaq-page .aifaq { flex: 1 0 auto; }
+
+/* Nagłówek. */
+.aifaq__head { margin-bottom: clamp(30px, 5.5vh, 46px); }
+.aifaq__eyebrow {
+	margin: 0 0 8px;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: .08em;
+	text-transform: uppercase;
+	color: var(--aifaq-faint);
+}
+.aifaq__title {
+	margin: 0;
+	font-size: clamp(26px, 5vw, 34px);
+	line-height: 1.15;
+	letter-spacing: -.02em;
+	font-weight: 700;
+}
+.aifaq__subtitle {
+	margin: 14px 0 0;
+	color: var(--aifaq-muted);
+	font-size: clamp(15px, 2.4vw, 17px);
+	max-width: 52ch;
+}
+
+/* Formularz. */
+.aifaq__form { margin: 0; }
+.aifaq__field {
+	background: var(--aifaq-surface);
+	border: 1px solid var(--aifaq-border);
+	border-radius: var(--aifaq-radius);
+	box-shadow: var(--aifaq-shadow);
+	transition: border-color .15s ease, box-shadow .15s ease;
+}
+.aifaq__field:focus-within {
+	border-color: var(--aifaq-accent);
+	box-shadow: 0 0 0 4px var(--aifaq-accent-ring);
+}
+.aifaq__input {
+	display: block;
+	width: 100%;
+	box-sizing: border-box;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	line-height: 1.55;
+	resize: none;
+	/* Autogrow: startuje ~1 linia, JS zwiększa wysokość do treści (cap = max-height). */
+	min-height: 26px;
+	max-height: 40vh;
+	overflow-y: auto;
+	padding: 15px 18px;
+	outline: none;
+}
+.aifaq__input::placeholder { color: var(--aifaq-faint); }
+/* Licznik pojawia się dopiero, gdy jest co liczyć (JS zdejmuje [hidden]). */
+.aifaq__meta {
+	display: flex;
+	justify-content: flex-end;
+	padding: 0 16px 12px;
+}
+.aifaq__meta[hidden] { display: none; }
+.aifaq__counter {
+	font-size: 12px;
+	color: var(--aifaq-faint);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+/* Podpowiedź walidacji — pod polem; nie zajmuje miejsca, gdy pusta. */
+.aifaq__hint {
+	margin: 10px 2px 0;
+	font-size: 13px;
+	color: var(--aifaq-error);
+	font-weight: 500;
+}
+.aifaq__hint:empty { display: none; }
+
+/* Przycisk. */
+.aifaq__btn {
+	margin-top: 22px;
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	background: var(--aifaq-accent);
+	color: var(--aifaq-accent-fg);
+	border: 0;
+	border-radius: 999px;
+	padding: 12px 22px;
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background .15s ease, transform .05s ease, opacity .15s ease;
+}
+.aifaq__btn:hover { background: var(--aifaq-accent-strong); }
+.aifaq__btn:active { transform: translateY(1px); }
+.aifaq__btn:focus-visible { outline: 2px solid var(--aifaq-accent); outline-offset: 3px; }
+.aifaq__btn:disabled { opacity: .55; cursor: default; }
+.aifaq__btn-ic { width: 18px; height: 18px; flex: none; }
+.aifaq[data-state="loading"] .aifaq__btn-ic { display: none; }
+
+/* Obszar odpowiedzi. */
+.aifaq__answer {
+	margin-top: clamp(30px, 5.5vh, 44px);
+	background: var(--aifaq-surface);
+	border: 1px solid var(--aifaq-border);
+	border-radius: var(--aifaq-radius);
+	box-shadow: var(--aifaq-shadow);
+	padding: 20px 22px;
+	animation: aifaq-rise .18s ease both;
+}
+/* Pytanie gościa nad odpowiedzią (kontekst, jak w czacie). Wstawiane przez JS
+   jako textContent — bezpieczne przy treści od użytkownika. */
+.aifaq__answer-q {
+	margin: 0 0 14px;
+	padding-bottom: 14px;
+	border-bottom: 1px solid var(--aifaq-border);
+	font-size: 14.5px;
+	line-height: 1.5;
+	color: var(--aifaq-muted);
+	font-weight: 500;
+}
+.aifaq__answer-q[hidden] { display: none; }
+.aifaq__answer-body {
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	font-size: 16px;
+	line-height: 1.62;
+}
+.aifaq__answer-foot {
+	margin-top: 12px;
+	padding-top: 10px;
+	border-top: 1px dashed var(--aifaq-border);
+	font-size: 12px;
+	color: var(--aifaq-faint);
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+/* Wariant: odmowa (poza tematem). */
+.aifaq__answer--refused {
+	background: var(--aifaq-refuse-soft);
+	border-color: var(--aifaq-refuse-border);
+}
+.aifaq__answer--refused .aifaq__answer-body { color: var(--aifaq-refuse); }
+
+/* Wariant: błąd. */
+.aifaq__answer--error {
+	background: var(--aifaq-error-soft);
+	border-color: var(--aifaq-error-border);
+}
+.aifaq__answer--error .aifaq__answer-body { color: var(--aifaq-error); }
+
+/* Wariant: „myślę…" — delikatna pulsacja. */
+.aifaq__answer--loading .aifaq__answer-body {
+	color: var(--aifaq-muted);
+	animation: aifaq-pulse 1.2s ease-in-out infinite;
+}
+
+/* Stopka. */
+.aifaq__foot {
+	margin-top: 32px;
+	padding-top: 8px;
+	text-align: center;
+	font-size: 14px;
+	flex: none;
+}
+.aifaq__foot a {
+	color: var(--aifaq-muted);
+	text-decoration: none;
+	border-bottom: 1px solid transparent;
+	transition: color .15s ease, border-color .15s ease;
+}
+.aifaq__foot a:hover {
+	color: var(--aifaq-accent);
+	border-bottom-color: currentColor;
+}
+
+@keyframes aifaq-rise {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+@keyframes aifaq-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: .55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.aifaq__answer { animation: none; }
+	.aifaq__answer--loading .aifaq__answer-body { animation: none; }
+}
+
+/* Wąskie ekrany — przycisk na całą szerokość. */
+@media (max-width: 480px) {
+	.aifaq__btn { width: 100%; justify-content: center; }
+}

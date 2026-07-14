@@ -6,13 +6,16 @@
  * publicznego generatora FAQ dla gości. Slug jest konfigurowalny w
  * ustawieniach (domyślnie `faqgenerator`).
  *
- * Na tym etapie trasa zwraca placeholder (HTTP 200). Właściwa apka —
- * wspólne UI montowane na froncie i w kokpicie — powstaje w Kroku 8.
+ * Trasa renderuje publiczny generator (standalone HTML, poza motywem) —
+ * {@see \AIFAQ\PublicUi\GeneratorPage}. Ten sam widget zamontujemy w kokpicie
+ * w Kroku 9.
  *
  * @package AI_FAQ_Generator
  */
 
 namespace AIFAQ\Core;
+
+use AIFAQ\PublicUi\GeneratorPage;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -85,7 +88,7 @@ class Router {
 	}
 
 	/**
-	 * Jeśli trafiono w naszą trasę — renderuje stronę generatora.
+	 * Jeśli trafiono w naszą trasę — renderuje publiczny generator FAQ.
 	 */
 	public function maybe_render(): void {
 		if ( 1 !== (int) get_query_var( self::QUERY_VAR ) ) {
@@ -94,32 +97,7 @@ class Router {
 
 		status_header( 200 );
 		nocache_headers();
-		$this->render_placeholder();
+		GeneratorPage::render_standalone();
 		exit;
-	}
-
-	/**
-	 * Tymczasowa strona-zaślepka (do czasu wspólnego UI w Kroku 8).
-	 */
-	private function render_placeholder(): void {
-		$title = __( 'Generator FAQ', 'ai-faq-generator' );
-		?>
-<!doctype html>
-<html <?php language_attributes(); ?>>
-<head>
-	<meta charset="<?php bloginfo( 'charset' ); ?>">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<meta name="robots" content="noindex,follow">
-	<title><?php echo esc_html( $title ); ?> — <?php bloginfo( 'name' ); ?></title>
-</head>
-<body style="font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;max-width:640px;margin:12vh auto;padding:0 24px;line-height:1.6;color:#1e2327;">
-	<h1 style="font-size:1.6rem;margin-bottom:.25rem;"><?php echo esc_html( $title ); ?></h1>
-	<p style="color:#646970;">
-		<?php esc_html_e( 'Publiczny generator odpowiedzi zawężony do tematu tej strony powstaje tutaj. Wróć za chwilę.', 'ai-faq-generator' ); ?>
-	</p>
-	<p><a href="<?php echo esc_url( home_url( '/' ) ); ?>">&larr; <?php esc_html_e( 'Strona główna', 'ai-faq-generator' ); ?></a></p>
-</body>
-</html>
-		<?php
 	}
 }
