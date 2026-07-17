@@ -125,6 +125,39 @@ $bF   = json_decode( $spyF->last['options']['body'], true );
 check( is_array( $rF ) && 0 === count( $rF ), "pusta lista → pusta tablica wektorów (bez błędu)" );
 check( isset( $bF['requests'] ) && 0 === count( $bF['requests'] ), "payload requests = [] dla pustego wejścia" );
 
+echo "\n=== G. generate() — structured output (response_schema/mime, addytywne, Krok 11) ===\n";
+$schema = array(
+	'type'  => 'array',
+	'items' => array(
+		'type'       => 'object',
+		'properties' => array(
+			'question' => array( 'type' => 'string' ),
+			'answer'   => array( 'type' => 'string' ),
+		),
+	),
+);
+$spyG = new SpyHttp( array( 'status' => 200, 'body' => json_encode( array( 'candidates' => array( array( 'content' => array( 'parts' => array( array( 'text' => '[]' ) ) ) ) ) ) ) ) );
+$pG   = new \AIFAQ\Providers\GeminiProvider( $spyG, 'K', 'm', 'e' );
+$pG->generate( 'temat', array( 'response_mime_type' => 'application/json', 'response_schema' => $schema ) );
+$bG = json_decode( $spyG->last['options']['body'], true );
+check( 'application/json' === ( $bG['generationConfig']['responseMimeType'] ?? null ), "response_mime_type → responseMimeType w payloadzie" );
+check( isset( $bG['generationConfig']['responseSchema'] ) && $schema === $bG['generationConfig']['responseSchema'], "response_schema → responseSchema w payloadzie (bez zmian struktury)" );
+
+// Regresja RAG: bez tych opcji payload NIE ma pól structured output (ścieżka Answerera nietknięta).
+$spyG2 = new SpyHttp( array( 'status' => 200, 'body' => json_encode( array( 'candidates' => array( array( 'content' => array( 'parts' => array( array( 'text' => 'x' ) ) ) ) ) ) ) ) );
+$pG2   = new \AIFAQ\Providers\GeminiProvider( $spyG2, 'K', 'm', 'e' );
+$pG2->generate( 'hej', array( 'temperature' => 0.2, 'max_tokens' => 500 ) );
+$bG2 = json_decode( $spyG2->last['options']['body'], true );
+check( ! isset( $bG2['generationConfig']['responseMimeType'] ), "brak responseMimeType gdy nie podano (regresja RAG)" );
+check( ! isset( $bG2['generationConfig']['responseSchema'] ), "brak responseSchema gdy nie podano (regresja RAG)" );
+
+// Defensywnie: response_schema nie-tablica jest ignorowane (nie wysyłamy śmieci do API).
+$spyG3 = new SpyHttp( array( 'status' => 200, 'body' => json_encode( array( 'candidates' => array( array( 'content' => array( 'parts' => array( array( 'text' => 'x' ) ) ) ) ) ) ) ) );
+$pG3   = new \AIFAQ\Providers\GeminiProvider( $spyG3, 'K', 'm', 'e' );
+$pG3->generate( 'hej', array( 'response_schema' => 'nie-tablica' ) );
+$bG3 = json_decode( $spyG3->last['options']['body'], true );
+check( ! isset( $bG3['generationConfig']['responseSchema'] ), "response_schema nie-tablica → pominięte" );
+
 echo "\n=== PODSUMOWANIE ===\n";
 echo ( 0 === $fail ) ? "TEST KROK 3: WSZYSTKIE ASERCJE OK\n" : "TEST KROK 3: $fail ASERCJI NIE PRZESZŁO\n";
 exit( $fail === 0 ? 0 : 1 );

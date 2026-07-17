@@ -1,12 +1,13 @@
 <?php
 /**
- * Definicja schematu bazy (4 tabele) — schema v2.
+ * Definicja schematu bazy (5 tabel) — schema v4.
  *
  * Tworzy/aktualizuje tabele przez dbDelta():
- *  - wp_aifaq_knowledge — fragmenty treści strony + ich embeddingi (RAG),
- *  - wp_aifaq_qa_log    — dziennik pytań gości (status/źródło/score),
- *  - wp_aifaq_cache     — cache odpowiedzi (dedup po hashu pytania),
- *  - wp_aifaq_faq       — gotowe pary FAQ pod SEO (JSON-LD/eksport).
+ *  - wp_aifaq_knowledge   — fragmenty treści strony + ich embeddingi (RAG),
+ *  - wp_aifaq_qa_log      — dziennik pytań gości (status/źródło/score),
+ *  - wp_aifaq_cache       — cache odpowiedzi (dedup po hashu pytania),
+ *  - wp_aifaq_faq         — gotowe pary FAQ pod SEO (JSON-LD/eksport; uśpione),
+ *  - wp_aifaq_generations — historia generowań FAQ w kokpicie + snapshot par (Krok 11).
  *
  * dbDelta jest wybredne: typy małymi literami, każde pole w osobnej linii,
  * DWIE spacje po „PRIMARY KEY".
@@ -28,10 +29,11 @@ class Schema {
 	/**
 	 * Nazwy tabel bez prefiksu.
 	 */
-	const T_KNOWLEDGE = 'aifaq_knowledge';
-	const T_QA_LOG    = 'aifaq_qa_log';
-	const T_CACHE     = 'aifaq_cache';
-	const T_FAQ       = 'aifaq_faq';
+	const T_KNOWLEDGE   = 'aifaq_knowledge';
+	const T_QA_LOG      = 'aifaq_qa_log';
+	const T_CACHE       = 'aifaq_cache';
+	const T_FAQ         = 'aifaq_faq';
+	const T_GENERATIONS = 'aifaq_generations';
 
 	/**
 	 * Pełna nazwa tabeli z prefiksem bazy.
@@ -65,10 +67,11 @@ class Schema {
 	 * @return array<int,string>
 	 */
 	private static function statements( string $charset_collate ): array {
-		$knowledge = self::table( self::T_KNOWLEDGE );
-		$qa_log    = self::table( self::T_QA_LOG );
-		$cache     = self::table( self::T_CACHE );
-		$faq       = self::table( self::T_FAQ );
+		$knowledge   = self::table( self::T_KNOWLEDGE );
+		$qa_log      = self::table( self::T_QA_LOG );
+		$cache       = self::table( self::T_CACHE );
+		$faq         = self::table( self::T_FAQ );
+		$generations = self::table( self::T_GENERATIONS );
 
 		$out = array();
 
@@ -126,6 +129,20 @@ class Schema {
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY post_id (post_id)
+		) ENGINE=InnoDB {$charset_collate};";
+
+		// Historia generowań FAQ (kokpit) + snapshot par jako JSON (Krok 11).
+		$out[] = "CREATE TABLE {$generations} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			created_at datetime NOT NULL,
+			topic text NOT NULL,
+			extra_desc longtext NULL,
+			num_questions smallint(5) unsigned NOT NULL DEFAULT 0,
+			language varchar(10) NOT NULL DEFAULT 'pl',
+			user_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			pairs_json longtext NULL,
+			PRIMARY KEY  (id),
+			KEY created_at (created_at)
 		) ENGINE=InnoDB {$charset_collate};";
 
 		return $out;

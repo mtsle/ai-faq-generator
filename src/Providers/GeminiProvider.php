@@ -97,7 +97,8 @@ class GeminiProvider implements ProviderInterface {
 	 * Generuje tekstową odpowiedź modelu na podany prompt.
 	 *
 	 * @param string              $prompt  Treść zapytania do modelu.
-	 * @param array<string,mixed> $options Opcje generowania (`temperature`, `max_tokens`).
+	 * @param array<string,mixed> $options Opcje generowania (`temperature`, `max_tokens`,
+	 *                                     `response_mime_type`, `response_schema`).
 	 *
 	 * @return string|\WP_Error Wygenerowany tekst lub `\WP_Error` przy błędzie.
 	 */
@@ -110,6 +111,16 @@ class GeminiProvider implements ProviderInterface {
 
 		if ( isset( $options['max_tokens'] ) ) {
 			$generation_config['maxOutputTokens'] = (int) $options['max_tokens'];
+		}
+
+		// Structured output (opcjonalne, addytywne): tylko gdy wołający tego zażąda.
+		// RAG (Answerer) tych opcji nie przekazuje → jego payload pozostaje bez zmian.
+		if ( isset( $options['response_mime_type'] ) ) {
+			$generation_config['responseMimeType'] = (string) $options['response_mime_type'];
+		}
+
+		if ( isset( $options['response_schema'] ) && is_array( $options['response_schema'] ) ) {
+			$generation_config['responseSchema'] = $options['response_schema'];
 		}
 
 		$payload = array(

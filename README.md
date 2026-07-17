@@ -5,11 +5,13 @@ publicznej podstronie `/faqgenerator`, a odpowiedź powstaje **wyłącznie w tem
 treści tej strony** (RAG + embeddingi Gemini) — pytania off-topic są odrzucane.
 Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 
-> **Status:** w budowie · **v0.4.0** — Krok 3 (warstwa AI za interfejsem:
-> `ProviderInterface`, `GeminiProvider`, `ProviderFactory` + generyczny transport HTTP
-> `AIFAQ\Http`; generacja `gemini-2.5-flash`, embeddingi `gemini-embedding-001` @ 768).
-> Wcześniej: Krok 1 v2 (moduły `src/`, 4 tabele, trasa `/faqgenerator`).
-> Dalej: Krok 4 — warstwa danych / Indexer.
+> **Status:** w budowie · Kroki 0–11 gotowe (dwie połówki produktu):
+> **RAG** (`/faqgenerator`: Indexer + Retriever + TopicGuard + Answerer, REST `aifaq/v1`,
+> front rola-aware, dziennik pytań gości) **+ fundament generatora FAQ w kokpicie**
+> (Krok 11: `Faq\FaqGenerator` — temat→pary Q&A jako structured JSON,
+> `GenerationRepository` + tabela `wp_aifaq_generations`, auto-migracja schematu).
+> Dalej: Krok 12 — REST generatora (`/admin/generate-faq`, `/admin/generations`).
+> Pełne README z instrukcjami — Krok 17 (v1.0.0).
 
 ## Założenia
 - **Dwa miejsca działania** — kokpit wp-admin (dla właściciela) oraz publiczna
@@ -27,10 +29,13 @@ src/Data/      Schema (4 tabele) + repozytoria + Migrator
 src/Http/      HttpClient (interfejs) + WpHttpClient — generyczny transport HTTP
 src/Providers/ ProviderInterface, GeminiProvider, ProviderFactory — warstwa AI (BYOK)
 src/Admin/     Menu + views/ (Dashboard, Ustawienia, Historia)
-src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9)
+src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9-10)
+src/Faq/  (Krok 11) FaqGenerator — kreatywny generator par Q&A (osobny od RAG)
 ```
-Tabele: `wp_aifaq_knowledge` (fragmenty+wektory), `wp_aifaq_qa_log` (dziennik pytań),
-`wp_aifaq_cache` (dedup odpowiedzi), `wp_aifaq_faq` (FAQ pod SEO).
+Tabele (schema v4): `wp_aifaq_knowledge` (fragmenty+wektory), `wp_aifaq_qa_log`
+(dziennik pytań gości), `wp_aifaq_cache` (dedup odpowiedzi), `wp_aifaq_faq`
+(FAQ pod SEO — uśpione), `wp_aifaq_generations` (historia generowań + snapshot par).
+Migracja schematu jest automatyczna (porównanie `AIFAQ_DB_VERSION` na `plugins_loaded`).
 
 ## Zakres (ze zlecenia)
 1. Menu „AI FAQ Generator" → Dashboard / Ustawienia / Historia

@@ -14,6 +14,7 @@ namespace AIFAQ\Core;
 use AIFAQ\Admin\Menu;
 use AIFAQ\Admin\IndexController;
 use AIFAQ\Rest\RestController;
+use AIFAQ\Data\Schema;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -68,7 +69,27 @@ final class Plugin {
 	 * Konstruktor prywatny — inicjalizacja wtyczki.
 	 */
 	private function __construct() {
+		$this->maybe_upgrade_db();
 		$this->init_hooks();
+	}
+
+	/**
+	 * Auto-migracja schematu bazy przy podbiciu wersji (bez reaktywacji wtyczki).
+	 *
+	 * `Activator::activate()` odpala się TYLKO przy aktywacji — klient, który
+	 * zaktualizuje wtyczkę (podmiana plików), nigdy jej nie reaktywuje, więc nowe
+	 * tabele/kolumny by u niego nie powstały. Tutaj, na `plugins_loaded`, porównujemy
+	 * zapisaną wersję bazy z {@see AIFAQ_DB_VERSION} i przy różnicy uruchamiamy
+	 * `dbDelta` (addytywne, idempotentne). W normalnym wywołaniu to tylko odczyt
+	 * jednej opcji — koszt pomijalny.
+	 */
+	private function maybe_upgrade_db(): void {
+		$stored = (string) get_option( 'aifaq_db_version', '' );
+
+		if ( version_compare( $stored, AIFAQ_DB_VERSION, '<' ) ) {
+			Schema::install();
+			update_option( 'aifaq_db_version', AIFAQ_DB_VERSION );
+		}
 	}
 
 	/**
