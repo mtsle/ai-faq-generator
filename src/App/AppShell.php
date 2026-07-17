@@ -64,7 +64,6 @@ class AppShell {
 				'idxError'      => __( 'Wystąpił błąd. Spróbuj ponownie.', 'ai-faq-generator' ),
 				'idxDone'       => __( 'Gotowe.', 'ai-faq-generator' ),
 				'idxStatsFmt'   => __( 'W bazie: %1$s fragmentów z %2$s wpisów (%3$s z embeddingiem).', 'ai-faq-generator' ),
-				'soonHistory'   => __( 'Historia pytań i odpowiedzi pojawi się tutaj (w przygotowaniu).', 'ai-faq-generator' ),
 				'setSaving'     => __( 'Zapisuję…', 'ai-faq-generator' ),
 				'setSaved'      => __( 'Zapisano.', 'ai-faq-generator' ),
 				'setSaveErr'    => __( 'Nie udało się zapisać. Spróbuj ponownie.', 'ai-faq-generator' ),
@@ -101,7 +100,6 @@ class AppShell {
 				'idxError'      => __( 'Something went wrong. Please try again.', 'ai-faq-generator' ),
 				'idxDone'       => __( 'Done.', 'ai-faq-generator' ),
 				'idxStatsFmt'   => __( 'In base: %1$s chunks from %2$s posts (%3$s embedded).', 'ai-faq-generator' ),
-				'soonHistory'   => __( 'Question and answer history will appear here (coming soon).', 'ai-faq-generator' ),
 				'setSaving'     => __( 'Saving…', 'ai-faq-generator' ),
 				'setSaved'      => __( 'Saved.', 'ai-faq-generator' ),
 				'setSaveErr'    => __( 'Could not save. Please try again.', 'ai-faq-generator' ),
@@ -138,7 +136,6 @@ class AppShell {
 				'idxError'      => __( 'Etwas ist schiefgelaufen. Bitte erneut versuchen.', 'ai-faq-generator' ),
 				'idxDone'       => __( 'Fertig.', 'ai-faq-generator' ),
 				'idxStatsFmt'   => __( 'In der Basis: %1$s Abschnitte aus %2$s Beiträgen (%3$s eingebettet).', 'ai-faq-generator' ),
-				'soonHistory'   => __( 'Frage-Antwort-Verlauf erscheint hier (in Vorbereitung).', 'ai-faq-generator' ),
 				'setSaving'     => __( 'Wird gespeichert…', 'ai-faq-generator' ),
 				'setSaved'      => __( 'Gespeichert.', 'ai-faq-generator' ),
 				'setSaveErr'    => __( 'Speichern fehlgeschlagen. Bitte erneut versuchen.', 'ai-faq-generator' ),
@@ -161,7 +158,11 @@ class AppShell {
 			),
 		);
 
-		return $all[ $lang ] ?? $all['pl'];
+		$base = $all[ $lang ] ?? $all['pl'];
+
+		// Teksty Historii mieszkają przy swoim komponencie (HistoryPanel), bo ten
+		// sam panel renderuje się też w kokpicie — dokładamy je do wspólnego i18n.
+		return array_merge( $base, HistoryPanel::strings( $lang ) );
 	}
 
 	/**
@@ -179,12 +180,15 @@ class AppShell {
 		return array(
 			'isOwner'   => true,
 			'nonce'     => wp_create_nonce( 'wp_rest' ),
+			'perPage'   => HistoryPanel::PER_PAGE,
 			'endpoints' => array(
-				'status'   => esc_url_raw( $base . 'status' ),
-				'reindex'  => esc_url_raw( $base . 'reindex' ),
-				'clear'    => esc_url_raw( $base . 'clear' ),
-				'settings' => esc_url_raw( $base . 'settings' ),
-				'verify'   => esc_url_raw( $base . 'verify' ),
+				'status'       => esc_url_raw( $base . 'status' ),
+				'reindex'      => esc_url_raw( $base . 'reindex' ),
+				'clear'        => esc_url_raw( $base . 'clear' ),
+				'settings'     => esc_url_raw( $base . 'settings' ),
+				'verify'       => esc_url_raw( $base . 'verify' ),
+				'history'      => esc_url_raw( $base . 'history' ),
+				'historyClear' => esc_url_raw( $base . 'history/clear' ),
 			),
 			'i18n'      => self::strings( $lang ),
 		);
@@ -243,7 +247,7 @@ class AppShell {
 			</div>
 
 			<div class="aifaq-app__panel" id="aifaq-panel-history" role="tabpanel" aria-labelledby="aifaq-tab-history" hidden>
-				<div class="aifaq-app__soon"><?php echo esc_html( $t['soonHistory'] ); ?></div>
+				<?php echo HistoryPanel::widget( $t ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup z esc_* w widget(). ?>
 			</div>
 
 			<div class="aifaq-app__panel" id="aifaq-panel-settings" role="tabpanel" aria-labelledby="aifaq-tab-settings" hidden>

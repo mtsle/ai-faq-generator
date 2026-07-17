@@ -203,6 +203,183 @@
 	text-align: center;
 }
 
+/* =========================================================================
+   Historia — dziennik pytań (ten sam panel na froncie i w kokpicie)
+   ========================================================================= */
+
+.aifaq-sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(1px, 1px, 1px, 1px);
+	white-space: nowrap;
+}
+
+/* Kafelki podsumowania — 6 sztuk. Siatka STAŁA (3×2), nie auto-fit: panel żyje
+   w dwóch różnie szerokich kontenerach (szeroka karta kokpitu vs węższa karta
+   apki), a auto-fit dawał tam ragged 5+1 i 4+2. Stała liczba kolumn = równo w obu. */
+.aifaq-hist__tiles {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+	margin-bottom: 20px;
+}
+@media (min-width: 560px) {
+	.aifaq-hist__tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.aifaq-hist__tile {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 14px 16px;
+	border: 1px solid var(--aifaq-border);
+	border-radius: var(--aifaq-radius-sm);
+	background: var(--aifaq-bg);
+}
+.aifaq-hist__tile-n {
+	font-size: 22px;
+	font-weight: 700;
+	letter-spacing: -.02em;
+	font-variant-numeric: tabular-nums;
+	color: var(--aifaq-text);
+}
+.aifaq-hist__tile-l {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--aifaq-faint);
+	line-height: 1.3;
+}
+
+/* Pasek: filtr + licznik + czyszczenie. */
+.aifaq-hist__bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px 12px;
+	margin-bottom: 14px;
+}
+.aifaq-hist__filter { display: inline-flex; }
+.aifaq-hist__filter .aifaq-set__select { min-width: 170px; padding: 8px 12px; font-size: 14px; }
+.aifaq-hist__count {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--aifaq-muted);
+	font-variant-numeric: tabular-nums;
+}
+.aifaq-hist__purge { margin-left: auto; }
+.aifaq-hist__purge:hover { border-color: var(--aifaq-error); color: var(--aifaq-error); }
+
+/* Lista wpisów. */
+.aifaq-hist__list {
+	border: 1px solid var(--aifaq-border);
+	border-radius: var(--aifaq-radius-sm);
+	overflow: hidden;
+}
+.aifaq-hist__note {
+	margin: 0;
+	padding: 28px 20px;
+	text-align: center;
+	color: var(--aifaq-faint);
+	font-size: 14px;
+}
+.aifaq-hist__row + .aifaq-hist__row { border-top: 1px solid var(--aifaq-border); }
+.aifaq-hist__row.is-open { background: var(--aifaq-bg); }
+
+.aifaq-hist__head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px 16px;
+	width: 100%;
+	appearance: none;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	padding: 13px 16px;
+	cursor: pointer;
+}
+.aifaq-hist__head:hover { background: var(--aifaq-bg); }
+.aifaq-hist__head:focus-visible { outline: 2px solid var(--aifaq-accent); outline-offset: -2px; }
+
+.aifaq-hist__q {
+	flex: 1 1 240px;
+	min-width: 0;
+	font-size: 14.5px;
+	font-weight: 600;
+	line-height: 1.45;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.aifaq-hist__row.is-open .aifaq-hist__q { white-space: normal; }
+
+.aifaq-hist__meta {
+	display: inline-flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px 10px;
+	flex: 0 0 auto;
+}
+.aifaq-hist__badge {
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: .04em;
+	text-transform: uppercase;
+	padding: 3px 9px;
+	border-radius: 999px;
+	white-space: nowrap;
+}
+/* Kolory statusów te same, co stany odpowiedzi na froncie (odmowa/błąd). */
+.aifaq-hist__badge.is-answered { color: var(--aifaq-accent); background: var(--aifaq-accent-ring); }
+.aifaq-hist__badge.is-refused { color: var(--aifaq-refuse); background: var(--aifaq-refuse-soft); }
+.aifaq-hist__badge.is-error { color: var(--aifaq-error); background: var(--aifaq-error-soft); }
+
+.aifaq-hist__src,
+.aifaq-hist__score,
+.aifaq-hist__date {
+	font-size: 12px;
+	color: var(--aifaq-faint);
+	white-space: nowrap;
+}
+.aifaq-hist__score { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* Rozwinięta odpowiedź — treść modelu, wstawiana przez textContent. */
+.aifaq-hist__answer {
+	padding: 0 16px 16px;
+	font-size: 14px;
+	line-height: 1.6;
+	color: var(--aifaq-muted);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.aifaq-hist__answer[hidden] { display: none; }
+.aifaq-hist__answer.is-empty { color: var(--aifaq-faint); font-style: italic; }
+
+/* Stronicowanie. */
+.aifaq-hist__pager {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 14px;
+	margin-top: 16px;
+}
+.aifaq-hist__pager[hidden] { display: none; }
+.aifaq-hist__page {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--aifaq-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+	.aifaq-hist__q { white-space: normal; flex-basis: 100%; }
+	.aifaq-hist__purge { margin-left: 0; }
+}
+
 @keyframes aifaq-fade {
 	from { opacity: 0; transform: translateY(4px); }
 	to { opacity: 1; transform: translateY(0); }

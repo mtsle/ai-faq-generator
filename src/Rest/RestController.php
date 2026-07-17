@@ -10,6 +10,8 @@
  *  - `GET  /aifaq/v1/admin/status`  — stan bazy wiedzy (cap `manage_options`).
  *  - `POST /aifaq/v1/admin/reindex` — indeksowanie (rdzeń {@see IndexController::run_reindex()}).
  *  - `POST /aifaq/v1/admin/clear`   — czyszczenie bazy wiedzy.
+ *  - `GET  /aifaq/v1/admin/history` — dziennik pytań gości (strona + podsumowanie).
+ *  - `POST /aifaq/v1/admin/history/clear` — kasowanie całego dziennika.
  *
  * Uwierzytelnianie panelu: REST cookie-auth WordPressa wymaga ważnego
  * `X-WP-Nonce` (akcja `wp_rest`), by `current_user_can()` przeszło — nonce jest
@@ -23,7 +25,9 @@
 namespace AIFAQ\Rest;
 
 use AIFAQ\Admin\IndexController;
+use AIFAQ\App\HistoryPanel;
 use AIFAQ\Core\Settings;
+use AIFAQ\Data\QaLogRepository;
 use AIFAQ\Rag\RagService;
 use WP_Error;
 use WP_REST_Request;
@@ -133,6 +137,42 @@ class RestController {
 			array(
 				'methods'             => 'POST',
 				'callback'            => array( $this, 'handle_verify' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+			)
+		);
+
+		// Panel: dziennik pytań gości (strona + podsumowanie).
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/history',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'handle_history' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					'page'     => array(
+						'type'    => 'integer',
+						'default' => 1,
+					),
+					'per_page' => array(
+						'type'    => 'integer',
+						'default' => HistoryPanel::PER_PAGE,
+					),
+					'status'   => array(
+						'type'    => 'string',
+						'default' => '',
+					),
+				),
+			)
+		);
+
+		// Panel: kasowanie całego dziennika (dane gości — RODO).
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/history/clear',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'handle_history_clear' ),
 				'permission_callback' => array( $this, 'require_admin' ),
 			)
 		);
@@ -383,6 +423,82 @@ class RestController {
 
 		return new WP_REST_Response(
 			array( 'status' => 'ok', 'message' => __( 'Połączenie OK — klucz działa.', 'ai-faq-generator' ) ),
+			200
+		);
+	}
+
+	/**
+	 * `GET /admin/history` — strona dziennika pytań + podsumowanie.
+	 *
+	 * Odsyłamy TYLKO to, co panel pokazuje: treść, status, źródło, trafność i datę.
+	 * `ip_hash` i `user_id` zostają w bazie — nie ma powodu wypuszczać
+	 * pseudonimowego identyfikatora gościa do przeglądarki (GR7, minimalizacja).
+	 *
+	 * @param WP_REST_Request $request Żądanie.
+	 * @return WP_REST_Response
+	 */
+	public function handle_history( WP_REST_Request $request ): WP_REST_Response {
+		$page     = max( 1, (int) $request->get_param( 'page' ) );
+		$per_page = max( 1, min( 100, (int) $request->get_param( 'per_page' ) ) );
+		$status   = (string) $request->get_param( 'status' );
+		$status   = in_array( $status, QaLogRepository::STATUSES, true ) ? $status : '';
+
+		$repo  = new QaLogRepository();
+		$total = $repo->count_by( $status );
+		$pages = (int) ceil( $total / $per_page );
+
+		// Strona poza zakresem (np. po wyczyszczeniu) → cofamy do ostatniej istniejącej.
+		if ( $pages > 0 && $page > $pages ) {
+			$page = $pages;
+		}
+
+		$rows   = $repo->page( $per_page, ( $page - 1 ) * $per_page, $status );
+		$format = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
+
+		$items = array();
+		foreach ( $rows as $row ) {
+			$items[] = array(
+				'id'      => (int) ( $row['id'] ?? 0 ),
+				'date'    => mysql2date( $format, (string) ( $row['created_at'] ?? '' ) ),
+				'iso'     => (string) ( $row['created_at'] ?? '' ),
+				'question' => (string) ( $row['question'] ?? '' ),
+				'answer'  => (string) ( $row['answer'] ?? '' ),
+				'status'  => (string) ( $row['status'] ?? '' ),
+				'source'  => (string) ( $row['source'] ?? '' ),
+				'score'   => round( (float) ( $row['score'] ?? 0 ), 2 ),
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'status'   => 'ok',
+				'items'    => $items,
+				'total'    => $total,
+				'page'     => $page,
+				'pages'    => $pages,
+				'per_page' => $per_page,
+				'stats'    => $repo->stats(),
+			),
+			200
+		);
+	}
+
+	/**
+	 * `POST /admin/history/clear` — kasuje cały dziennik pytań.
+	 *
+	 * @param WP_REST_Request $request Żądanie (nieużywane).
+	 * @return WP_REST_Response
+	 */
+	public function handle_history_clear( WP_REST_Request $request ): WP_REST_Response {
+		$repo    = new QaLogRepository();
+		$removed = $repo->purge();
+
+		return new WP_REST_Response(
+			array(
+				'status'  => 'ok',
+				'removed' => $removed,
+				'stats'   => $repo->stats(),
+			),
 			200
 		);
 	}

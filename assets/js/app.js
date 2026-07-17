@@ -34,6 +34,34 @@
 		} );
 	}
 
+	// Wspólny GET z nonce + parametrami; zwraca { ok, data }.
+	// Doklejamy '&', gdy adres ma juz query — przy zwyklych odnosnikach REST
+	// wyglada to jak ?rest_route=/aifaq/v1/... i '?' by go rozwalilo.
+	function get( url, params ) {
+		var qs = Object.keys( params || {} )
+			.filter( function ( k ) {
+				return params[ k ] !== '' && params[ k ] !== undefined && params[ k ] !== null;
+			} )
+			.map( function ( k ) {
+				return encodeURIComponent( k ) + '=' + encodeURIComponent( params[ k ] );
+			} )
+			.join( '&' );
+		var full = qs ? ( url + ( url.indexOf( '?' ) === -1 ? '?' : '&' ) + qs ) : url;
+
+		return fetch( full, {
+			method: 'GET',
+			credentials: 'same-origin',
+			headers: {
+				'Accept': 'application/json',
+				'X-WP-Nonce': cfg.nonce || ''
+			}
+		} ).then( function ( res ) {
+			return res.json()
+				.catch( function () { return {}; } )
+				.then( function ( data ) { return { ok: res.ok, data: data || {} }; } );
+		} );
+	}
+
 	function setText( id, value ) {
 		var el = document.getElementById( id );
 		if ( el ) { el.textContent = String( value ); }
@@ -241,5 +269,201 @@
 				if ( btnSave ) { btnSave.disabled = false; }
 			} );
 		} );
+	}
+
+	// =========================================================================
+	// Historia (REST /admin/history) — ten sam panel na froncie i w kokpicie
+	// =========================================================================
+	var hist = document.getElementById( 'aifaq-hist' );
+
+	if ( hist && ep.history ) {
+		var hList   = document.getElementById( 'aifaq-hist-list' );
+		var hSel    = document.getElementById( 'aifaq-hist-status' );
+		var hCount  = document.getElementById( 'aifaq-hist-count' );
+		var hPurge  = document.getElementById( 'aifaq-hist-purge' );
+		var hPager  = document.getElementById( 'aifaq-hist-pager' );
+		var hPage   = document.getElementById( 'aifaq-hist-page' );
+		var hPrev   = document.getElementById( 'aifaq-hist-prev' );
+		var hNext   = document.getElementById( 'aifaq-hist-next' );
+
+		var state = { page: 1, status: '', pages: 0, busy: false };
+
+		var STATUS_LABEL = { answered: 'stAnswered', refused: 'stRefused', error: 'stError' };
+		var SOURCE_LABEL = { ai: 'srcAi', cache: 'srcCache', rate_limit: 'srcRateLimit' };
+
+		// Komunikat na miejscu listy (wczytywanie / pusto / błąd).
+		var note = function ( msg ) {
+			hList.textContent = '';
+			var p = document.createElement( 'p' );
+			p.className = 'aifaq-hist__note';
+			p.textContent = msg || '';
+			hList.appendChild( p );
+		};
+
+		var renderStats = function ( s ) {
+			if ( ! s ) { return; }
+			setText( 'aifaq-hist-total', s.total );
+			setText( 'aifaq-hist-today', s.today );
+			setText( 'aifaq-hist-week', s.week );
+			setText( 'aifaq-hist-refused', s.refused );
+			setText( 'aifaq-hist-cached', s.cached );
+			setText( 'aifaq-hist-avgscore', s.total ? Number( s.avg_score ).toFixed( 2 ) : '–' );
+		};
+
+		// Jeden wiersz: nagłówek (pytanie + metryki) rozwijający odpowiedź.
+		// WSZYSTKO przez textContent — to treść od gościa i od modelu.
+		var buildRow = function ( item ) {
+			var row = document.createElement( 'article' );
+			row.className = 'aifaq-hist__row';
+
+			var head = document.createElement( 'button' );
+			head.type = 'button';
+			head.className = 'aifaq-hist__head';
+			head.setAttribute( 'aria-expanded', 'false' );
+
+			var q = document.createElement( 'span' );
+			q.className = 'aifaq-hist__q';
+			q.textContent = item.question || '';
+			head.appendChild( q );
+
+			var meta = document.createElement( 'span' );
+			meta.className = 'aifaq-hist__meta';
+
+			var badge = document.createElement( 'span' );
+			badge.className = 'aifaq-hist__badge is-' + ( item.status || 'error' );
+			badge.textContent = t[ STATUS_LABEL[ item.status ] ] || item.status || '';
+			meta.appendChild( badge );
+
+			var src = document.createElement( 'span' );
+			src.className = 'aifaq-hist__src';
+			src.textContent = t[ SOURCE_LABEL[ item.source ] ] || item.source || '';
+			meta.appendChild( src );
+
+			if ( 'error' !== item.status ) {
+				var score = document.createElement( 'span' );
+				score.className = 'aifaq-hist__score';
+				score.textContent = Number( item.score ).toFixed( 2 );
+				meta.appendChild( score );
+			}
+
+			var date = document.createElement( 'time' );
+			date.className = 'aifaq-hist__date';
+			date.textContent = item.date || '';
+			if ( item.iso ) { date.setAttribute( 'datetime', String( item.iso ).replace( ' ', 'T' ) ); }
+			meta.appendChild( date );
+
+			head.appendChild( meta );
+			row.appendChild( head );
+
+			var ans = document.createElement( 'div' );
+			ans.className = 'aifaq-hist__answer';
+			ans.hidden = true;
+			ans.textContent = item.answer ? item.answer : ( t.histNoAnswer || '' );
+			if ( ! item.answer ) { ans.classList.add( 'is-empty' ); }
+			row.appendChild( ans );
+
+			head.addEventListener( 'click', function () {
+				var open = ans.hidden;
+				ans.hidden = ! open;
+				head.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
+				row.classList.toggle( 'is-open', open );
+			} );
+
+			return row;
+		};
+
+		var renderPager = function ( data ) {
+			state.pages = data.pages || 0;
+			state.page  = data.page || 1;
+
+			if ( hCount ) {
+				hCount.textContent = ( t.histCountFmt || '%s' ).replace( '%s', data.total || 0 );
+			}
+			if ( ! hPager ) { return; }
+
+			hPager.hidden = state.pages < 2;
+			if ( hPage ) {
+				hPage.textContent = ( t.histPageFmt || '%1$s / %2$s' )
+					.replace( '%1$s', state.page )
+					.replace( '%2$s', state.pages );
+			}
+			if ( hPrev ) { hPrev.disabled = state.page <= 1; }
+			if ( hNext ) { hNext.disabled = state.page >= state.pages; }
+		};
+
+		var load = function () {
+			if ( state.busy ) { return; }
+			state.busy = true;
+			hList.setAttribute( 'aria-busy', 'true' );
+			note( t.histLoading || '' );
+
+			get( ep.history, {
+				page: state.page,
+				per_page: cfg.perPage || 20,
+				status: state.status
+			} ).then( function ( r ) {
+				if ( ! r.ok || ! r.data || 'ok' !== r.data.status ) {
+					note( t.histError || '' );
+					if ( hPager ) { hPager.hidden = true; }
+					return;
+				}
+
+				renderStats( r.data.stats );
+				renderPager( r.data );
+
+				var items = r.data.items || [];
+				if ( ! items.length ) {
+					note( t.histEmpty || '' );
+					return;
+				}
+
+				hList.textContent = '';
+				items.forEach( function ( item ) {
+					hList.appendChild( buildRow( item ) );
+				} );
+			} ).catch( function () {
+				note( t.histError || '' );
+			} ).then( function () {
+				state.busy = false;
+				hList.setAttribute( 'aria-busy', 'false' );
+			} );
+		};
+
+		if ( hSel ) {
+			hSel.addEventListener( 'change', function () {
+				state.status = hSel.value;
+				state.page   = 1;
+				load();
+			} );
+		}
+		if ( hPrev ) {
+			hPrev.addEventListener( 'click', function () {
+				if ( state.page > 1 ) { state.page--; load(); }
+			} );
+		}
+		if ( hNext ) {
+			hNext.addEventListener( 'click', function () {
+				if ( state.page < state.pages ) { state.page++; load(); }
+			} );
+		}
+		if ( hPurge && ep.historyClear ) {
+			hPurge.addEventListener( 'click', function () {
+				if ( ! window.confirm( t.histPurgeConf || '' ) ) { return; }
+				hPurge.disabled = true;
+				note( t.histPurging || '' );
+				post( ep.historyClear ).then( function ( r ) {
+					if ( r.ok && r.data && 'ok' === r.data.status ) {
+						state.page = 1;
+						load();
+					} else {
+						note( t.histError || '' );
+					}
+				} ).catch( function () {
+					note( t.histError || '' );
+				} ).then( function () { hPurge.disabled = false; } );
+			} );
+		}
+
+		load();
 	}
 } )();

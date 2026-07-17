@@ -1,10 +1,10 @@
 <?php
 /**
- * Widok: Dashboard (generator FAQ).
+ * Widok: Dashboard (przegląd).
  *
- * Na tym etapie (szkielet) to placeholder. Właściwy generator
- * — formularz, tabela wyników, eksport, podgląd JSON-LD — dojdzie
- * w kolejnych krokach.
+ * Dwie liczby, które właściciel chce znać na wejściu: stan bazy wiedzy (czy jest
+ * co odpowiadać) i ruch gości z dziennika `qa_log` (czy ktoś pyta i czy dostaje
+ * odpowiedzi). Szczegóły dziennika — na podstronie „Historia".
  *
  * @package AI_FAQ_Generator
  */
@@ -14,6 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 $aifaq_stats = \AIFAQ\Admin\IndexController::stats();
+$aifaq_qa    = ( new \AIFAQ\Data\QaLogRepository() )->stats();
 ?>
 <div class="wrap aifaq-wrap">
 	<h1 class="aifaq-title">
@@ -49,6 +50,56 @@ $aifaq_stats = \AIFAQ\Admin\IndexController::stats();
 		</p>
 
 		<div class="aifaq-index-report" id="aifaq-index-report" hidden></div>
+	</div>
+
+	<div class="aifaq-card">
+		<h2><?php esc_html_e( 'Pytania gości', 'ai-faq-generator' ); ?></h2>
+		<p><?php esc_html_e( 'Co się dzieje na publicznej stronie generatora. „Odmowy" to pytania spoza tematu Twojej strony — bramka tematu zadziałała. „Z cache" to powtórzone pytania, za które nie zapłaciłeś.', 'ai-faq-generator' ); ?></p>
+
+		<?php
+		$aifaq_tiles = array(
+			array( 'n' => (string) $aifaq_qa['total'], 'l' => __( 'Wszystkich pytań', 'ai-faq-generator' ) ),
+			array( 'n' => (string) $aifaq_qa['today'], 'l' => __( 'Dziś', 'ai-faq-generator' ) ),
+			array( 'n' => (string) $aifaq_qa['week'], 'l' => __( 'Ostatnie 7 dni', 'ai-faq-generator' ) ),
+			array( 'n' => (string) $aifaq_qa['refused'], 'l' => __( 'Odmów (poza tematem)', 'ai-faq-generator' ) ),
+			array( 'n' => (string) $aifaq_qa['cached'], 'l' => __( 'Z cache (bez kosztu)', 'ai-faq-generator' ) ),
+			array(
+				'n' => $aifaq_qa['total'] ? number_format_i18n( $aifaq_qa['avg_score'], 2 ) : '–',
+				'l' => __( 'Średnia trafność', 'ai-faq-generator' ),
+			),
+		);
+		?>
+		<div class="aifaq-tiles">
+			<?php foreach ( $aifaq_tiles as $aifaq_tile ) : ?>
+				<div class="aifaq-tile">
+					<span class="aifaq-tile__n"><?php echo esc_html( $aifaq_tile['n'] ); ?></span>
+					<span class="aifaq-tile__l"><?php echo esc_html( $aifaq_tile['l'] ); ?></span>
+				</div>
+			<?php endforeach; ?>
+		</div>
+
+		<?php if ( $aifaq_qa['errors'] > 0 ) : ?>
+			<p class="aifaq-tiles__note">
+				<?php
+				printf(
+					/* translators: %s: liczba pytań zakończonych błędem */
+					esc_html( _n(
+						'Uwaga: %s pytanie zakończyło się błędem — sprawdź klucz API i szczegóły w Historii.',
+						'Uwaga: %s pytań zakończyło się błędem — sprawdź klucz API i szczegóły w Historii.',
+						$aifaq_qa['errors'],
+						'ai-faq-generator'
+					) ),
+					'<strong>' . esc_html( number_format_i18n( $aifaq_qa['errors'] ) ) . '</strong>'
+				);
+				?>
+			</p>
+		<?php endif; ?>
+
+		<p>
+			<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=' . \AIFAQ\Admin\Menu::SLUG_HISTORY ) ); ?>">
+				<?php esc_html_e( 'Zobacz dziennik', 'ai-faq-generator' ); ?>
+			</a>
+		</p>
 	</div>
 
 	<div class="aifaq-card">

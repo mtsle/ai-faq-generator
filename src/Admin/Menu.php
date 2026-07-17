@@ -224,5 +224,37 @@ class Menu {
 				\AIFAQ\PublicUi\GeneratorPage::config()
 			);
 		}
+
+		// Ekran Historii: ten sam panel co zakładka „Historia" w apce → te same
+		// assety. generator.css wnosi zmienne --aifaq-* (paleta), app.css sam
+		// panel, app.js jego logikę (czyta window.aifaqApp). Pozostałe bloki
+		// app.js (zakładki, indeksowanie, ustawienia) są bramkowane obecnością
+		// swoich elementów w DOM, więc tutaj po prostu się nie uruchamiają.
+		if ( $is_history ) {
+			wp_enqueue_style(
+				'aifaq-generator',
+				AIFAQ_PLUGIN_URL . 'assets/css/generator.css',
+				array(),
+				AIFAQ_VERSION
+			);
+			wp_enqueue_style(
+				'aifaq-app',
+				AIFAQ_PLUGIN_URL . 'assets/css/app.css',
+				array( 'aifaq-generator' ),
+				AIFAQ_VERSION
+			);
+			wp_enqueue_script(
+				'aifaq-app',
+				AIFAQ_PLUGIN_URL . 'assets/js/app.js',
+				array(),
+				AIFAQ_VERSION,
+				true
+			);
+			wp_localize_script(
+				'aifaq-app',
+				'aifaqApp',
+				\AIFAQ\App\AppShell::config()
+			);
+		}
 	}
 }

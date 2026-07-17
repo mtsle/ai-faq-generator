@@ -74,6 +74,7 @@ require __DIR__ . '/../src/Rest/RestController.php';
 require __DIR__ . '/../src/Admin/Menu.php';
 require __DIR__ . '/../src/Admin/IndexController.php';
 require __DIR__ . '/../src/PublicUi/GeneratorPage.php';
+require __DIR__ . '/../src/App/HistoryPanel.php';
 require __DIR__ . '/../src/App/AppShell.php';
 
 use AIFAQ\App\AppShell;

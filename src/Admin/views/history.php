@@ -1,10 +1,12 @@
 <?php
 /**
- * Widok: Historia (dziennik pytań).
+ * Widok: Historia (kokpit).
  *
- * Placeholder na etapie szkieletu. Właściwa lista — data, pytanie,
- * status (odpowiedziano/odmowa/błąd), źródło (cache/AI) i score — powstanie
- * w kroku 10 (dane z tabeli wp_aifaq_qa_log).
+ * „Panel = ta sama apka" — renderuje DOKŁADNIE ten sam komponent, co zakładka
+ * „Historia" w apce `/faqgenerator`: {@see \AIFAQ\App\HistoryPanel::widget()}.
+ * Jeden markup, jedno źródło danych (REST `/admin/history`), jeden kawałek JS
+ * (app.js). Assety i konfiguracja (window.aifaqApp) wpięte w
+ * {@see \AIFAQ\Admin\Menu::enqueue_assets()}.
  *
  * @package AI_FAQ_Generator
  */
@@ -12,6 +14,9 @@
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
+
+$aifaq_lang = (string) \AIFAQ\Core\Settings::get_field( 'language', 'pl' );
+$aifaq_t    = \AIFAQ\App\HistoryPanel::strings( in_array( $aifaq_lang, array( 'pl', 'en', 'de' ), true ) ? $aifaq_lang : 'pl' );
 ?>
 <div class="wrap aifaq-wrap">
 	<h1 class="aifaq-title">
@@ -20,9 +25,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<span class="aifaq-sub"><?php esc_html_e( 'Historia', 'ai-faq-generator' ); ?></span>
 	</h1>
 
-	<div class="aifaq-card">
-		<span class="aifaq-badge"><?php esc_html_e( 'W budowie', 'ai-faq-generator' ); ?></span>
-		<h2><?php esc_html_e( 'Dziennik pytań', 'ai-faq-generator' ); ?></h2>
-		<p><?php esc_html_e( 'Tutaj pojawi się lista pytań gości: data, treść pytania, status (odpowiedziano / odmowa / błąd), źródło (cache lub AI) oraz trafność. Tabela w bazie została już utworzona przy aktywacji wtyczki.', 'ai-faq-generator' ); ?></p>
+	<p class="aifaq-lead">
+		<?php esc_html_e( 'Ten sam dziennik widzisz w zakładce „Historia" na stronie generatora — to jeden i ten sam panel.', 'ai-faq-generator' ); ?>
+	</p>
+
+	<div class="aifaq-embed">
+		<?php // Klasa `aifaq` niesie zmienne --aifaq-* (generator.css), a `.aifaq-embed .aifaq` w admin.css przypina jasny motyw — pole treści wp-admin jest zawsze jasne. ?>
+		<div class="aifaq">
+			<?php
+			// Markup zbudowany z esc_* wewnątrz widget() — bezpieczny do wypisania.
+			echo \AIFAQ\App\HistoryPanel::widget( $aifaq_t ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+			?>
+		</div>
 	</div>
 </div>
