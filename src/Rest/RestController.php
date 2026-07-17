@@ -27,7 +27,10 @@ namespace AIFAQ\Rest;
 use AIFAQ\Admin\IndexController;
 use AIFAQ\App\HistoryPanel;
 use AIFAQ\Core\Settings;
+use AIFAQ\Data\GenerationRepository;
 use AIFAQ\Data\QaLogRepository;
+use AIFAQ\Faq\FaqGenerator;
+use AIFAQ\Providers\ProviderFactory;
 use AIFAQ\Rag\RagService;
 use WP_Error;
 use WP_REST_Request;
@@ -176,6 +179,77 @@ class RestController {
 				'permission_callback' => array( $this, 'require_admin' ),
 			)
 		);
+
+		// Panel: generowanie par FAQ z tematu (narzędzie generatora, Krok 12).
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/generate-faq',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'handle_generate_faq' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					'topic'       => array(
+						'required'          => true,
+						'type'              => 'string',
+						'description'       => __( 'Temat, na który wygenerować FAQ.', 'ai-faq-generator' ),
+						'validate_callback' => array( $this, 'validate_topic' ),
+						'sanitize_callback' => 'sanitize_text_field',
+					),
+					'description' => array(
+						'type'              => 'string',
+						'default'           => '',
+						'sanitize_callback' => 'sanitize_textarea_field',
+					),
+					'count'       => array(
+						'type'    => 'integer',
+						'default' => 0,
+					),
+					'language'    => array(
+						'type'    => 'string',
+						'default' => '',
+					),
+				),
+			)
+		);
+
+		// Panel: lista historii generowań (Krok 12).
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/generations',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'handle_generations' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					'page'     => array(
+						'type'    => 'integer',
+						'default' => 1,
+					),
+					'per_page' => array(
+						'type'    => 'integer',
+						'default' => 20,
+					),
+				),
+			)
+		);
+
+		// Panel: usunięcie jednego wpisu historii generowań (Krok 12).
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/generations/delete',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'handle_generations_delete' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					'id' => array(
+						'required' => true,
+						'type'     => 'integer',
+					),
+				),
+			)
+		);
 	}
 
 	/**
@@ -222,6 +296,28 @@ class RestController {
 					__( 'Pytanie jest za długie (maksymalnie %d znaków).', 'ai-faq-generator' ),
 					RagService::MAX_QUESTION_LEN
 				),
+				array( 'status' => 400 )
+			);
+		}
+
+		return true;
+	}
+
+	/**
+	 * Waliduje temat generacji: niepusty po sanityzacji (inaczej 400 zamiast 502).
+	 *
+	 * @param mixed           $value   Surowa wartość parametru.
+	 * @param WP_REST_Request $request Żądanie (nieużywane).
+	 * @param string          $param   Nazwa parametru (nieużywana).
+	 * @return true|WP_Error
+	 */
+	public function validate_topic( $value, $request = null, $param = '' ) {
+		$clean = trim( sanitize_text_field( wp_unslash( (string) $value ) ) );
+
+		if ( '' === $clean ) {
+			return new WP_Error(
+				'aifaq_empty_topic',
+				__( 'Temat nie może być pusty.', 'ai-faq-generator' ),
 				array( 'status' => 400 )
 			);
 		}
@@ -501,6 +597,187 @@ class RestController {
 			),
 			200
 		);
+	}
+
+	/**
+	 * `POST /admin/generate-faq` — generuje pary FAQ z tematu i zapisuje historię.
+	 *
+	 * Kreatywna generacja przez {@see FaqGenerator} (NIE przez RAG). Liczba pytań
+	 * klampowana do reguły produktu 5..20 (domyślnie z ustawień). Błąd providera →
+	 * 502 (bez surowego komunikatu); brak użytecznych par → 200 ze statusem `empty`;
+	 * sukces → 200 z parami + zapis snapshotu w `wp_aifaq_generations`.
+	 *
+	 * @param WP_REST_Request $request Żądanie.
+	 * @return WP_REST_Response
+	 */
+	public function handle_generate_faq( WP_REST_Request $request ): WP_REST_Response {
+		$topic = trim( (string) $request->get_param( 'topic' ) );
+		$desc  = (string) $request->get_param( 'description' );
+		$count = (int) $request->get_param( 'count' );
+		$lang  = (string) $request->get_param( 'language' );
+
+		// Liczba pytań: brak/0 → domyślna z ustawień; potem twardy clamp 5..20.
+		if ( $count <= 0 ) {
+			$count = (int) Settings::get_field( 'max_questions', 20 );
+		}
+		$count = max( 5, min( 20, $count ) );
+
+		// Język: tylko z whitelisty; w innym razie z ustawień.
+		if ( ! in_array( $lang, array( 'pl', 'en', 'de' ), true ) ) {
+			$lang = (string) Settings::get_field( 'language', 'pl' );
+		}
+
+		$temperature = (float) Settings::get_field( 'temperature', 0.7 );
+
+		$generator = new FaqGenerator( ProviderFactory::make() );
+		$result    = $generator->generate( $topic, $desc, $count, $lang, array( 'temperature' => $temperature ) );
+
+		$status = (string) ( $result['status'] ?? 'error' );
+		$pairs  = ( isset( $result['pairs'] ) && is_array( $result['pairs'] ) ) ? $result['pairs'] : array();
+
+		// Błąd providera — nie ujawniamy surowego komunikatu (jak /ask).
+		if ( 'error' === $status ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Nie udało się teraz wygenerować FAQ. Spróbuj ponownie później.', 'ai-faq-generator' ),
+				),
+				502
+			);
+		}
+
+		// Model nie zwrócił użytecznych par — to nie błąd, informujemy łagodnie.
+		if ( 'ok' !== $status || empty( $pairs ) ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'empty',
+					'message' => __( 'Model nie zwrócił par dla tego tematu. Doprecyzuj temat lub opis.', 'ai-faq-generator' ),
+					'pairs'   => array(),
+				),
+				200
+			);
+		}
+
+		// Zapis snapshotu generowania (historia + „Ponownie wygeneruj").
+		$repo = new GenerationRepository();
+		$id   = $repo->log(
+			array(
+				'topic'         => $topic,
+				'extra_desc'    => $desc,
+				'num_questions' => count( $pairs ),
+				'language'      => $lang,
+				'user_id'       => get_current_user_id(),
+				'pairs'         => $pairs,
+			)
+		);
+
+		return new WP_REST_Response(
+			array(
+				'status' => 'ok',
+				'id'     => $id,
+				'topic'  => $topic,
+				'count'  => count( $pairs ),
+				'pairs'  => $pairs,
+			),
+			200
+		);
+	}
+
+	/**
+	 * `GET /admin/generations` — strona historii generowań (metadane, bez par).
+	 *
+	 * Lista pokazuje tylko metadane (data/temat/liczba/język/użytkownik) + `extra_desc`
+	 * (potrzebny do „Ponownie wygeneruj"). Same pary zostają w snapshotcie i doczytuje
+	 * je dopiero widok szczegółu — nie pompujemy ich do każdego wiersza listy.
+	 *
+	 * @param WP_REST_Request $request Żądanie.
+	 * @return WP_REST_Response
+	 */
+	public function handle_generations( WP_REST_Request $request ): WP_REST_Response {
+		$page     = max( 1, (int) $request->get_param( 'page' ) );
+		$per_page = max( 1, min( 100, (int) $request->get_param( 'per_page' ) ) );
+
+		$repo  = new GenerationRepository();
+		$total = $repo->count();
+		$pages = (int) ceil( $total / $per_page );
+
+		// Strona poza zakresem (np. po usunięciu) → cofamy do ostatniej istniejącej.
+		if ( $pages > 0 && $page > $pages ) {
+			$page = $pages;
+		}
+
+		$rows   = $repo->page( $per_page, ( $page - 1 ) * $per_page );
+		$format = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
+
+		$items = array();
+		foreach ( $rows as $row ) {
+			$items[] = array(
+				'id'            => (int) ( $row['id'] ?? 0 ),
+				'date'          => mysql2date( $format, (string) ( $row['created_at'] ?? '' ) ),
+				'iso'           => (string) ( $row['created_at'] ?? '' ),
+				'topic'         => (string) ( $row['topic'] ?? '' ),
+				'extra_desc'    => (string) ( $row['extra_desc'] ?? '' ),
+				'num_questions' => (int) ( $row['num_questions'] ?? 0 ),
+				'language'      => (string) ( $row['language'] ?? '' ),
+				'user'          => $this->user_label( (int) ( $row['user_id'] ?? 0 ) ),
+			);
+		}
+
+		return new WP_REST_Response(
+			array(
+				'status'   => 'ok',
+				'items'    => $items,
+				'total'    => $total,
+				'page'     => $page,
+				'pages'    => $pages,
+				'per_page' => $per_page,
+			),
+			200
+		);
+	}
+
+	/**
+	 * `POST /admin/generations/delete` — usuwa jeden wpis historii generowań.
+	 *
+	 * @param WP_REST_Request $request Żądanie.
+	 * @return WP_REST_Response
+	 */
+	public function handle_generations_delete( WP_REST_Request $request ): WP_REST_Response {
+		$id = (int) $request->get_param( 'id' );
+
+		if ( $id <= 0 ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Brak poprawnego identyfikatora.', 'ai-faq-generator' ),
+				),
+				400
+			);
+		}
+
+		$deleted = ( new GenerationRepository() )->delete( $id );
+
+		return new WP_REST_Response(
+			array(
+				'status'  => 'ok',
+				'deleted' => $deleted,
+			),
+			200
+		);
+	}
+
+	/**
+	 * Etykieta autora generacji do listy (nazwa wyświetlana albo ID, '' dla gościa).
+	 *
+	 * @param int $user_id Identyfikator użytkownika.
+	 * @return string
+	 */
+	private function user_label( int $user_id ): string {
+		if ( $user_id <= 0 ) {
+			return '';
+		}
+		$user = get_userdata( $user_id );
+		return ( $user && '' !== $user->display_name ) ? $user->display_name : (string) $user_id;
 	}
 
 	/**
