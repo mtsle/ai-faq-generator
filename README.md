@@ -5,12 +5,13 @@ publicznej podstronie `/faqgenerator`, a odpowiedź powstaje **wyłącznie w tem
 treści tej strony** (RAG + embeddingi Gemini) — pytania off-topic są odrzucane.
 Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 
-> **Status:** w budowie · Kroki 0–11 gotowe (dwie połówki produktu):
+> **Status:** w budowie · Kroki 0–13 gotowe (dwie połówki produktu):
 > **RAG** (`/faqgenerator`: Indexer + Retriever + TopicGuard + Answerer, REST `aifaq/v1`,
-> front rola-aware, dziennik pytań gości) **+ fundament generatora FAQ w kokpicie**
-> (Krok 11: `Faq\FaqGenerator` — temat→pary Q&A jako structured JSON,
-> `GenerationRepository` + tabela `wp_aifaq_generations`, auto-migracja schematu).
-> Dalej: Krok 12 — REST generatora (`/admin/generate-faq`, `/admin/generations`).
+> front rola-aware, dziennik pytań gości) **+ generator FAQ w kokpicie**
+> (Krok 11: `Faq\FaqGenerator` — temat→pary Q&A jako structured JSON, tabela `wp_aifaq_generations`;
+> Krok 12: REST `/admin/generate-faq` + `/admin/generations`;
+> **Krok 13: ekran „Narzędzie FAQ" — formularz Temat/Opis/Liczba + tabela par z Edytuj/Usuń/Kopiuj**).
+> Dalej: Krok 14 — eksport (HTML/Gutenberg/Elementor/JSON) + JSON-LD FAQPage.
 > Pełne README z instrukcjami — Krok 17 (v1.0.0).
 
 ## Założenia
@@ -28,7 +29,7 @@ src/Core/      Plugin, Settings, Activator, Deactivator, Router
 src/Data/      Schema (4 tabele) + repozytoria + Migrator
 src/Http/      HttpClient (interfejs) + WpHttpClient — generyczny transport HTTP
 src/Providers/ ProviderInterface, GeminiProvider, ProviderFactory — warstwa AI (BYOK)
-src/Admin/     Menu + views/ (Dashboard, Ustawienia, Historia)
+src/Admin/     Menu + FaqToolPage + views/ (Dashboard, Generator, Narzędzie FAQ, Ustawienia, Historia)
 src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9-10)
 src/Faq/  (Krok 11) FaqGenerator — kreatywny generator par Q&A (osobny od RAG)
 ```

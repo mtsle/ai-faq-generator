@@ -33,6 +33,7 @@ class Menu {
 	 * Slugi podstron.
 	 */
 	const SLUG_GENERATOR = 'ai-faq-generator-generator';
+	const SLUG_FAQ_TOOL  = 'ai-faq-generator-faq-tool';
 	const SLUG_SETTINGS  = 'ai-faq-generator-settings';
 	const SLUG_HISTORY   = 'ai-faq-generator-history';
 
@@ -70,6 +71,15 @@ class Menu {
 
 		add_submenu_page(
 			self::SLUG,
+			__( 'Narzędzie FAQ', 'ai-faq-generator' ),
+			__( 'Narzędzie FAQ', 'ai-faq-generator' ),
+			self::CAPABILITY,
+			self::SLUG_FAQ_TOOL,
+			array( $this, 'render_faq_tool' )
+		);
+
+		add_submenu_page(
+			self::SLUG,
 			__( 'Ustawienia', 'ai-faq-generator' ),
 			__( 'Ustawienia', 'ai-faq-generator' ),
 			self::CAPABILITY,
@@ -99,6 +109,13 @@ class Menu {
 	 */
 	public function render_generator(): void {
 		$this->render_view( 'generator' );
+	}
+
+	/**
+	 * Renderuje ekran „Narzędzie FAQ" (generator par Q&A z tematu).
+	 */
+	public function render_faq_tool(): void {
+		$this->render_view( 'faq-tool' );
 	}
 
 	/**
@@ -148,11 +165,12 @@ class Menu {
 			AIFAQ_VERSION
 		);
 
-		// Skrypt indeksowania tylko na Dashboardzie (nie Generator/Ustawienia/Historia).
+		// Skrypt indeksowania tylko na Dashboardzie (nie Generator/Narzędzie FAQ/Ustawienia/Historia).
 		$is_generator = false !== strpos( $hook_suffix, self::SLUG_GENERATOR );
+		$is_faq_tool  = false !== strpos( $hook_suffix, self::SLUG_FAQ_TOOL );
 		$is_settings  = false !== strpos( $hook_suffix, self::SLUG_SETTINGS );
 		$is_history   = false !== strpos( $hook_suffix, self::SLUG_HISTORY );
-		if ( ! $is_generator && ! $is_settings && ! $is_history ) {
+		if ( ! $is_generator && ! $is_faq_tool && ! $is_settings && ! $is_history ) {
 			wp_enqueue_script(
 				'aifaq-indexer',
 				AIFAQ_PLUGIN_URL . 'assets/js/indexer.js',
@@ -254,6 +272,36 @@ class Menu {
 				'aifaq-app',
 				'aifaqApp',
 				\AIFAQ\App\AppShell::config()
+			);
+		}
+
+		// Ekran „Narzędzie FAQ": generator par Q&A z tematu. generator.css wnosi
+		// paletę (--aifaq-*), faq-tool.css sam ekran, faq-tool.js logikę (czyta
+		// window.aifaqFaqTool). Konfiguracja bez sekretów (endpoint + nonce).
+		if ( $is_faq_tool ) {
+			wp_enqueue_style(
+				'aifaq-generator',
+				AIFAQ_PLUGIN_URL . 'assets/css/generator.css',
+				array(),
+				AIFAQ_VERSION
+			);
+			wp_enqueue_style(
+				'aifaq-faq-tool',
+				AIFAQ_PLUGIN_URL . 'assets/css/faq-tool.css',
+				array( 'aifaq-generator' ),
+				AIFAQ_VERSION
+			);
+			wp_enqueue_script(
+				'aifaq-faq-tool',
+				AIFAQ_PLUGIN_URL . 'assets/js/faq-tool.js',
+				array(),
+				AIFAQ_VERSION,
+				true
+			);
+			wp_localize_script(
+				'aifaq-faq-tool',
+				'aifaqFaqTool',
+				\AIFAQ\Admin\FaqToolPage::config()
 			);
 		}
 	}

@@ -1,0 +1,377 @@
+/* AI FAQ Generator — Krok 13, ekran „Narzędzie FAQ" (wp-admin).
+ *
+ * Stylizuje DOM z KONTRAKT §4 (Etap 1 renderuje, Etap 2 ożywia). Wszystko pod
+ * prefiksem `.aifaq-ft` w kontenerze `.wrap.aifaq-wrap.aifaq-ft > .aifaq`.
+ * Paleta z generator.css (zależność enqueue, KONTRAKT §1) przez zmienne --aifaq-*.
+ * Wzór spójności: app.css / admin.css (panel) + generator.css (widget Q&A).
+ */
+
+/* --- PRZYPIĘCIE JASNEGO MOTYWU ---------------------------------------------
+ * Pole treści wp-admin jest zawsze jasne, więc auto-dark (prefers-color-scheme
+ * z OS) w generator.css dałby jasny tekst na jasnym tle — nieczytelne. Dwie
+ * klasy `.aifaq-ft .aifaq` = wyższa specyficzność niż `@media` w generator.css,
+ * więc jasna paleta wygrywa niezależnie od trybu systemu. To ta sama pułapka,
+ * którą rozwiązano dla `.aifaq-embed .aifaq` w K9/K10 (admin.css). */
+.aifaq-ft .aifaq {
+	--aifaq-bg: #f6f7f8;
+	--aifaq-surface: #ffffff;
+	--aifaq-border: #e4e7e9;
+	--aifaq-text: #1b2128;
+	--aifaq-muted: #616a73;
+	--aifaq-faint: #9aa2ab;
+	--aifaq-accent: #0f766e;
+	--aifaq-accent-strong: #0b5f58;
+	--aifaq-accent-fg: #ffffff;
+	--aifaq-accent-ring: rgba(15, 118, 110, .18);
+	--aifaq-error: #b3261e;
+	--aifaq-error-soft: #fbe6e4;
+	--aifaq-error-border: #f0c0bc;
+
+	color: var(--aifaq-text);
+	font-family: var(--aifaq-sans);
+}
+
+/* Szerszy kontener niż domyślne 900px z admin.css — tabela Q&A potrzebuje miejsca. */
+.aifaq-ft.aifaq-wrap {
+	max-width: 1080px;
+}
+
+/* --- NAGŁÓWEK EKRANU -------------------------------------------------------- */
+.aifaq-ft .aifaq__head {
+	margin: 6px 0 20px;
+}
+.aifaq-ft .aifaq__title {
+	font-size: 22px;
+	line-height: 1.2;
+	letter-spacing: -.01em;
+	font-weight: 700;
+	margin: 0;
+}
+.aifaq-ft .aifaq__subtitle,
+.aifaq-ft .aifaq-lead {
+	margin: 8px 0 0;
+	max-width: 70ch;
+	color: var(--aifaq-muted);
+	font-size: 14px;
+}
+
+/* --- FORMULARZ -------------------------------------------------------------- */
+.aifaq-ft__form {
+	background: var(--aifaq-surface);
+	border: 1px solid var(--aifaq-border);
+	border-left: 4px solid var(--aifaq-accent);
+	border-radius: 8px;
+	padding: 20px 22px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+	display: grid;
+	gap: 14px;
+	max-width: 720px;
+}
+
+/* Etykiety pól (Etap 1 renderuje label + kontrolkę). Nie wymuszamy konkretnej
+   klasy — stylizujemy generyczne <label> w formularzu, defensywnie. */
+.aifaq-ft__form label {
+	display: block;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--aifaq-text);
+	margin-bottom: 6px;
+}
+
+/* Wspólny wygląd pól tekstowych/liczbowych. */
+.aifaq-ft__input,
+.aifaq-ft__area,
+.aifaq-ft__count {
+	display: block;
+	width: 100%;
+	box-sizing: border-box;
+	border: 1px solid var(--aifaq-border);
+	border-radius: var(--aifaq-radius-sm, 8px);
+	background: #fff;
+	color: var(--aifaq-text);
+	font: inherit;
+	line-height: 1.5;
+	padding: 10px 12px;
+	transition: border-color .15s ease, box-shadow .15s ease;
+}
+.aifaq-ft__input::placeholder,
+.aifaq-ft__area::placeholder {
+	color: var(--aifaq-faint);
+}
+.aifaq-ft__input:focus,
+.aifaq-ft__area:focus,
+.aifaq-ft__count:focus {
+	outline: none;
+	border-color: var(--aifaq-accent);
+	box-shadow: 0 0 0 3px var(--aifaq-accent-ring);
+}
+.aifaq-ft__area {
+	min-height: 84px;
+	resize: vertical;
+}
+/* Liczba pytań — wąskie pole, nie na całą szerokość. */
+.aifaq-ft__count {
+	width: 96px;
+	text-align: center;
+	font-variant-numeric: tabular-nums;
+}
+
+/* Rząd akcji: przycisk + status obok siebie. */
+.aifaq-ft__actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+	margin-top: 2px;
+}
+
+/* --- PRZYCISKI -------------------------------------------------------------- */
+.aifaq-ft__btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	background: var(--aifaq-surface);
+	color: var(--aifaq-text);
+	border: 1px solid var(--aifaq-border);
+	border-radius: 999px;
+	padding: 9px 18px;
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background .15s ease, border-color .15s ease, transform .05s ease, opacity .15s ease;
+}
+.aifaq-ft__btn:hover {
+	border-color: var(--aifaq-accent);
+	color: var(--aifaq-accent);
+}
+.aifaq-ft__btn:active {
+	transform: translateY(1px);
+}
+.aifaq-ft__btn:focus-visible {
+	outline: 2px solid var(--aifaq-accent);
+	outline-offset: 2px;
+}
+.aifaq-ft__btn:disabled {
+	opacity: .55;
+	cursor: default;
+	transform: none;
+	border-color: var(--aifaq-border);
+	color: var(--aifaq-muted);
+}
+
+/* Główny przycisk „Generuj FAQ". */
+.aifaq-ft__btn--primary {
+	background: var(--aifaq-accent);
+	color: var(--aifaq-accent-fg);
+	border-color: transparent;
+}
+.aifaq-ft__btn--primary:hover {
+	background: var(--aifaq-accent-strong);
+	color: var(--aifaq-accent-fg);
+	border-color: transparent;
+}
+.aifaq-ft__btn--primary:disabled {
+	background: var(--aifaq-accent);
+	color: var(--aifaq-accent-fg);
+}
+
+/* --- STATUS („Generuję…", „Gotowe — N par.", błąd) -------------------------- */
+.aifaq-ft__status {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--aifaq-muted);
+}
+.aifaq-ft__status:empty {
+	display: none;
+}
+.aifaq-ft__status.is-loading {
+	color: var(--aifaq-muted);
+}
+.aifaq-ft__status.is-error {
+	color: var(--aifaq-error);
+}
+.aifaq-ft__status.is-ok {
+	color: #15803d;
+}
+
+/* --- WYNIKI: pasek narzędzi + tabela ---------------------------------------- */
+/* Kontener przewijalny w poziomie na wąsko — tabela nie rozjeżdża layoutu. */
+.aifaq-ft__results {
+	margin-top: 24px;
+	overflow-x: auto;
+	animation: aifaq-ft-rise .18s ease both;
+}
+.aifaq-ft__results[hidden] {
+	display: none;
+}
+
+.aifaq-ft__toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 10px;
+	margin-bottom: 10px;
+}
+
+.aifaq-ft__table {
+	width: 100%;
+	border-collapse: collapse;
+	background: var(--aifaq-surface);
+	border: 1px solid var(--aifaq-border);
+	border-radius: 8px;
+	overflow: hidden;
+	font-size: 14px;
+}
+.aifaq-ft__table thead th {
+	text-align: left;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: .03em;
+	text-transform: uppercase;
+	color: var(--aifaq-muted);
+	background: var(--aifaq-bg);
+	border-bottom: 1px solid var(--aifaq-border);
+	padding: 10px 14px;
+	white-space: nowrap;
+}
+/* Kolumna akcji — wąska, wyrównana. */
+.aifaq-ft__table thead th:last-child {
+	text-align: right;
+	width: 1%;
+}
+
+.aifaq-ft__row > td {
+	padding: 12px 14px;
+	border-bottom: 1px solid var(--aifaq-border);
+	vertical-align: top;
+	line-height: 1.55;
+}
+.aifaq-ft__table tbody tr:last-child > td {
+	border-bottom: 0;
+}
+.aifaq-ft__row:hover > td {
+	background: rgba(15, 118, 110, .03);
+}
+
+/* Pytanie nieco mocniejsze niż odpowiedź; szerokości kolumn zrównoważone. */
+.aifaq-ft__q {
+	width: 34%;
+	font-weight: 600;
+	color: var(--aifaq-text);
+}
+.aifaq-ft__a {
+	color: var(--aifaq-muted);
+}
+.aifaq-ft__text {
+	white-space: pre-wrap;
+	word-wrap: break-word;
+}
+
+/* --- KOLUMNA AKCJI ---------------------------------------------------------- */
+.aifaq-ft__acts {
+	white-space: nowrap;
+	text-align: right;
+}
+.aifaq-ft__act {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	background: transparent;
+	color: var(--aifaq-muted);
+	border: 1px solid transparent;
+	border-radius: 6px;
+	padding: 5px 9px;
+	margin-left: 4px;
+	font: inherit;
+	font-size: 12px;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+	transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.aifaq-ft__act:hover {
+	background: var(--aifaq-bg);
+	color: var(--aifaq-text);
+	border-color: var(--aifaq-border);
+}
+.aifaq-ft__act:focus-visible {
+	outline: 2px solid var(--aifaq-accent);
+	outline-offset: 1px;
+}
+.aifaq-ft__act .dashicons {
+	font-size: 16px;
+	width: 16px;
+	height: 16px;
+	line-height: 1;
+}
+.aifaq-ft__act--edit:hover,
+.aifaq-ft__act--save:hover {
+	color: var(--aifaq-accent);
+	border-color: var(--aifaq-accent);
+}
+.aifaq-ft__act--del:hover {
+	color: var(--aifaq-error);
+	border-color: var(--aifaq-error-border);
+	background: var(--aifaq-error-soft);
+}
+
+/* --- TRYB EDYCJI WIERSZA (.is-editing) -------------------------------------- */
+/* Etap 2: dodaje `is-editing` na <tr>, zamienia .aifaq-ft__text na
+   <textarea.aifaq-ft__edit>, chowa edit/copy, pokazuje save/cancel. */
+.aifaq-ft__row.is-editing > td {
+	background: rgba(15, 118, 110, .04);
+}
+.aifaq-ft__edit {
+	display: block;
+	width: 100%;
+	box-sizing: border-box;
+	min-height: 64px;
+	border: 1px solid var(--aifaq-accent);
+	border-radius: 6px;
+	background: #fff;
+	color: var(--aifaq-text);
+	font: inherit;
+	font-size: 14px;
+	line-height: 1.5;
+	padding: 8px 10px;
+	resize: vertical;
+}
+.aifaq-ft__edit:focus {
+	outline: none;
+	box-shadow: 0 0 0 3px var(--aifaq-accent-ring);
+}
+/* W trybie edycji chowamy edit/copy, pokazujemy save/cancel; poza edycją odwrotnie.
+   Etap 2 może też przełączać [hidden] — respektujemy oba mechanizmy. */
+.aifaq-ft__act--save,
+.aifaq-ft__act--cancel {
+	display: none;
+}
+.aifaq-ft__row.is-editing .aifaq-ft__act--edit,
+.aifaq-ft__row.is-editing .aifaq-ft__act--copy {
+	display: none;
+}
+.aifaq-ft__row.is-editing .aifaq-ft__act--save,
+.aifaq-ft__row.is-editing .aifaq-ft__act--cancel {
+	display: inline-flex;
+}
+.aifaq-ft__act[hidden] {
+	display: none;
+}
+
+/* --- RUCH / RWA ------------------------------------------------------------- */
+@keyframes aifaq-ft-rise {
+	from { opacity: 0; transform: translateY(6px); }
+	to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.aifaq-ft__results { animation: none; }
+}
+
+/* --- RESPONSYWNOŚĆ ---------------------------------------------------------- */
+@media (max-width: 600px) {
+	.aifaq-ft__form { padding: 16px; }
+	.aifaq-ft__actions .aifaq-ft__btn--primary { flex: 1 1 auto; justify-content: center; }
+	.aifaq-ft__table { min-width: 520px; }
+	.aifaq-ft__q { width: auto; }
+}
