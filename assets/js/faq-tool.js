@@ -220,6 +220,7 @@
 				spanA.textContent = pair.a;
 			}
 			leaveEdit();
+			onPairsChanged(); // pary się zmieniły → eksport dirty
 		} );
 
 		// Anuluj: przywróć poprzednie wartości (textarea po prostu porzucamy).
@@ -242,6 +243,7 @@
 			if ( ! pairs.length ) {
 				results.hidden = true;
 			}
+			onPairsChanged(); // usunięto wiersz → eksport dirty
 		} );
 
 		return tr;
@@ -272,6 +274,262 @@
 	}
 
 	// -----------------------------------------------------------------------
+	// Eksport (Krok 14) — sekcja pod tabelą (#aifaq-ft-export w #aifaq-ft-results).
+	// Formatowanie robi REST POST /admin/export (Exporter.php); JS tylko pokazuje,
+	// kopiuje i pobiera gotowe stringi. Podgląd WYŁĄCZNIE przez textContent (anti-XSS).
+	// Sekcja jest ADDYTYWNA: gdy DOM eksportu nie istnieje (starszy widok), wszystko
+	// poniżej jest no-opem i K13 działa bez zmian.
+	// -----------------------------------------------------------------------
+	var exportRoot = document.getElementById( 'aifaq-ft-export' );
+	var expOutput  = document.getElementById( 'aifaq-ft-exp-output' );
+	var expCopyBtn = document.getElementById( 'aifaq-ft-exp-copy' );
+	var expDownBtn = document.getElementById( 'aifaq-ft-exp-download' );
+	var expStatus  = document.getElementById( 'aifaq-ft-exp-status' );
+	var expBtns    = exportRoot ? exportRoot.querySelectorAll( '.aifaq-ft__exp-btn' ) : [];
+
+	// Nazwa pliku + MIME dla „Pobierz" per format (KONTRAKT §5).
+	var EXP_FILES = {
+		html:      { name: 'faq.html',           mime: 'text/html' },
+		gutenberg: { name: 'faq-gutenberg.html', mime: 'text/html' },
+		elementor: { name: 'faq-elementor.json', mime: 'application/json' },
+		json:      { name: 'faq.json',           mime: 'application/json' },
+		jsonld:    { name: 'faq-jsonld.json',    mime: 'application/json' }
+	};
+
+	var expCache  = null;    // { html, gutenberg, elementor, json, jsonld } — stringi z REST
+	var expFormat = 'html';  // aktualnie wybrany format (przycisk is-active)
+	var expDirty  = true;    // pary zmienione od ostatniego pobrania → trzeba odświeżyć cache
+	var expBusy   = false;
+	var expShown  = false;   // czy podgląd był już raz pokazany
+	var expTimer  = null;
+
+	function expStr( v ) {
+		return ( typeof v === 'string' ) ? v : '';
+	}
+
+	function setExpStatus( msg, state ) {
+		if ( expTimer ) {
+			clearTimeout( expTimer );
+			expTimer = null;
+		}
+		if ( ! expStatus ) {
+			return;
+		}
+		expStatus.textContent = msg || '';
+		expStatus.classList.remove( 'is-loading', 'is-error', 'is-ok' );
+		if ( state ) {
+			expStatus.classList.add( 'is-' + state );
+		}
+	}
+	function flashExpStatus( msg ) {
+		if ( ! expStatus ) {
+			return;
+		}
+		setExpStatus( msg, 'ok' );
+		expTimer = setTimeout( function () {
+			expStatus.textContent = '';
+			expStatus.classList.remove( 'is-loading', 'is-error', 'is-ok' );
+			expTimer = null;
+		}, 1500 );
+	}
+	function setExpBusy( on ) {
+		expBusy = on;
+		if ( expCopyBtn ) {
+			expCopyBtn.disabled = on;
+		}
+		if ( expDownBtn ) {
+			expDownBtn.disabled = on;
+		}
+		for ( var i = 0; i < expBtns.length; i++ ) {
+			expBtns[ i ].disabled = on;
+		}
+	}
+
+	// Zaznacz aktywny przycisk formatu (is-active na jednym, zdejmij z reszty).
+	function setActiveFormatBtn( fmt ) {
+		for ( var i = 0; i < expBtns.length; i++ ) {
+			var b = expBtns[ i ];
+			if ( ( b.getAttribute( 'data-format' ) || '' ) === fmt ) {
+				b.classList.add( 'is-active' );
+			} else {
+				b.classList.remove( 'is-active' );
+			}
+		}
+	}
+
+	function renderExport() {
+		if ( expOutput ) {
+			expOutput.textContent = ( expCache && expCache[ expFormat ] ) || ''; // anti-XSS
+		}
+	}
+
+	// POST bieżących par → 5 stringów do cache. Zwraca Promise<bool ok>.
+	function fetchExport() {
+		var headers = {
+			'Content-Type': 'application/json',
+			'Accept': 'application/json'
+		};
+		if ( cfg.nonce ) {
+			headers['X-WP-Nonce'] = cfg.nonce;
+		}
+		var body = { pairs: pairs.map( function ( p ) {
+			return { question: p.q, answer: p.a };
+		} ) };
+		return fetch( cfg.exportEndpoint, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: headers,
+			body: JSON.stringify( body )
+		} )
+			.then( function ( res ) {
+				return res.json()
+					.catch( function () { return {}; } )
+					.then( function ( data ) { return { status: res.status, data: data || {} }; } );
+			} )
+			.then( function ( r ) {
+				if ( 200 === r.status && 'ok' === r.data.status ) {
+					expCache = {
+						html:      expStr( r.data.html ),
+						gutenberg: expStr( r.data.gutenberg ),
+						elementor: expStr( r.data.elementor ),
+						json:      expStr( r.data.json ),
+						jsonld:    expStr( r.data.jsonld )
+					};
+					return true;
+				}
+				return false;
+			} )
+			.catch( function () { return false; } );
+	}
+
+	// Pokaż wybrany format: z cache albo dociągnij (gdy dirty / brak cache).
+	function showExportFormat( fmt ) {
+		if ( ! exportRoot ) {
+			return;
+		}
+		if ( fmt ) {
+			expFormat = fmt;
+			setActiveFormatBtn( fmt );
+		}
+		if ( ! pairs.length ) {
+			expCache = null;
+			expShown = false;
+			if ( expOutput ) {
+				expOutput.textContent = '';
+			}
+			setExpStatus( t.expEmpty || '', 'error' );
+			return;
+		}
+		if ( expBusy ) {
+			return;
+		}
+		if ( expDirty || ! expCache ) {
+			setExpBusy( true );
+			setExpStatus( '' );
+			fetchExport().then( function ( ok ) {
+				if ( ok ) {
+					expDirty = false;
+					expShown = true;
+					renderExport();
+					setExpStatus( '' );
+				} else {
+					setExpStatus( t.errMsg || '', 'error' );
+				}
+				setExpBusy( false );
+			} );
+		} else {
+			expShown = true;
+			renderExport();
+		}
+	}
+
+	// Nowe pary (po generacji): wyczyść cache, wróć do HTML i pokaż podgląd.
+	function resetExportForNewPairs() {
+		expCache = null;
+		expDirty = true;
+		expFormat = 'html';
+		expShown = false;
+		setActiveFormatBtn( 'html' );
+		if ( expOutput ) {
+			expOutput.textContent = '';
+		}
+		setExpStatus( '' );
+		if ( exportRoot && pairs.length ) {
+			showExportFormat( 'html' );
+		}
+	}
+
+	// Zmiana istniejących par (edycja/usunięcie): oznacz dirty; jeśli podgląd był
+	// już pokazany — odśwież bieżący format, żeby nie pokazywał nieaktualnej treści.
+	function onPairsChanged() {
+		expDirty = true;
+		if ( ! exportRoot ) {
+			return;
+		}
+		if ( ! pairs.length ) {
+			expCache = null;
+			expShown = false;
+			if ( expOutput ) {
+				expOutput.textContent = '';
+			}
+			return;
+		}
+		if ( expShown ) {
+			showExportFormat( expFormat );
+		}
+	}
+
+	// Przełączanie formatów.
+	for ( var ei = 0; ei < expBtns.length; ei++ ) {
+		expBtns[ ei ].addEventListener( 'click', function () {
+			showExportFormat( this.getAttribute( 'data-format' ) || 'html' );
+		} );
+	}
+
+	// Kopiuj bieżący format do schowka.
+	if ( expCopyBtn ) {
+		expCopyBtn.addEventListener( 'click', function () {
+			if ( ! expCache || ! expCache[ expFormat ] ) {
+				return;
+			}
+			var txt = expCache[ expFormat ];
+			if ( navigator.clipboard && navigator.clipboard.writeText ) {
+				navigator.clipboard.writeText( txt ).then( function () {
+					flashExpStatus( t.expCopied || '' );
+				} ).catch( function () {
+					setExpStatus( t.errMsg || '', 'error' );
+				} );
+			} else {
+				setExpStatus( t.errMsg || '', 'error' );
+			}
+		} );
+	}
+
+	// Pobierz bieżący format jako plik (Blob + <a download>).
+	if ( expDownBtn ) {
+		expDownBtn.addEventListener( 'click', function () {
+			if ( ! expCache || ! expCache[ expFormat ] ) {
+				return;
+			}
+			var meta = EXP_FILES[ expFormat ] || EXP_FILES.html;
+			try {
+				var blob = new Blob( [ expCache[ expFormat ] ], { type: meta.mime + ';charset=utf-8' } );
+				var url  = URL.createObjectURL( blob );
+				var a    = document.createElement( 'a' );
+				a.href = url;
+				a.download = meta.name;
+				document.body.appendChild( a );
+				a.click();
+				document.body.removeChild( a );
+				setTimeout( function () { URL.revokeObjectURL( url ); }, 1000 );
+				flashExpStatus( t.expDownloaded || '' );
+			} catch ( e ) {
+				setExpStatus( t.errMsg || '', 'error' );
+			}
+		} );
+	}
+
+	// -----------------------------------------------------------------------
 	// Odpowiedź z REST
 	// -----------------------------------------------------------------------
 	function handleResponse( httpStatus, data ) {
@@ -283,6 +541,7 @@
 			} );
 			renderTable();
 			setStatus( ( t.doneFmt || '%s' ).replace( '%s', pairs.length ), 'ok' );
+			resetExportForNewPairs(); // nowe pary → odśwież sekcję eksportu (domyślnie HTML)
 			return;
 		}
 
@@ -292,6 +551,7 @@
 			tbody.textContent = '';
 			results.hidden = true;
 			setStatus( t.emptyMsg || '' );
+			resetExportForNewPairs(); // brak par → wyczyść cache eksportu
 			return;
 		}
 

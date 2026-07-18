@@ -92,9 +92,11 @@ $routes = $GLOBALS['__aifaq_routes'];
 $by_route = array();
 foreach ( $routes as $r ) { $by_route[ $r['route'] ] = $r; }
 
-check( count( $routes ) === 11, 'zarejestrowano dokładnie 11 tras' );
+check( count( $routes ) === 12, 'zarejestrowano dokładnie 12 tras' );
 check( isset( $by_route['/ask'], $by_route['/admin/status'], $by_route['/admin/reindex'], $by_route['/admin/clear'], $by_route['/admin/settings'], $by_route['/admin/verify'], $by_route['/admin/history'], $by_route['/admin/history/clear'] ), 'komplet ścieżek /ask + /admin/{status,reindex,clear,settings,verify,history,history/clear}' );
 check( isset( $by_route['/admin/generate-faq'], $by_route['/admin/generations'], $by_route['/admin/generations/delete'] ), 'trasy generatora (K12): /admin/generate-faq, /admin/generations, /admin/generations/delete' );
+check( isset( $by_route['/admin/export'] ), 'trasa eksportu (K14): /admin/export' );
+check( 'POST' === ( $by_route['/admin/export']['args']['methods'] ?? '' ), '/admin/export metoda POST' );
 
 $all_ns = array_unique( array_map( static function ( $r ) { return $r['ns']; }, $routes ) );
 check( array( 'aifaq/v1' ) === array_values( $all_ns ), 'wszystkie trasy w namespace aifaq/v1' );

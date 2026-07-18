@@ -36,15 +36,16 @@ class FaqToolPage {
 		$lang = self::lang();
 
 		return array(
-			'endpoint' => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/generate-faq' ) ),
-			'nonce'    => wp_create_nonce( 'wp_rest' ),
-			'defaults' => array(
+			'endpoint'       => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/generate-faq' ) ),
+			'exportEndpoint' => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/export' ) ),
+			'nonce'          => wp_create_nonce( 'wp_rest' ),
+			'defaults'       => array(
 				'count'    => 10,
 				'min'      => 5,
 				'max'      => 20,
 				'language' => $lang,
 			),
-			'i18n'     => self::strings( $lang ),
+			'i18n'           => self::strings( $lang ),
 		);
 	}
 
@@ -81,6 +82,14 @@ class FaqToolPage {
 				'copyAll'    => __( 'Kopiuj wszystko', 'ai-faq-generator' ),
 				'copied'     => __( 'Skopiowano.', 'ai-faq-generator' ),
 				'confirmDel' => __( 'Na pewno usunąć tę parę?', 'ai-faq-generator' ),
+				// Krok 14 — sekcja eksportu.
+				'export'        => __( 'Eksport', 'ai-faq-generator' ),
+				'expHint'       => __( 'Wybierz format, a potem skopiuj lub pobierz gotowy kod.', 'ai-faq-generator' ),
+				'expCopy'       => __( 'Kopiuj', 'ai-faq-generator' ),
+				'expDownload'   => __( 'Pobierz', 'ai-faq-generator' ),
+				'expCopied'     => __( 'Skopiowano.', 'ai-faq-generator' ),
+				'expDownloaded' => __( 'Pobrano.', 'ai-faq-generator' ),
+				'expEmpty'      => __( 'Brak par do eksportu.', 'ai-faq-generator' ),
 			),
 			'en' => array(
 				'title'      => __( 'FAQ tool', 'ai-faq-generator' ),
@@ -107,6 +116,14 @@ class FaqToolPage {
 				'copyAll'    => __( 'Copy all', 'ai-faq-generator' ),
 				'copied'     => __( 'Copied.', 'ai-faq-generator' ),
 				'confirmDel' => __( 'Delete this pair?', 'ai-faq-generator' ),
+				// Krok 14 — sekcja eksportu.
+				'export'        => __( 'Export', 'ai-faq-generator' ),
+				'expHint'       => __( 'Pick a format, then copy or download the ready-made code.', 'ai-faq-generator' ),
+				'expCopy'       => __( 'Copy', 'ai-faq-generator' ),
+				'expDownload'   => __( 'Download', 'ai-faq-generator' ),
+				'expCopied'     => __( 'Copied.', 'ai-faq-generator' ),
+				'expDownloaded' => __( 'Downloaded.', 'ai-faq-generator' ),
+				'expEmpty'      => __( 'No pairs to export.', 'ai-faq-generator' ),
 			),
 			'de' => array(
 				'title'      => __( 'FAQ-Werkzeug', 'ai-faq-generator' ),
@@ -133,6 +150,14 @@ class FaqToolPage {
 				'copyAll'    => __( 'Alle kopieren', 'ai-faq-generator' ),
 				'copied'     => __( 'Kopiert.', 'ai-faq-generator' ),
 				'confirmDel' => __( 'Dieses Paar löschen?', 'ai-faq-generator' ),
+				// Krok 14 — sekcja eksportu.
+				'export'        => __( 'Export', 'ai-faq-generator' ),
+				'expHint'       => __( 'Format wählen, dann den fertigen Code kopieren oder herunterladen.', 'ai-faq-generator' ),
+				'expCopy'       => __( 'Kopieren', 'ai-faq-generator' ),
+				'expDownload'   => __( 'Herunterladen', 'ai-faq-generator' ),
+				'expCopied'     => __( 'Kopiert.', 'ai-faq-generator' ),
+				'expDownloaded' => __( 'Heruntergeladen.', 'ai-faq-generator' ),
+				'expEmpty'      => __( 'Keine Paare zum Exportieren.', 'ai-faq-generator' ),
 			),
 		);
 

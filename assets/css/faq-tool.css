@@ -375,3 +375,128 @@
 	.aifaq-ft__table { min-width: 520px; }
 	.aifaq-ft__q { width: auto; }
 }
+
+/* ==========================================================================
+ * SEKCJA EKSPORTU (Krok 14, Etap 3) — DOŁOŻONA do arkusza K13.
+ * Stylizuje DOM z KONTRAKT k14-v1 §3 (Etap 1 renderuje w views/faq-tool.php,
+ * Etap 2 ożywia w faq-tool.js). Żyje w `#aifaq-ft-results` pod tabelą, więc
+ * dziedziczy jasny motyw po `.aifaq-ft .aifaq` — nie łamiemy tego przypięcia.
+ * Zmienne --aifaq-* jak wyżej; paleta z generator.css (zależność enqueue).
+ * ========================================================================== */
+
+.aifaq-ft__export {
+	margin-top: 24px;
+	padding-top: 20px;
+	border-top: 1px solid var(--aifaq-border);
+}
+
+/* Nagłówek sekcji (opcjonalny <h3> od Etapu 1). */
+.aifaq-ft__exp-h {
+	margin: 0 0 4px;
+	font-size: 15px;
+	font-weight: 700;
+	letter-spacing: -.01em;
+	color: var(--aifaq-text);
+}
+/* Podpowiedź pod nagłówkiem (Etap 1 dodał ją klasą .aifaq-ft__exp-hint). */
+.aifaq-ft__exp-hint {
+	margin: 0 0 14px;
+	color: var(--aifaq-muted, #6b7280);
+	font-size: 13px;
+}
+
+/* --- PASEK FORMATÓW (zakładki) ---------------------------------------------
+ * Rząd przycisków html|gutenberg|elementor|json|jsonld; aktywny = .is-active.
+ * Styl „zakładek": nieaktywne stonowane, aktywny wyróżniony akcentem teal. */
+.aifaq-ft__exp-formats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-bottom: 14px;
+	border-bottom: 1px solid var(--aifaq-border);
+	padding-bottom: 0;
+}
+.aifaq-ft__exp-btn {
+	position: relative;
+	appearance: none;
+	background: transparent;
+	color: var(--aifaq-muted);
+	border: 1px solid transparent;
+	border-bottom: 0;
+	border-radius: 8px 8px 0 0;
+	padding: 8px 14px;
+	margin-bottom: -1px; /* nachodzi na dolną krechę paska = efekt zakładki */
+	font: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+	transition: color .12s ease, background .12s ease, border-color .12s ease;
+}
+.aifaq-ft__exp-btn:hover {
+	color: var(--aifaq-accent);
+	background: var(--aifaq-bg);
+}
+.aifaq-ft__exp-btn:focus-visible {
+	outline: 2px solid var(--aifaq-accent);
+	outline-offset: 2px;
+}
+/* Aktywna zakładka — wyraźnie wyróżniona: karta „wchodzi" w pole podglądu,
+   spód domknięty kolorem tła surface, mocny akcent teal u góry. */
+.aifaq-ft__exp-btn.is-active {
+	color: var(--aifaq-accent);
+	background: var(--aifaq-surface);
+	border-color: var(--aifaq-border);
+	border-bottom-color: var(--aifaq-surface);
+	box-shadow: inset 0 2px 0 var(--aifaq-accent);
+}
+
+/* --- RZĄD AKCJI: Kopiuj / Pobierz / status --------------------------------- */
+.aifaq-ft__exp-bar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+	margin-bottom: 10px;
+}
+/* Status („Skopiowano." / „Pobrano.") — na końcu rzędu, odsunięty. */
+.aifaq-ft__exp-bar .aifaq-ft__status {
+	margin-left: auto;
+}
+
+/* --- PODGLĄD (<pre>) -------------------------------------------------------
+ * Monospace, obramowane, przewijalne. Zawijamy długie wiersze (pre-wrap), by
+ * pole nigdy nie rozjechało layoutu; nadmiar pionowo pod scrollem (max-height). */
+.aifaq-ft__exp-output {
+	margin: 0;
+	max-height: 340px;
+	overflow: auto;
+	box-sizing: border-box;
+	border: 1px solid var(--aifaq-border);
+	border-radius: 8px;
+	background: var(--aifaq-bg);
+	color: var(--aifaq-text);
+	font-family: var(--aifaq-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace);
+	font-size: 12.5px;
+	line-height: 1.55;
+	padding: 14px 16px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	tab-size: 2;
+}
+.aifaq-ft__exp-output:empty {
+	display: none;
+}
+.aifaq-ft__exp-output:focus-visible {
+	outline: 2px solid var(--aifaq-accent);
+	outline-offset: 2px;
+}
+
+/* --- RESPONSYWNOŚĆ sekcji eksportu ----------------------------------------- */
+@media (max-width: 600px) {
+	.aifaq-ft__exp-formats { gap: 4px; }
+	.aifaq-ft__exp-btn { padding: 7px 11px; font-size: 12.5px; }
+	.aifaq-ft__exp-bar .aifaq-ft__btn { flex: 1 1 auto; justify-content: center; }
+	.aifaq-ft__exp-bar .aifaq-ft__status { margin-left: 0; flex-basis: 100%; }
+	.aifaq-ft__exp-output { max-height: 260px; font-size: 12px; padding: 12px; }
+}

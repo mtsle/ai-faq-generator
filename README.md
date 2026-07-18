@@ -5,13 +5,14 @@ publicznej podstronie `/faqgenerator`, a odpowiedź powstaje **wyłącznie w tem
 treści tej strony** (RAG + embeddingi Gemini) — pytania off-topic są odrzucane.
 Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 
-> **Status:** w budowie · Kroki 0–13 gotowe (dwie połówki produktu):
+> **Status:** w budowie · Kroki 0–14 gotowe (dwie połówki produktu):
 > **RAG** (`/faqgenerator`: Indexer + Retriever + TopicGuard + Answerer, REST `aifaq/v1`,
 > front rola-aware, dziennik pytań gości) **+ generator FAQ w kokpicie**
 > (Krok 11: `Faq\FaqGenerator` — temat→pary Q&A jako structured JSON, tabela `wp_aifaq_generations`;
 > Krok 12: REST `/admin/generate-faq` + `/admin/generations`;
-> **Krok 13: ekran „Narzędzie FAQ" — formularz Temat/Opis/Liczba + tabela par z Edytuj/Usuń/Kopiuj**).
-> Dalej: Krok 14 — eksport (HTML/Gutenberg/Elementor/JSON) + JSON-LD FAQPage.
+> Krok 13: ekran „Narzędzie FAQ" — formularz Temat/Opis/Liczba + tabela par z Edytuj/Usuń/Kopiuj;
+> **Krok 14: eksport par do 5 formatów (HTML/Gutenberg/Elementor/JSON/JSON-LD FAQPage) — `Faq\Exporter`, REST `/admin/export`, sekcja Kopiuj/Pobierz na ekranie narzędzia**).
+> Dalej: Krok 15 — Historia generowań (+ Ponownie wygeneruj).
 > Pełne README z instrukcjami — Krok 17 (v1.0.0).
 
 ## Założenia
@@ -26,12 +27,13 @@ Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 Autoloader PSR-4-lite: przestrzeń `AIFAQ\` → katalog `src/`.
 ```
 src/Core/      Plugin, Settings, Activator, Deactivator, Router
-src/Data/      Schema (4 tabele) + repozytoria + Migrator
+src/Data/      Schema (5 tabel) + repozytoria + Migrator
 src/Http/      HttpClient (interfejs) + WpHttpClient — generyczny transport HTTP
 src/Providers/ ProviderInterface, GeminiProvider, ProviderFactory — warstwa AI (BYOK)
 src/Admin/     Menu + FaqToolPage + views/ (Dashboard, Generator, Narzędzie FAQ, Ustawienia, Historia)
 src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9-10)
 src/Faq/  (Krok 11) FaqGenerator — kreatywny generator par Q&A (osobny od RAG)
+          (Krok 14) Exporter — pary Q&A → 5 formatów eksportu (HTML/Gutenberg/Elementor/JSON/JSON-LD)
 ```
 Tabele (schema v4): `wp_aifaq_knowledge` (fragmenty+wektory), `wp_aifaq_qa_log`
 (dziennik pytań gości), `wp_aifaq_cache` (dedup odpowiedzi), `wp_aifaq_faq`
@@ -42,11 +44,11 @@ Migracja schematu jest automatyczna (porównanie `AIFAQ_DB_VERSION` na `plugins_
 1. Menu „AI FAQ Generator" → Dashboard / Ustawienia / Historia
 2. Konfiguracja API: klucz, model, temperatura, maks. liczba pytań, „Test połączenia"
 3. Generator: Temat + Dodatkowy opis + Liczba pytań (5–20) → „Generuj FAQ"
-4. Tabela wyników (Pytanie / Odpowiedź) + Edytuj / Usuń / Kopiuj
-5. Eksport: HTML / Gutenberg / Elementor / JSON
-6. Schema.org: FAQPage JSON-LD + Podgląd / Kopiuj
-7. Historia: data / temat / liczba pytań / użytkownik + Usuń / Ponów
-8. Integracja z edytorem: panel „AI FAQ" → Generuj z treści → Wstaw do wpisu
+4. Tabela wyników (Pytanie / Odpowiedź) + Edytuj / Usuń / Kopiuj ✅ (Krok 13)
+5. Eksport: HTML / Gutenberg / Elementor / JSON ✅ (Krok 14)
+6. Schema.org: FAQPage JSON-LD + Podgląd / Kopiuj / Pobierz ✅ (Krok 14)
+7. Historia: data / temat / liczba pytań / użytkownik + Usuń / Ponów (Krok 15)
+8. Integracja z edytorem: panel „AI FAQ" → Generuj z treści → Wstaw do wpisu (Krok 16)
 
 ## Wymagania (dev)
 - WordPress 6.x, PHP 8.x

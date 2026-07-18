@@ -29,6 +29,7 @@ use AIFAQ\App\HistoryPanel;
 use AIFAQ\Core\Settings;
 use AIFAQ\Data\GenerationRepository;
 use AIFAQ\Data\QaLogRepository;
+use AIFAQ\Faq\Exporter;
 use AIFAQ\Faq\FaqGenerator;
 use AIFAQ\Providers\ProviderFactory;
 use AIFAQ\Rag\RagService;
@@ -248,6 +249,17 @@ class RestController {
 						'type'     => 'integer',
 					),
 				),
+			)
+		);
+
+		// Panel: eksport bieżących par do 5 formatów (Krok 14).
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/export',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'handle_export' ),
+				'permission_callback' => array( $this, 'require_admin' ),
 			)
 		);
 	}
@@ -761,6 +773,75 @@ class RestController {
 			array(
 				'status'  => 'ok',
 				'deleted' => $deleted,
+			),
+			200
+		);
+	}
+
+	/**
+	 * `POST /admin/export` — formatuje bieżące pary Q&A do 5 formatów eksportu.
+	 *
+	 * Pary przychodzą z UI (stan lokalny po edycjach/usunięciach). Walidujemy i
+	 * sanityzujemy je tutaj (kontrola po stronie klienta ma temu tylko zapobiegać),
+	 * a formatowanie robi czysta klasa {@see Exporter}. Pusta/niepoprawna lista →
+	 * 400 (bez zgadywania). Sukces → 200 z pięcioma stringami gotowymi do wyświetlenia.
+	 *
+	 * @param WP_REST_Request $request Żądanie.
+	 * @return WP_REST_Response
+	 */
+	public function handle_export( WP_REST_Request $request ): WP_REST_Response {
+		$raw = $request->get_param( 'pairs' );
+
+		$pairs = array();
+		if ( is_array( $raw ) ) {
+			foreach ( $raw as $item ) {
+				if ( ! is_array( $item ) ) {
+					continue;
+				}
+
+				$q = $item['question'] ?? '';
+				$a = $item['answer'] ?? '';
+				if ( ! is_scalar( $q ) || ! is_scalar( $a ) ) {
+					continue;
+				}
+
+				$q = trim( sanitize_textarea_field( wp_unslash( (string) $q ) ) );
+				$a = trim( sanitize_textarea_field( wp_unslash( (string) $a ) ) );
+				if ( '' === $q || '' === $a ) {
+					continue;
+				}
+
+				$pairs[] = array(
+					'question' => $q,
+					'answer'   => $a,
+				);
+
+				if ( count( $pairs ) >= Exporter::MAX_PAIRS ) {
+					break;
+				}
+			}
+		}
+
+		if ( empty( $pairs ) ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Brak par do eksportu.', 'ai-faq-generator' ),
+				),
+				400
+			);
+		}
+
+		$formats = ( new Exporter() )->export( $pairs );
+
+		return new WP_REST_Response(
+			array(
+				'status'    => 'ok',
+				'html'      => (string) ( $formats['html'] ?? '' ),
+				'gutenberg' => (string) ( $formats['gutenberg'] ?? '' ),
+				'elementor' => (string) ( $formats['elementor'] ?? '' ),
+				'json'      => (string) ( $formats['json'] ?? '' ),
+				'jsonld'    => (string) ( $formats['jsonld'] ?? '' ),
 			),
 			200
 		);

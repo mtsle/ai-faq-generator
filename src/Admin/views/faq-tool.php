@@ -87,6 +87,25 @@ $t          = \AIFAQ\Admin\FaqToolPage::strings( $aifaq_lang );
 				</thead>
 				<tbody id="aifaq-ft-tbody"></tbody>
 			</table>
+
+			<?php // Krok 14 — sekcja eksportu (JS ożywia, CSS stylizuje); wg KONTRAKT §3. ?>
+			<div id="aifaq-ft-export" class="aifaq-ft__export">
+				<h3 class="aifaq-ft__exp-h"><?php echo esc_html( $t['export'] ); ?></h3>
+				<p class="aifaq-ft__exp-hint"><?php echo esc_html( $t['expHint'] ); ?></p>
+				<div class="aifaq-ft__exp-formats" role="tablist">
+					<button class="aifaq-ft__exp-btn is-active" data-format="html"      type="button">HTML</button>
+					<button class="aifaq-ft__exp-btn"           data-format="gutenberg" type="button">Gutenberg</button>
+					<button class="aifaq-ft__exp-btn"           data-format="elementor" type="button">Elementor</button>
+					<button class="aifaq-ft__exp-btn"           data-format="json"      type="button">JSON</button>
+					<button class="aifaq-ft__exp-btn"           data-format="jsonld"    type="button">JSON-LD</button>
+				</div>
+				<div class="aifaq-ft__exp-bar">
+					<button id="aifaq-ft-exp-copy"     class="aifaq-ft__btn" type="button"><?php echo esc_html( $t['expCopy'] ); ?></button>
+					<button id="aifaq-ft-exp-download" class="aifaq-ft__btn" type="button"><?php echo esc_html( $t['expDownload'] ); ?></button>
+					<span   id="aifaq-ft-exp-status"   class="aifaq-ft__status" role="status" aria-live="polite"></span>
+				</div>
+				<pre id="aifaq-ft-exp-output" class="aifaq-ft__exp-output" tabindex="0"></pre>
+			</div>
 		</div>
 	</div>
 </div>
