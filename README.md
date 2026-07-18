@@ -11,8 +11,9 @@ Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 > (Krok 11: `Faq\FaqGenerator` — temat→pary Q&A jako structured JSON, tabela `wp_aifaq_generations`;
 > Krok 12: REST `/admin/generate-faq` + `/admin/generations`;
 > Krok 13: ekran „Narzędzie FAQ" — formularz Temat/Opis/Liczba + tabela par z Edytuj/Usuń/Kopiuj;
-> **Krok 14: eksport par do 5 formatów (HTML/Gutenberg/Elementor/JSON/JSON-LD FAQPage) — `Faq\Exporter`, REST `/admin/export`, sekcja Kopiuj/Pobierz na ekranie narzędzia**).
-> Dalej: Krok 15 — Historia generowań (+ Ponownie wygeneruj).
+> Krok 14: eksport par do 5 formatów (HTML/Gutenberg/Elementor/JSON/JSON-LD FAQPage) — `Faq\Exporter`, REST `/admin/export`, sekcja Kopiuj/Pobierz na ekranie narzędzia;
+> **Krok 15: Historia generowań — `App\GenerationsPanel` w DWÓCH miejscach (podstrona kokpitu + zakładka na froncie), podgląd zapisanych par, Usuń, „Ponownie wygeneruj" prefillujące formularz**).
+> Dalej: Krok 16 — panel „AI FAQ" w edytorze wpisu.
 > Pełne README z instrukcjami — Krok 17 (v1.0.0).
 
 ## Założenia
@@ -31,7 +32,7 @@ src/Data/      Schema (5 tabel) + repozytoria + Migrator
 src/Http/      HttpClient (interfejs) + WpHttpClient — generyczny transport HTTP
 src/Providers/ ProviderInterface, GeminiProvider, ProviderFactory — warstwa AI (BYOK)
 src/Admin/     Menu + FaqToolPage + views/ (Dashboard, Generator, Narzędzie FAQ, Ustawienia, Historia)
-src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9-10)
+src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9-10, +GenerationsPanel w K15)
 src/Faq/  (Krok 11) FaqGenerator — kreatywny generator par Q&A (osobny od RAG)
           (Krok 14) Exporter — pary Q&A → 5 formatów eksportu (HTML/Gutenberg/Elementor/JSON/JSON-LD)
 ```
@@ -47,7 +48,7 @@ Migracja schematu jest automatyczna (porównanie `AIFAQ_DB_VERSION` na `plugins_
 4. Tabela wyników (Pytanie / Odpowiedź) + Edytuj / Usuń / Kopiuj ✅ (Krok 13)
 5. Eksport: HTML / Gutenberg / Elementor / JSON ✅ (Krok 14)
 6. Schema.org: FAQPage JSON-LD + Podgląd / Kopiuj / Pobierz ✅ (Krok 14)
-7. Historia: data / temat / liczba pytań / użytkownik + Usuń / Ponów (Krok 15)
+7. Historia: data / temat / liczba pytań / użytkownik + Usuń / Ponów ✅ (Krok 15)
 8. Integracja z edytorem: panel „AI FAQ" → Generuj z treści → Wstaw do wpisu (Krok 16)
 
 ## Wymagania (dev)

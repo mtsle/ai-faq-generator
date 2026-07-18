@@ -2,8 +2,9 @@
 /**
  * Menu wtyczki w panelu administracyjnym.
  *
- * Rejestruje pozycję „AI FAQ Generator" z trzema podstronami:
- * Dashboard, Ustawienia, Historia. Widoki leżą w src/Admin/views.
+ * Rejestruje pozycję „AI FAQ Generator" z podstronami: Dashboard, Generator,
+ * Narzędzie FAQ, Historia generowań, Ustawienia, Historia. Widoki leżą
+ * w src/Admin/views.
  *
  * @package AI_FAQ_Generator
  */
@@ -32,10 +33,11 @@ class Menu {
 	/**
 	 * Slugi podstron.
 	 */
-	const SLUG_GENERATOR = 'ai-faq-generator-generator';
-	const SLUG_FAQ_TOOL  = 'ai-faq-generator-faq-tool';
-	const SLUG_SETTINGS  = 'ai-faq-generator-settings';
-	const SLUG_HISTORY   = 'ai-faq-generator-history';
+	const SLUG_GENERATOR   = 'ai-faq-generator-generator';
+	const SLUG_FAQ_TOOL    = 'ai-faq-generator-faq-tool';
+	const SLUG_SETTINGS    = 'ai-faq-generator-settings';
+	const SLUG_HISTORY     = 'ai-faq-generator-history';
+	const SLUG_FAQ_HISTORY = 'ai-faq-generator-faq-history';
 
 	/**
 	 * Rejestruje menu i podmenu.
@@ -80,6 +82,15 @@ class Menu {
 
 		add_submenu_page(
 			self::SLUG,
+			__( 'Historia generowań', 'ai-faq-generator' ),
+			__( 'Historia generowań', 'ai-faq-generator' ),
+			self::CAPABILITY,
+			self::SLUG_FAQ_HISTORY,
+			array( $this, 'render_faq_history' )
+		);
+
+		add_submenu_page(
+			self::SLUG,
 			__( 'Ustawienia', 'ai-faq-generator' ),
 			__( 'Ustawienia', 'ai-faq-generator' ),
 			self::CAPABILITY,
@@ -116,6 +127,13 @@ class Menu {
 	 */
 	public function render_faq_tool(): void {
 		$this->render_view( 'faq-tool' );
+	}
+
+	/**
+	 * Renderuje ekran „Historia generowań" (zapisane generowania z Narzędzia FAQ).
+	 */
+	public function render_faq_history(): void {
+		$this->render_view( 'faq-history' );
 	}
 
 	/**
@@ -165,12 +183,31 @@ class Menu {
 			AIFAQ_VERSION
 		);
 
-		// Skrypt indeksowania tylko na Dashboardzie (nie Generator/Narzędzie FAQ/Ustawienia/Historia).
-		$is_generator = false !== strpos( $hook_suffix, self::SLUG_GENERATOR );
-		$is_faq_tool  = false !== strpos( $hook_suffix, self::SLUG_FAQ_TOOL );
-		$is_settings  = false !== strpos( $hook_suffix, self::SLUG_SETTINGS );
-		$is_history   = false !== strpos( $hook_suffix, self::SLUG_HISTORY );
-		if ( ! $is_generator && ! $is_faq_tool && ! $is_settings && ! $is_history ) {
+		$is_generator   = false !== strpos( $hook_suffix, self::SLUG_GENERATOR );
+		$is_faq_tool    = false !== strpos( $hook_suffix, self::SLUG_FAQ_TOOL );
+		$is_settings    = false !== strpos( $hook_suffix, self::SLUG_SETTINGS );
+		$is_history     = false !== strpos( $hook_suffix, self::SLUG_HISTORY );
+		$is_faq_history = false !== strpos( $hook_suffix, self::SLUG_FAQ_HISTORY );
+
+		// Skrypt indeksowania TYLKO na Dashboardzie. Warunek jest jawną listą
+		// podstron zamiast negacji kolejnych flag — przy dokładaniu ekranu łatwo
+		// zapomnieć o negacji i wtedy nowa podstrona dostaje zbędny indexer.js
+		// razem z niepotrzebnym nonce w HTML.
+		$subpages = array(
+			self::SLUG_GENERATOR,
+			self::SLUG_FAQ_TOOL,
+			self::SLUG_SETTINGS,
+			self::SLUG_HISTORY,
+			self::SLUG_FAQ_HISTORY,
+		);
+		$is_sub   = false;
+		foreach ( $subpages as $slug ) {
+			if ( false !== strpos( $hook_suffix, $slug ) ) {
+				$is_sub = true;
+				break;
+			}
+		}
+		if ( ! $is_sub ) {
 			wp_enqueue_script(
 				'aifaq-indexer',
 				AIFAQ_PLUGIN_URL . 'assets/js/indexer.js',
@@ -249,6 +286,37 @@ class Menu {
 		// app.js (zakładki, indeksowanie, ustawienia) są bramkowane obecnością
 		// swoich elementów w DOM, więc tutaj po prostu się nie uruchamiają.
 		if ( $is_history ) {
+			wp_enqueue_style(
+				'aifaq-generator',
+				AIFAQ_PLUGIN_URL . 'assets/css/generator.css',
+				array(),
+				AIFAQ_VERSION
+			);
+			wp_enqueue_style(
+				'aifaq-app',
+				AIFAQ_PLUGIN_URL . 'assets/css/app.css',
+				array( 'aifaq-generator' ),
+				AIFAQ_VERSION
+			);
+			wp_enqueue_script(
+				'aifaq-app',
+				AIFAQ_PLUGIN_URL . 'assets/js/app.js',
+				array(),
+				AIFAQ_VERSION,
+				true
+			);
+			wp_localize_script(
+				'aifaq-app',
+				'aifaqApp',
+				\AIFAQ\App\AppShell::config()
+			);
+		}
+
+		// Ekran „Historia generowań": ten sam panel co zakładka „Historia generowań"
+		// w apce → te same assety co ekran Historii (generator.css + app.css + app.js
+		// czytający window.aifaqApp). Bloki app.js są bramkowane obecnością swoich
+		// elementów w DOM, więc tutaj ożywa wyłącznie blok #aifaq-gh.
+		if ( $is_faq_history ) {
 			wp_enqueue_style(
 				'aifaq-generator',
 				AIFAQ_PLUGIN_URL . 'assets/css/generator.css',

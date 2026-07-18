@@ -190,9 +190,11 @@
 	margin-top: 8px;
 }
 
-/* Panel Historii jest samodzielną kartą (app.css) — w kokpicie nie potrzebuje
-   jeszcze jednej ramki wokół siebie, więc pudełko robi się przezroczyste. */
-.aifaq-embed:has(.aifaq-hist) {
+/* Panele Historii (dziennik pytań) i Historii generowań są samodzielnymi kartami
+   (app.css) — w kokpicie nie potrzebują jeszcze jednej ramki wokół siebie, więc
+   pudełko robi się przezroczyste. */
+.aifaq-embed:has(.aifaq-hist),
+.aifaq-embed:has(.aifaq-gh) {
 	background: transparent;
 	border: 0;
 	padding: 0;

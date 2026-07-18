@@ -466,4 +466,390 @@
 
 		load();
 	}
+
+	// =========================================================================
+	// Historia generowań (REST /admin/generations) — Krok 15.
+	// Ten sam panel na froncie (zakładka `gh`) i w kokpicie („Historia generowań").
+	// Blok jest NO-OPEM, gdy powłoki panelu nie ma na stronie — dzięki temu
+	// pozostałe ekrany (dashboard, ustawienia, dziennik pytań) działają bez zmian.
+	//
+	// UWAGA na nazwy: cały plik to jedna IIFE, więc `state`/`note`/`buildRow`/
+	// `load` z bloku dziennika pytań żyją w TYM SAMYM zakresie. Wszystko poniżej
+	// ma prefiks `gh`, żeby niczego nie nadpisać.
+	// =========================================================================
+	var ghRoot = document.getElementById( 'aifaq-gh' );
+	var ghList = document.getElementById( 'aifaq-gh-list' );
+
+	if ( ghRoot && ghList && ep.generations ) {
+		var ghCount  = document.getElementById( 'aifaq-gh-count' );
+		var ghPager  = document.getElementById( 'aifaq-gh-pager' );
+		var ghPageEl = document.getElementById( 'aifaq-gh-page' );
+		var ghPrev   = document.getElementById( 'aifaq-gh-prev' );
+		var ghNext   = document.getElementById( 'aifaq-gh-next' );
+
+		var ghState = { page: 1, pages: 0, busy: false };
+
+		// Cache szczegółów per wiersz: id → { pairs: [], desc: '' }.
+		// Drugie rozwinięcie wiersza NIE wysyła żądania (KONTRAKT §5 pkt 4).
+		var ghCache = {};
+		var ghCached = function ( id ) {
+			return Object.prototype.hasOwnProperty.call( ghCache, id );
+		};
+
+		// Podstawienie do wzorca i18n. Zamiennik podajemy jako FUNKCJĘ — inaczej
+		// `$&` w treści od usera/modelu (opis, temat) zostałoby zinterpretowane
+		// przez String.replace jako wzorzec.
+		var ghFmt = function ( tpl, value ) {
+			return String( tpl || '%s' ).replace( '%s', function () { return String( value ); } );
+		};
+
+		// Komunikat zastępczy (wczytywanie / pusto / błąd) — KONTRAKT §3c.
+		var ghNote = function ( parent, msg ) {
+			parent.textContent = '';
+			var p = document.createElement( 'p' );
+			p.className = 'aifaq-gh__note';
+			p.textContent = msg || '';
+			parent.appendChild( p );
+		};
+
+		// Adres „Ponownie wygeneruj" — KONTRAKT §3b pkt 4. Nazwa parametru NIE jest
+		// wpisana literalnie: bierzemy ją ze stałej PHP wystawionej w configu.
+		var ghRegenHref = function ( id ) {
+			var base = cfg.faqToolUrl || '';
+			if ( ! base ) { return ''; }
+			var name = cfg.regenParam || 'aifaq_regen';
+			return base + ( base.indexOf( '?' ) === -1 ? '?' : '&' ) +
+				encodeURIComponent( name ) + '=' + encodeURIComponent( id );
+		};
+
+		// Pary w podglądzie — KONTRAKT §3c. Pytanie i odpowiedź to treść od modelu
+		// → wyłącznie textContent.
+		var ghRenderPairs = function ( container, list ) {
+			container.textContent = '';
+			if ( ! list || ! list.length ) {
+				ghNote( container, t.ghPairsEmpty || '' );
+				return;
+			}
+			list.forEach( function ( p ) {
+				var pair = document.createElement( 'div' );
+				pair.className = 'aifaq-gh__pair';
+
+				var q = document.createElement( 'p' );
+				q.className = 'aifaq-gh__q';
+				q.textContent = ( p && p.question ) || '';
+				pair.appendChild( q );
+
+				var a = document.createElement( 'p' );
+				a.className = 'aifaq-gh__a';
+				a.textContent = ( p && p.answer ) || '';
+				pair.appendChild( a );
+
+				container.appendChild( pair );
+			} );
+		};
+
+		// Jeden wiersz historii — KONTRAKT §3b.
+		// `.aifaq-gh__acts` jest RODZEŃSTWEM nagłówka, nie dzieckiem: nagłówek to
+		// <button>, a zagnieżdżony <button> to nieprawidłowy HTML (parser rozerwałby drzewo).
+		var ghBuildRow = function ( item ) {
+			var id     = parseInt( item.id, 10 ) || 0;
+			var headId = 'aifaq-gh-head-' + id;
+			var bodyId = 'aifaq-gh-body-' + id;
+
+			var row = document.createElement( 'article' );
+			row.className = 'aifaq-gh__row';
+			row.setAttribute( 'data-id', String( id ) );
+
+			// --- nagłówek (klikalny, rozwija podgląd) ---
+			var head = document.createElement( 'button' );
+			head.type      = 'button';
+			head.className = 'aifaq-gh__head';
+			head.id        = headId;
+			head.setAttribute( 'aria-expanded', 'false' );
+			head.setAttribute( 'aria-controls', bodyId );
+
+			var topicEl = document.createElement( 'span' );
+			topicEl.className = 'aifaq-gh__topic';
+			topicEl.textContent = item.topic || ''; // anti-XSS: treść od usera
+			head.appendChild( topicEl );
+
+			var meta = document.createElement( 'span' );
+			meta.className = 'aifaq-gh__meta';
+
+			var nEl = document.createElement( 'span' );
+			nEl.className = 'aifaq-gh__n';
+			nEl.textContent = ghFmt( t.ghPairsFmt, item.num_questions || 0 );
+			meta.appendChild( nEl );
+
+			var langEl = document.createElement( 'span' );
+			langEl.className = 'aifaq-gh__lang';
+			langEl.textContent = item.language || '';
+			meta.appendChild( langEl );
+
+			var userEl = document.createElement( 'span' );
+			userEl.className = 'aifaq-gh__user';
+			userEl.textContent = item.user || ( t.ghNoUser || '' ); // anti-XSS: nazwa usera
+			meta.appendChild( userEl );
+
+			var dateEl = document.createElement( 'time' );
+			dateEl.className = 'aifaq-gh__date';
+			dateEl.textContent = item.date || '';
+			if ( item.iso ) { dateEl.setAttribute( 'datetime', String( item.iso ).replace( ' ', 'T' ) ); }
+			meta.appendChild( dateEl );
+
+			head.appendChild( meta );
+			row.appendChild( head );
+
+			// --- akcje (rodzeństwo nagłówka!) ---
+			var acts = document.createElement( 'div' );
+			acts.className = 'aifaq-gh__acts';
+
+			var regenHref = ghRegenHref( id );
+			if ( regenHref ) {
+				// Zwykły odnośnik — żadnego preventDefault, żadnego fetcha (§5 pkt 7).
+				var regen = document.createElement( 'a' );
+				regen.className = 'aifaq-btn2 aifaq-gh__regen';
+				regen.href = regenHref;
+				regen.textContent = t.ghRegen || '';
+				acts.appendChild( regen );
+			}
+
+			var del = document.createElement( 'button' );
+			del.type = 'button';
+			del.className = 'aifaq-btn2 aifaq-gh__del';
+			del.textContent = t.ghDelete || '';
+			acts.appendChild( del );
+
+			row.appendChild( acts );
+
+			// --- podgląd (zwinięty) ---
+			var body = document.createElement( 'div' );
+			body.className = 'aifaq-gh__body';
+			body.id = bodyId;
+			body.setAttribute( 'role', 'region' );
+			body.setAttribute( 'aria-labelledby', headId );
+			body.hidden = true;
+
+			var descEl = document.createElement( 'p' );
+			descEl.className = 'aifaq-gh__desc';
+			descEl.hidden = true;
+			body.appendChild( descEl );
+
+			var pairsEl = document.createElement( 'div' );
+			pairsEl.className = 'aifaq-gh__pairs';
+			pairsEl.setAttribute( 'aria-busy', 'false' );
+			body.appendChild( pairsEl );
+
+			var foot = document.createElement( 'div' );
+			foot.className = 'aifaq-gh__foot';
+
+			var copyBtn = document.createElement( 'button' );
+			copyBtn.type = 'button';
+			copyBtn.className = 'aifaq-btn2 aifaq-gh__copy';
+			copyBtn.textContent = t.ghCopyAll || '';
+			copyBtn.disabled = true; // aktywny dopiero po wczytaniu par (§5 pkt 5)
+			foot.appendChild( copyBtn );
+
+			var stat = document.createElement( 'span' );
+			stat.className = 'aifaq-gh__status';
+			stat.setAttribute( 'role', 'status' );
+			stat.setAttribute( 'aria-live', 'polite' );
+			foot.appendChild( stat );
+
+			body.appendChild( foot );
+			row.appendChild( body );
+
+			// --- logika wiersza ---
+			var loading  = false;
+			var rendered = false;
+			var statTimer = null;
+
+			var ghFlash = function ( msg ) {
+				if ( statTimer ) { clearTimeout( statTimer ); statTimer = null; }
+				stat.textContent = msg || '';
+				statTimer = setTimeout( function () {
+					stat.textContent = '';
+					statTimer = null;
+				}, 1500 );
+			};
+
+			var showDesc = function ( text ) {
+				var s = ( text === undefined || text === null ) ? '' : String( text );
+				if ( '' === s ) {
+					descEl.textContent = '';
+					descEl.hidden = true;
+					return;
+				}
+				descEl.textContent = ghFmt( t.ghDescFmt, s ); // anti-XSS: opis od usera
+				descEl.hidden = false;
+			};
+
+			var applyDetail = function ( data ) {
+				showDesc( data.desc );
+				ghRenderPairs( pairsEl, data.pairs );
+				copyBtn.disabled = ! ( data.pairs && data.pairs.length );
+				rendered = true;
+			};
+
+			// Lazy-load par: pierwsze rozwinięcie pobiera, kolejne biorą z cache.
+			// Po przeładowaniu listy (np. po usunięciu) wiersz jest budowany od nowa,
+			// więc `rendered` jest znów false — wtedy renderujemy Z CACHE, bez żądania.
+			var ensurePairs = function () {
+				if ( rendered || loading ) { return; }
+
+				if ( ghCached( id ) ) {
+					applyDetail( ghCache[ id ] );
+					return;
+				}
+				if ( ! ep.generationDetail ) {
+					ghNote( pairsEl, t.ghPairsErr || '' );
+					return;
+				}
+
+				loading = true;
+				pairsEl.setAttribute( 'aria-busy', 'true' );
+				ghNote( pairsEl, t.ghPairsLoad || '' );
+
+				get( ep.generationDetail, { id: id } ).then( function ( r ) {
+					var detail = ( r.ok && r.data && 'ok' === r.data.status ) ? r.data.item : null;
+					if ( ! detail ) {
+						ghNote( pairsEl, t.ghPairsErr || '' );
+						return;
+					}
+					ghCache[ id ] = {
+						pairs: detail.pairs || [],
+						desc:  detail.extra_desc || ''
+					};
+					applyDetail( ghCache[ id ] );
+				} ).catch( function () {
+					ghNote( pairsEl, t.ghPairsErr || '' );
+				} ).then( function () {
+					loading = false;
+					pairsEl.setAttribute( 'aria-busy', 'false' );
+				} );
+			};
+
+			head.addEventListener( 'click', function () {
+				var open = body.hidden;
+				body.hidden = ! open;
+				head.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
+				row.classList.toggle( 'is-open', open );
+				if ( open ) { ensurePairs(); }
+			} );
+
+			// „Kopiuj wszystko" — wyłącznie z cache (przycisk żyje dopiero po wczytaniu).
+			copyBtn.addEventListener( 'click', function () {
+				var data = ghCached( id ) ? ghCache[ id ] : null;
+				if ( ! data || ! data.pairs || ! data.pairs.length ) { return; }
+
+				var text = data.pairs.map( function ( p ) {
+					return ( ( p && p.question ) || '' ) + '\n' + ( ( p && p.answer ) || '' );
+				} ).join( '\n\n' ); // pary rozdzielone pustą linią
+
+				if ( navigator.clipboard && navigator.clipboard.writeText ) {
+					navigator.clipboard.writeText( text ).then( function () {
+						ghFlash( t.ghCopied || '' );
+					} ).catch( function () {
+						ghFlash( t.ghError || '' );
+					} );
+				} else {
+					ghFlash( t.ghError || '' );
+				}
+			} );
+
+			del.addEventListener( 'click', function () {
+				if ( ! ep.generationsDelete ) { return; }
+				if ( ! window.confirm( t.ghDeleteConf || '' ) ) { return; }
+
+				del.disabled = true;
+				stat.textContent = t.ghDeleting || '';
+
+				post( ep.generationsDelete, { id: id } ).then( function ( r ) {
+					if ( r.ok && r.data && 'ok' === r.data.status ) {
+						delete ghCache[ id ];
+						stat.textContent = t.ghDeleted || '';
+						// Przeładowanie BIEŻĄCEJ strony — serwer sam cofa `page`,
+						// gdy po usunięciu wypadła poza zakres (§5 pkt 6).
+						ghLoad();
+						return;
+					}
+					stat.textContent = t.ghDeleteErr || '';
+					del.disabled = false;
+				} ).catch( function () {
+					stat.textContent = t.ghDeleteErr || '';
+					del.disabled = false;
+				} );
+			} );
+
+			return row;
+		};
+
+		var ghRenderPager = function ( data ) {
+			ghState.pages = data.pages || 0;
+			ghState.page  = data.page || 1;
+
+			if ( ghCount ) {
+				ghCount.textContent = ghFmt( t.ghCountFmt, data.total || 0 );
+			}
+			if ( ! ghPager ) { return; }
+
+			ghPager.hidden = ghState.pages < 2;
+			if ( ghPageEl ) {
+				ghPageEl.textContent = String( t.ghPageFmt || '%1$s / %2$s' )
+					.replace( '%1$s', function () { return String( ghState.page ); } )
+					.replace( '%2$s', function () { return String( ghState.pages ); } );
+			}
+			if ( ghPrev ) { ghPrev.disabled = ghState.page <= 1; }
+			if ( ghNext ) { ghNext.disabled = ghState.page >= ghState.pages; }
+		};
+
+		var ghLoad = function () {
+			if ( ghState.busy ) { return; }
+			ghState.busy = true;
+			ghList.setAttribute( 'aria-busy', 'true' );
+			ghNote( ghList, t.ghLoading || '' );
+
+			get( ep.generations, {
+				page: ghState.page,
+				per_page: cfg.genPerPage || 20
+			} ).then( function ( r ) {
+				if ( ! r.ok || ! r.data || 'ok' !== r.data.status ) {
+					ghNote( ghList, t.ghError || '' );
+					if ( ghPager ) { ghPager.hidden = true; }
+					return;
+				}
+
+				ghRenderPager( r.data );
+
+				var items = r.data.items || [];
+				if ( ! items.length ) {
+					ghNote( ghList, t.ghEmpty || '' );
+					return;
+				}
+
+				ghList.textContent = '';
+				items.forEach( function ( item ) {
+					ghList.appendChild( ghBuildRow( item ) );
+				} );
+			} ).catch( function () {
+				ghNote( ghList, t.ghError || '' );
+			} ).then( function () {
+				ghState.busy = false;
+				ghList.setAttribute( 'aria-busy', 'false' );
+			} );
+		};
+
+		if ( ghPrev ) {
+			ghPrev.addEventListener( 'click', function () {
+				if ( ghState.page > 1 ) { ghState.page--; ghLoad(); }
+			} );
+		}
+		if ( ghNext ) {
+			ghNext.addEventListener( 'click', function () {
+				if ( ghState.page < ghState.pages ) { ghState.page++; ghLoad(); }
+			} );
+		}
+
+		ghLoad();
+	}
 } )();

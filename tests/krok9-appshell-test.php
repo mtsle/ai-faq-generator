@@ -7,7 +7,7 @@
  *  - config(): zero sekretów (brak api_key), komplet 5 endpointów /admin/*, isOwner, nonce.
  *  - render_body(gość): dokładnie GeneratorPage::widget() — bez paska zakładek, bez data-tab,
  *    bez panelu ustawień (gość nie widzi panelu).
- *  - render_body(właściciel): pasek zakładek + 4 zakładki + panel ustawień.
+ *  - render_body(właściciel): pasek zakładek + 5 zakładek (od K15) + panel ustawień.
  *  - settings_panel(): zapisany klucz NIE występuje w markupie (pole password value="").
  *  - strings()/lang(): nieznany język → pl; komplet kluczy per język.
  *
@@ -75,6 +75,7 @@ require __DIR__ . '/../src/Admin/Menu.php';
 require __DIR__ . '/../src/Admin/IndexController.php';
 require __DIR__ . '/../src/PublicUi/GeneratorPage.php';
 require __DIR__ . '/../src/App/HistoryPanel.php';
+require __DIR__ . '/../src/App/GenerationsPanel.php';
 require __DIR__ . '/../src/App/AppShell.php';
 
 use AIFAQ\App\AppShell;
@@ -117,7 +118,8 @@ echo "\n== render_body(WŁAŚCICIEL) — zakładki + panele ==\n";
 set_role( true, true );
 $owner = AppShell::render_body();
 check( false !== strpos( $owner, 'aifaq-app__bar' ), 'właściciel: pasek zakładek jest' );
-check( 4 === substr_count( $owner, 'aifaq-app__tab"' ) + substr_count( $owner, 'aifaq-app__tab ' ), 'właściciel: 4 zakładki' );
+// K15 dołożył zakładkę „Historia generowań" (gh) → 4 zakładki stały się 5.
+check( 5 === substr_count( $owner, 'aifaq-app__tab"' ) + substr_count( $owner, 'aifaq-app__tab ' ), 'właściciel: 5 zakładek' );
 check( false !== strpos( $owner, 'aifaq-panel-settings' ), 'właściciel: panel ustawień jest' );
 check( false !== strpos( $owner, 'aifaq-panel-index' ), 'właściciel: panel indeksowania jest' );
 

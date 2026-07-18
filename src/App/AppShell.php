@@ -162,7 +162,9 @@ class AppShell {
 
 		// Teksty Historii mieszkają przy swoim komponencie (HistoryPanel), bo ten
 		// sam panel renderuje się też w kokpicie — dokładamy je do wspólnego i18n.
-		return array_merge( $base, HistoryPanel::strings( $lang ) );
+		// Tak samo Historia generowań (GenerationsPanel, prefiks `gh*` — rozłączny
+		// z `hist*`/`idx*`/`set*`, więc merge niczego nie nadpisuje).
+		return array_merge( $base, HistoryPanel::strings( $lang ), GenerationsPanel::strings( $lang ) );
 	}
 
 	/**
@@ -178,19 +180,28 @@ class AppShell {
 		$base = rest_url( RestController::REST_NAMESPACE . '/admin/' );
 
 		return array(
-			'isOwner'   => true,
-			'nonce'     => wp_create_nonce( 'wp_rest' ),
-			'perPage'   => HistoryPanel::PER_PAGE,
-			'endpoints' => array(
-				'status'       => esc_url_raw( $base . 'status' ),
-				'reindex'      => esc_url_raw( $base . 'reindex' ),
-				'clear'        => esc_url_raw( $base . 'clear' ),
-				'settings'     => esc_url_raw( $base . 'settings' ),
-				'verify'       => esc_url_raw( $base . 'verify' ),
-				'history'      => esc_url_raw( $base . 'history' ),
-				'historyClear' => esc_url_raw( $base . 'history/clear' ),
+			'isOwner'    => true,
+			'nonce'      => wp_create_nonce( 'wp_rest' ),
+			'perPage'    => HistoryPanel::PER_PAGE,
+			'genPerPage' => GenerationsPanel::PER_PAGE,
+			// Adres ekranu „Narzędzie FAQ" + nazwa parametru — z nich JS składa
+			// link „Ponownie wygeneruj". Nazwa parametru pochodzi ze stałej PHP
+			// (jedno źródło prawdy dzielone z FaqToolPage::config()).
+			'faqToolUrl' => esc_url_raw( admin_url( 'admin.php?page=' . \AIFAQ\Admin\Menu::SLUG_FAQ_TOOL ) ),
+			'regenParam' => GenerationsPanel::REGEN_PARAM,
+			'endpoints'  => array(
+				'status'            => esc_url_raw( $base . 'status' ),
+				'reindex'           => esc_url_raw( $base . 'reindex' ),
+				'clear'             => esc_url_raw( $base . 'clear' ),
+				'settings'          => esc_url_raw( $base . 'settings' ),
+				'verify'            => esc_url_raw( $base . 'verify' ),
+				'history'           => esc_url_raw( $base . 'history' ),
+				'historyClear'      => esc_url_raw( $base . 'history/clear' ),
+				'generations'       => esc_url_raw( $base . 'generations' ),
+				'generationsDelete' => esc_url_raw( $base . 'generations/delete' ),
+				'generationDetail'  => esc_url_raw( $base . 'generations/detail' ),
 			),
-			'i18n'      => self::strings( $lang ),
+			'i18n'       => self::strings( $lang ),
 		);
 	}
 
@@ -213,6 +224,7 @@ class AppShell {
 			'generator' => $t['tabGenerator'],
 			'index'     => $t['tabIndex'],
 			'history'   => $t['tabHistory'],
+			'gh'        => $t['ghTab'],
 			'settings'  => $t['tabSettings'],
 		);
 
@@ -248,6 +260,10 @@ class AppShell {
 
 			<div class="aifaq-app__panel" id="aifaq-panel-history" role="tabpanel" aria-labelledby="aifaq-tab-history" hidden>
 				<?php echo HistoryPanel::widget( $t ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup z esc_* w widget(). ?>
+			</div>
+
+			<div class="aifaq-app__panel" id="aifaq-panel-gh" role="tabpanel" aria-labelledby="aifaq-tab-gh" hidden>
+				<?php echo GenerationsPanel::widget( $t ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup z esc_* w widget(). ?>
 			</div>
 
 			<div class="aifaq-app__panel" id="aifaq-panel-settings" role="tabpanel" aria-labelledby="aifaq-tab-settings" hidden>

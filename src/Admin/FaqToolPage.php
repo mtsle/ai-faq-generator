@@ -15,6 +15,7 @@
 
 namespace AIFAQ\Admin;
 
+use AIFAQ\App\GenerationsPanel;
 use AIFAQ\Core\Settings;
 use AIFAQ\Rest\RestController;
 
@@ -38,6 +39,12 @@ class FaqToolPage {
 		return array(
 			'endpoint'       => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/generate-faq' ) ),
 			'exportEndpoint' => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/export' ) ),
+			// Krok 15 — prefill formularza z historii („Ponownie wygeneruj").
+			'detailEndpoint' => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/generations/detail' ) ),
+			// Nazwa parametru URL pochodzi ZE STAŁEJ, nie z literału: ten sam
+			// identyfikator czytają dwa różne pliki JS (app.js buduje link,
+			// faq-tool.js go odczytuje) — literał w dwóch miejscach rozjechałby się.
+			'regenParam'     => GenerationsPanel::REGEN_PARAM,
 			'nonce'          => wp_create_nonce( 'wp_rest' ),
 			'defaults'       => array(
 				'count'    => 10,
@@ -90,6 +97,10 @@ class FaqToolPage {
 				'expCopied'     => __( 'Skopiowano.', 'ai-faq-generator' ),
 				'expDownloaded' => __( 'Pobrano.', 'ai-faq-generator' ),
 				'expEmpty'      => __( 'Brak par do eksportu.', 'ai-faq-generator' ),
+				// Krok 15 — prefill formularza z historii generowań.
+				'regenLoading'  => __( 'Wczytuję ustawienia z historii…', 'ai-faq-generator' ),
+				'regenLoaded'   => __( 'Wczytano z historii — sprawdź i kliknij Generuj FAQ.', 'ai-faq-generator' ),
+				'regenErr'      => __( 'Nie udało się wczytać wpisu historii.', 'ai-faq-generator' ),
 			),
 			'en' => array(
 				'title'      => __( 'FAQ tool', 'ai-faq-generator' ),
@@ -124,6 +135,10 @@ class FaqToolPage {
 				'expCopied'     => __( 'Copied.', 'ai-faq-generator' ),
 				'expDownloaded' => __( 'Downloaded.', 'ai-faq-generator' ),
 				'expEmpty'      => __( 'No pairs to export.', 'ai-faq-generator' ),
+				// Krok 15 — prefill formularza z historii generowań.
+				'regenLoading'  => __( 'Loading settings from history…', 'ai-faq-generator' ),
+				'regenLoaded'   => __( 'Loaded from history — review it and click Generate FAQ.', 'ai-faq-generator' ),
+				'regenErr'      => __( 'Could not load the history entry.', 'ai-faq-generator' ),
 			),
 			'de' => array(
 				'title'      => __( 'FAQ-Werkzeug', 'ai-faq-generator' ),
@@ -158,6 +173,10 @@ class FaqToolPage {
 				'expCopied'     => __( 'Kopiert.', 'ai-faq-generator' ),
 				'expDownloaded' => __( 'Heruntergeladen.', 'ai-faq-generator' ),
 				'expEmpty'      => __( 'Keine Paare zum Exportieren.', 'ai-faq-generator' ),
+				// Krok 15 — prefill formularza z historii generowań.
+				'regenLoading'  => __( 'Einstellungen aus dem Verlauf werden geladen…', 'ai-faq-generator' ),
+				'regenLoaded'   => __( 'Aus dem Verlauf geladen — prüfen und auf „FAQ generieren" klicken.', 'ai-faq-generator' ),
+				'regenErr'      => __( 'Der Verlaufseintrag konnte nicht geladen werden.', 'ai-faq-generator' ),
 			),
 		);
 

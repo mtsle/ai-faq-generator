@@ -594,10 +594,14 @@
 			method: 'POST',
 			credentials: 'same-origin',
 			headers: headers,
+			// Nazwy pól MUSZĄ być zgodne z args trasy /admin/generate-faq
+			// (`description`, `count`) — nie z nazwami kolumn w bazie
+			// (`extra_desc`, `num_questions`). Rozjazd = opis ignorowany i liczba
+			// pytań spadająca do wartości z ustawień.
 			body: JSON.stringify( {
 				topic: topicVal,
-				extra_desc: desc ? desc.value.trim() : '',
-				num_questions: num,
+				description: desc ? desc.value.trim() : '',
+				count: num,
 				language: lang
 			} )
 		} )
@@ -610,4 +614,121 @@
 			.catch( function () { setStatus( t.errMsg || '', 'error' ); } )
 			.then( function () { setBusy( false ); } );
 	} );
+
+	// -----------------------------------------------------------------------
+	// Prefill z historii generowań (Krok 15) — „Ponownie wygeneruj".
+	// Panel historii linkuje tu z ?aifaq_regen=<id> (nazwa parametru pochodzi
+	// ze stałej PHP w configu, nie jest wpisana literalnie). Wczytujemy wpis
+	// przez GET /admin/generations/detail i wypełniamy formularz.
+	//
+	// Blok jest ADDYTYWNY i NO-OPEM bez `detailEndpoint` lub bez parametru w URL,
+	// więc K13 (generowanie) i K14 (eksport) działają bez zmian. Stanu eksportu
+	// nie dotykamy — odświeży się dopiero po realnej generacji.
+	// -----------------------------------------------------------------------
+
+	// Nazwa parametru trafia do RegExp — na wszelki wypadek neutralizujemy metaznaki.
+	function regenEscRe( s ) {
+		return String( s ).replace( /[.*+?^${}()|[\]\\]/g, '\\$&' );
+	}
+
+	function regenParamValue( name ) {
+		var m = new RegExp( '[?&]' + regenEscRe( name ) + '=([^&#]*)' ).exec( window.location.search );
+		return m ? decodeURIComponent( m[ 1 ].replace( /\+/g, ' ' ) ) : '';
+	}
+
+	// Usuwa parametr z query stringa (bez ruszania pozostałych).
+	function regenStripParam( search, name ) {
+		var parts = String( search ).replace( /^\?/, '' ).split( '&' );
+		var keep  = [];
+		for ( var i = 0; i < parts.length; i++ ) {
+			if ( ! parts[ i ] ) {
+				continue;
+			}
+			var k = parts[ i ].split( '=' )[ 0 ];
+			try {
+				k = decodeURIComponent( k );
+			} catch ( e ) {
+				// zostawiamy surowe — i tak porównanie się nie uda i klucz przetrwa
+			}
+			if ( k !== name ) {
+				keep.push( parts[ i ] );
+			}
+		}
+		return keep.length ? ( '?' + keep.join( '&' ) ) : '';
+	}
+
+	( function initRegenPrefill() {
+		if ( ! cfg.detailEndpoint ) {
+			return;
+		}
+
+		var pname = cfg.regenParam || 'aifaq_regen';
+		var id    = parseInt( regenParamValue( pname ), 10 );
+		if ( isNaN( id ) || id <= 0 ) {
+			return;
+		}
+
+		// rest_url() bywa postaci ?rest_route=/aifaq/v1/... — naiwne `url + '?id='`
+		// rozwaliłoby żądanie. Ta sama reguła co w panelu historii.
+		var url = cfg.detailEndpoint +
+			( cfg.detailEndpoint.indexOf( '?' ) === -1 ? '?' : '&' ) +
+			'id=' + encodeURIComponent( id );
+
+		var headers = { 'Accept': 'application/json' };
+		if ( cfg.nonce ) {
+			headers['X-WP-Nonce'] = cfg.nonce;
+		}
+
+		setStatus( t.regenLoading || '', 'loading' );
+
+		fetch( url, {
+			method: 'GET',
+			credentials: 'same-origin',
+			headers: headers
+		} )
+			.then( function ( res ) {
+				return res.json()
+					.catch( function () { return {}; } )
+					.then( function ( data ) { return { status: res.status, data: data || {} }; } );
+			} )
+			.then( function ( r ) {
+				var item = ( r.data && r.data.item ) || null;
+				if ( 200 !== r.status || 'ok' !== r.data.status || ! item ) {
+					// 400 / 404 / cokolwiek — formularz zostaje pusty i użyteczny.
+					setStatus( t.regenErr || '', 'error' );
+					return;
+				}
+
+				// Prefill WYŁĄCZNIE przez .value (anti-XSS) — nigdy innerHTML.
+				topic.value = ( typeof item.topic === 'string' ) ? item.topic : '';
+				if ( desc ) {
+					desc.value = ( typeof item.extra_desc === 'string' ) ? item.extra_desc : '';
+				}
+				count.value = clamp( parseInt( item.num_questions, 10 ) );
+
+				setStatus( t.regenLoaded || '', 'ok' );
+				topic.focus();
+
+				// Świadomie NIE wołamy submit() — generacja kosztuje wywołanie AI,
+				// user musi sam kliknąć „Generuj FAQ".
+
+				// Sprzątamy parametr z adresu, żeby F5 nie wczytywał wpisu ponownie.
+				if ( window.history && window.history.replaceState ) {
+					try {
+						window.history.replaceState(
+							null,
+							'',
+							window.location.pathname +
+								regenStripParam( window.location.search, pname ) +
+								window.location.hash
+						);
+					} catch ( e ) {
+						// brak replaceState / ograniczenia przeglądarki — nieistotne
+					}
+				}
+			} )
+			.catch( function () {
+				setStatus( t.regenErr || '', 'error' );
+			} );
+	} )();
 } )();

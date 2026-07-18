@@ -235,6 +235,23 @@ class RestController {
 			)
 		);
 
+		// Panel: szczegół jednego wpisu historii generowań — z parami (Krok 15).
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/generations/detail',
+			array(
+				'methods'             => 'GET',
+				'callback'            => array( $this, 'handle_generation_detail' ),
+				'permission_callback' => array( $this, 'require_admin' ),
+				'args'                => array(
+					'id' => array(
+						'required' => true,
+						'type'     => 'integer',
+					),
+				),
+			)
+		);
+
 		// Panel: usunięcie jednego wpisu historii generowań (Krok 12).
 		register_rest_route(
 			self::REST_NAMESPACE,
@@ -719,20 +736,11 @@ class RestController {
 		}
 
 		$rows   = $repo->page( $per_page, ( $page - 1 ) * $per_page );
-		$format = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
+		$format = $this->datetime_format();
 
 		$items = array();
 		foreach ( $rows as $row ) {
-			$items[] = array(
-				'id'            => (int) ( $row['id'] ?? 0 ),
-				'date'          => mysql2date( $format, (string) ( $row['created_at'] ?? '' ) ),
-				'iso'           => (string) ( $row['created_at'] ?? '' ),
-				'topic'         => (string) ( $row['topic'] ?? '' ),
-				'extra_desc'    => (string) ( $row['extra_desc'] ?? '' ),
-				'num_questions' => (int) ( $row['num_questions'] ?? 0 ),
-				'language'      => (string) ( $row['language'] ?? '' ),
-				'user'          => $this->user_label( (int) ( $row['user_id'] ?? 0 ) ),
-			);
+			$items[] = $this->generation_item( $row, $format );
 		}
 
 		return new WP_REST_Response(
@@ -743,6 +751,56 @@ class RestController {
 				'page'     => $page,
 				'pages'    => $pages,
 				'per_page' => $per_page,
+			),
+			200
+		);
+	}
+
+	/**
+	 * `GET /admin/generations/detail` — jeden wpis historii generowań RAZEM z parami.
+	 *
+	 * Kształt `item` jest IDENTYCZNY z elementem `items[]` z {@see handle_generations()}
+	 * (wspólny builder {@see generation_item()}) plus dodatkowy klucz `pairs` — dzięki
+	 * temu front renderuje wiersz listy i wiersz szczegółu jednym kodem.
+	 * Brak/niepoprawne `id` → 400, brak wiersza → 404 (bez ujawniania czegokolwiek
+	 * o zawartości bazy poza samym faktem nieistnienia wpisu).
+	 *
+	 * @param WP_REST_Request $request Żądanie.
+	 * @return WP_REST_Response
+	 */
+	public function handle_generation_detail( WP_REST_Request $request ): WP_REST_Response {
+		$id = (int) $request->get_param( 'id' );
+
+		if ( $id <= 0 ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Brak poprawnego identyfikatora.', 'ai-faq-generator' ),
+				),
+				400
+			);
+		}
+
+		// find() z GenerationRepository dokłada zdekodowany klucz `pairs`.
+		$row = ( new GenerationRepository() )->find( $id );
+
+		if ( null === $row ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Nie znaleziono tego wpisu historii.', 'ai-faq-generator' ),
+				),
+				404
+			);
+		}
+
+		$item          = $this->generation_item( $row, $this->datetime_format() );
+		$item['pairs'] = $this->normalize_pairs( $row['pairs'] ?? array() );
+
+		return new WP_REST_Response(
+			array(
+				'status' => 'ok',
+				'item'   => $item,
 			),
 			200
 		);
@@ -845,6 +903,91 @@ class RestController {
 			),
 			200
 		);
+	}
+
+	/**
+	 * Format daty i godziny wg ustawień WordPressa (jedno miejsce dla obu tras).
+	 *
+	 * @return string
+	 */
+	private function datetime_format(): string {
+		return get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
+	}
+
+	/**
+	 * Buduje element historii generowań w kształcie oczekiwanym przez front.
+	 *
+	 * Wspólny dla listy (`/admin/generations`) i szczegółu (`/admin/generations/detail`)
+	 * — jeden kształt, jedno miejsce (wzorzec DRY z `run_reindex`/`run_clear`, K7).
+	 * Świadomie NIE odsyłamy `user_id` ani surowego `pairs_json` (minimalizacja, GR7):
+	 * front dostaje gotową etykietę `user`, a pary tylko tam, gdzie są potrzebne.
+	 *
+	 * @param array<string,mixed> $row    Surowy wiersz z repozytorium.
+	 * @param string              $format Format daty (patrz {@see datetime_format()}).
+	 * @return array<string,mixed>
+	 */
+	private function generation_item( array $row, string $format ): array {
+		return array(
+			'id'            => (int) ( $row['id'] ?? 0 ),
+			'date'          => mysql2date( $format, (string) ( $row['created_at'] ?? '' ) ),
+			'iso'           => (string) ( $row['created_at'] ?? '' ),
+			'topic'         => (string) ( $row['topic'] ?? '' ),
+			'extra_desc'    => (string) ( $row['extra_desc'] ?? '' ),
+			'num_questions' => (int) ( $row['num_questions'] ?? 0 ),
+			'language'      => (string) ( $row['language'] ?? '' ),
+			'user'          => $this->user_label( (int) ( $row['user_id'] ?? 0 ) ),
+		);
+	}
+
+	/**
+	 * Normalizuje snapshot par ze zdekodowanego `pairs_json` do listy {question, answer}.
+	 *
+	 * Snapshot to JSON sprzed wielu wersji — nie zakładamy nic o jego kształcie.
+	 * Elementy niebędące tablicą oraz nieskalarne `question`/`answer` odrzucamy
+	 * (rzutowanie tablicy na string dałoby ostrzeżenie „Array to string conversion"
+	 * i śmieci w odpowiedzi — realny błąd złapany w K11), a listę klampujemy do
+	 * {@see Exporter::MAX_PAIRS}, tak samo jak eksport.
+	 *
+	 * @param mixed $raw Zdekodowana zawartość `pairs_json`.
+	 * @return array<int,array<string,string>>
+	 */
+	private function normalize_pairs( $raw ): array {
+		$pairs = array();
+
+		if ( ! is_array( $raw ) ) {
+			return $pairs;
+		}
+
+		foreach ( $raw as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
+
+			$q = $item['question'] ?? '';
+			$a = $item['answer'] ?? '';
+			if ( ! is_scalar( $q ) || ! is_scalar( $a ) ) {
+				continue;
+			}
+
+			// Puste po przycięciu odrzucamy tak samo jak Exporter::normalize() —
+			// inaczej para bez pytania wyrenderowałaby się w podglądzie jako pusty wiersz.
+			$q = trim( (string) $q );
+			$a = trim( (string) $a );
+			if ( '' === $q || '' === $a ) {
+				continue;
+			}
+
+			$pairs[] = array(
+				'question' => $q,
+				'answer'   => $a,
+			);
+
+			if ( count( $pairs ) >= Exporter::MAX_PAIRS ) {
+				break;
+			}
+		}
+
+		return $pairs;
 	}
 
 	/**

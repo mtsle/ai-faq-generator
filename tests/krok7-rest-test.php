@@ -92,11 +92,12 @@ $routes = $GLOBALS['__aifaq_routes'];
 $by_route = array();
 foreach ( $routes as $r ) { $by_route[ $r['route'] ] = $r; }
 
-check( count( $routes ) === 12, 'zarejestrowano dokładnie 12 tras' );
+check( count( $routes ) === 13, 'zarejestrowano dokładnie 13 tras' );
 check( isset( $by_route['/ask'], $by_route['/admin/status'], $by_route['/admin/reindex'], $by_route['/admin/clear'], $by_route['/admin/settings'], $by_route['/admin/verify'], $by_route['/admin/history'], $by_route['/admin/history/clear'] ), 'komplet ścieżek /ask + /admin/{status,reindex,clear,settings,verify,history,history/clear}' );
 check( isset( $by_route['/admin/generate-faq'], $by_route['/admin/generations'], $by_route['/admin/generations/delete'] ), 'trasy generatora (K12): /admin/generate-faq, /admin/generations, /admin/generations/delete' );
 check( isset( $by_route['/admin/export'] ), 'trasa eksportu (K14): /admin/export' );
 check( 'POST' === ( $by_route['/admin/export']['args']['methods'] ?? '' ), '/admin/export metoda POST' );
+check( isset( $by_route['/admin/generations/detail'] ), 'trasa szczegółu historii (K15): /admin/generations/detail' );
 
 $all_ns = array_unique( array_map( static function ( $r ) { return $r['ns']; }, $routes ) );
 check( array( 'aifaq/v1' ) === array_values( $all_ns ), 'wszystkie trasy w namespace aifaq/v1' );
@@ -120,8 +121,10 @@ check( 'POST' === ( $by_route['/admin/history/clear']['args']['methods'] ?? '' )
 check( 'POST' === ( $by_route['/admin/generate-faq']['args']['methods'] ?? '' ), '/admin/generate-faq metoda POST' );
 check( 'GET' === ( $by_route['/admin/generations']['args']['methods'] ?? '' ), '/admin/generations metoda GET' );
 check( 'POST' === ( $by_route['/admin/generations/delete']['args']['methods'] ?? '' ), '/admin/generations/delete metoda POST' );
+check( 'GET' === ( $by_route['/admin/generations/detail']['args']['methods'] ?? '' ), '/admin/generations/detail metoda GET' );
 check( isset( $by_route['/admin/generate-faq']['args']['args']['topic'] ) && true === $by_route['/admin/generate-faq']['args']['args']['topic']['required'], '/admin/generate-faq wymaga parametru topic' );
-foreach ( array( '/admin/status', '/admin/reindex', '/admin/clear', '/admin/settings', '/admin/verify', '/admin/history', '/admin/history/clear', '/admin/generate-faq', '/admin/generations', '/admin/generations/delete' ) as $ar ) {
+check( isset( $by_route['/admin/generations/detail']['args']['args']['id'] ) && true === $by_route['/admin/generations/detail']['args']['args']['id']['required'], '/admin/generations/detail wymaga parametru id' );
+foreach ( array( '/admin/status', '/admin/reindex', '/admin/clear', '/admin/settings', '/admin/verify', '/admin/history', '/admin/history/clear', '/admin/generate-faq', '/admin/generations', '/admin/generations/detail', '/admin/generations/delete' ) as $ar ) {
 	$pc = $by_route[ $ar ]['args']['permission_callback'] ?? null;
 	$ok = is_array( $pc ) && $pc[0] instanceof RestController && 'require_admin' === $pc[1];
 	check( $ok, "$ar permission_callback = require_admin" );
