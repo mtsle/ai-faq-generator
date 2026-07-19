@@ -146,7 +146,11 @@ check( 2 === $r1['posts'] && 2 === $r1['indexed'] && 0 === $r1['skipped'], "post
 check( $r1['chunks'] > 2 && array() === $r1['errors'], "zapisano >2 fragmenty, bez błędów (" . $r1['chunks'] . ')' );
 check( $r1['chunks'] === count( $repo->all_with_embeddings() ), "wszystkie fragmenty mają embedding" );
 $calls_after_1 = $prov->embed_calls;
-check( $calls_after_1 >= 2, "provider embed wołany (calls=" . $calls_after_1 . ')' );
+// Krok 17 (§3.7 pkt 3): embeddingi są paczkowane PONAD WPISAMI — fragmenty wszystkich
+// dokustów jednej fali idą w JEDNYM wywołaniu providera. Przed K17 było jedno wywołanie
+// na wpis (asercja brzmiała `>= 2`), przez co 500 wpisów = 500 żądań i przy limicie
+// 5 żądań/min większość lądowała w `errors[]`. Ta asercja jest teraz dowodem paczkowania.
+check( 1 === $calls_after_1, "embed wołany DOKŁADNIE RAZ dla obu wpisów (paczkowanie ponad wpisami, calls=" . $calls_after_1 . ')' );
 
 echo "\n=== B. Drugi przebieg — skip-unchanged (bez kosztu API) ===\n";
 $r2 = $idx->run();

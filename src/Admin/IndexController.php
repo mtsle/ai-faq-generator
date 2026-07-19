@@ -16,8 +16,12 @@ use AIFAQ\Core\Settings;
 use AIFAQ\Data\CacheRepository;
 use AIFAQ\Data\KnowledgeRepository;
 use AIFAQ\Index\Chunker;
+use AIFAQ\Index\CompositeContentSource;
+use AIFAQ\Index\CrawlQueue;
 use AIFAQ\Index\EmbeddingBatcher;
 use AIFAQ\Index\Indexer;
+use AIFAQ\Index\PostMetaContentSource;
+use AIFAQ\Index\RenderedContentSource;
 use AIFAQ\Index\WpContentSource;
 use AIFAQ\Providers\ProviderFactory;
 
@@ -92,6 +96,14 @@ class IndexController {
 	 * `permission_callback` w REST). Egzekwuje logikę biznesową: klucz API + lock
 	 * F5. Zwraca ustrukturyzowany wynik zamiast kończyć żądanie.
 	 *
+	 * Krok 17: przed przebiegiem uruchamia kaskadę źródeł treści — `post_content`
+	 * (WpContentSource), pola własne (PostMetaContentSource) i treść wyrenderowaną
+	 * przez crawl własnej witryny (RenderedContentSource). KOLEJNOŚĆ operacji jest
+	 * wiążąca (KONTRAKT k17-v3 §4): najpierw kontrola „czy crawl trwa”, dopiero
+	 * potem `seed()`. Odwrotna kolejność sprawiała, że `seed()` zapełniał kolejkę,
+	 * a chwilę później ta sama metoda odmawiała startu — pierwszy klik nigdy nie
+	 * indeksował.
+	 *
 	 * @return array{ok:bool,status:int,message?:string,report?:array,stats?:array}
 	 */
 	public function run_reindex(): array {
@@ -127,8 +139,68 @@ class IndexController {
 			@set_time_limit( 0 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
 		}
 
+		// --- Krok 17: kaskada źródeł treści. ---
+
+		// 1. NAJPIERW kontrola: czy crawl już trwa? Indeksowanie w trakcie pobierania
+		//    dałoby połowiczną treść zwektoryzowaną za realne pieniądze.
+		$crawl_on = ( '1' === (string) Settings::get_field( 'crawl_enabled', '1' ) );
+		$queue    = class_exists( CrawlQueue::class ) ? new CrawlQueue() : null;
+
+		if ( $crawl_on && null !== $queue ) {
+			$progress = $queue->progress();
+			if ( ! empty( $progress['running'] ) ) {
+				delete_transient( self::LOCK );
+				return array(
+					'ok'      => false,
+					'status'  => 409,
+					'message' => sprintf(
+						/* translators: 1: liczba pobranych stron, 2: liczba wszystkich stron */
+						__( 'Trwa pobieranie stron: %1$d z %2$d. Poczekaj na zakończenie albo wyłącz crawl w ustawieniach.', 'ai-faq-generator' ),
+						(int) ( $progress['done'] ?? 0 ),
+						(int) ( $progress['total'] ?? 0 )
+					),
+				);
+			}
+		}
+
+		// 2. Rozruch kolejki (przyrostowy) — dopiero teraz. Bez tego cała kaskada
+		//    jest martwa: crawl nigdy by nie ruszył, a źródło renderowane byłoby puste.
+		if ( $crawl_on && null !== $queue && class_exists( RenderedContentSource::class ) ) {
+			$loopback = RenderedContentSource::loopback_ok();
+			if ( ! empty( $loopback['ok'] ) ) {
+				$added = $queue->seed();
+				if ( $added > 0 ) {
+					$queue->schedule();
+				}
+			}
+		}
+
+		// 3. Źródła. `meta_keys`/`meta_post_types` z ustawień trafiają realnie do
+		//    konstruktora — inaczej właściciel wypełniałby pola, których nic nie czyta.
+		$meta_keys  = array_filter( array_map( 'trim', explode( ',', (string) Settings::get_field( 'meta_keys', '' ) ) ), 'strlen' );
+		$meta_types = array_filter( array_map( 'trim', explode( ',', (string) Settings::get_field( 'meta_post_types', 'post,page' ) ) ), 'strlen' );
+
+		$sources = array( new WpContentSource() );
+		if ( class_exists( PostMetaContentSource::class ) ) {
+			$sources[] = new PostMetaContentSource( array_values( $meta_types ), array_values( $meta_keys ) );
+		}
+		if ( $crawl_on && class_exists( RenderedContentSource::class ) ) {
+			$sources[] = new RenderedContentSource( $queue );
+		}
+
+		if ( function_exists( 'apply_filters' ) ) {
+			$sources = apply_filters( 'aifaq_content_sources', $sources );
+		}
+
+		// Bramka `is_indexable()` jest wymuszana STRUKTURALNIE w kompozycie — także
+		// dla źródeł wstrzykniętych filtrem powyżej (KONTRAKT §1 reguła 4).
+		$source = class_exists( CompositeContentSource::class )
+			? new CompositeContentSource( is_array( $sources ) ? $sources : array() )
+			: new WpContentSource();
+
+		// 4. Dotychczasowy przebieg.
 		$indexer = new Indexer(
-			new WpContentSource(),
+			$source,
 			new Chunker(),
 			new EmbeddingBatcher( ProviderFactory::make() ),
 			new KnowledgeRepository(),
@@ -187,12 +259,16 @@ class IndexController {
 	 * Zmiana modelu embeddingów lub liczby wymiarów zmienia ten podpis, co wymusza
 	 * ponowne zwektoryzowanie treści zamiast pozostawienia wektorów z innej przestrzeni.
 	 *
+	 * Token `src2` (Krok 17) należy do tej samej rodziny: kaskada źródeł zmienia
+	 * TREŚĆ karmiącą embeddingi, więc stare wektory opisują już co innego. Świadomie
+	 * wymusza pełny re-embed przy pierwszym reindeksie po aktualizacji.
+	 *
 	 * @return string
 	 */
-	private static function index_signature(): string {
+	public static function index_signature(): string {
 		return (string) Settings::get_field( 'provider', 'gemini' ) . '|'
 			. (string) Settings::get_field( 'embed_model', '' ) . '|'
-			. \AIFAQ\Providers\GeminiProvider::EMBED_DIMENSIONS;
+			. \AIFAQ\Providers\GeminiProvider::EMBED_DIMENSIONS . '|src2';
 	}
 
 	/**

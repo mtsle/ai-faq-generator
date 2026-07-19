@@ -415,6 +415,9 @@ class RestController {
 	/**
 	 * `GET /admin/status` — statystyki bazy wiedzy i gotowość do indeksowania.
 	 *
+	 * Krok 17: dokłada klucz `crawl` z postępem pobierania stron. Świadomie ROZSZERZA
+	 * istniejącą trasę zamiast dokładać nową — kontrakt trzyma liczbę tras na 13.
+	 *
 	 * @param WP_REST_Request $request Żądanie (nieużywane).
 	 * @return WP_REST_Response
 	 */
@@ -425,8 +428,50 @@ class RestController {
 				'stats'       => IndexController::stats(),
 				'indexing'    => (bool) get_transient( IndexController::LOCK ),
 				'api_key_set' => '' !== (string) Settings::get_field( 'api_key', '' ),
+				'crawl'       => self::crawl_progress(),
 			),
 			200
+		);
+	}
+
+	/**
+	 * Postęp pobierania stron — bezpieczny odczyt z kolejki innego etapu.
+	 *
+	 * Brak klasy albo wyjątek w kolejce nie może wywalić statusu panelu (to jedyne
+	 * miejsce, w którym właściciel widzi stan bazy wiedzy), więc degradujemy do
+	 * stanu „nic nie trwa”.
+	 *
+	 * @return array{total:int,done:int,running:bool,needs_reindex:bool,warnings:array<int,string>}
+	 */
+	private static function crawl_progress(): array {
+		$out = array(
+			'total'         => 0,
+			'done'          => 0,
+			'running'       => false,
+			'needs_reindex' => false,
+			'warnings'      => array(),
+		);
+
+		if ( ! class_exists( '\AIFAQ\Index\CrawlQueue' ) ) {
+			return $out;
+		}
+
+		try {
+			$progress = ( new \AIFAQ\Index\CrawlQueue() )->progress();
+		} catch ( \Throwable $e ) {
+			return $out;
+		}
+
+		if ( ! is_array( $progress ) ) {
+			return $out;
+		}
+
+		return array(
+			'total'         => (int) ( $progress['total'] ?? 0 ),
+			'done'          => (int) ( $progress['done'] ?? 0 ),
+			'running'       => (bool) ( $progress['running'] ?? false ),
+			'needs_reindex' => (bool) ( $progress['needs_reindex'] ?? false ),
+			'warnings'      => is_array( $progress['warnings'] ?? null ) ? array_values( $progress['warnings'] ) : array(),
 		);
 	}
 

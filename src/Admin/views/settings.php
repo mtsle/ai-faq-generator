@@ -293,6 +293,103 @@ $aifaq_refusal_langs = array(
 					</tr>
 				<?php endforeach; ?>
 
+				<tr>
+					<th scope="row" colspan="2" class="aifaq-section-head">
+						<h2 style="margin:1.5em 0 .2em;"><?php esc_html_e( 'Źródła treści bazy wiedzy', 'ai-faq-generator' ); ?></h2>
+						<p class="description" style="font-weight:normal;"><?php esc_html_e( 'Skąd wtyczka bierze treść do indeksowania. Sama treść wpisów i stron to zwykle ułamek tego, co widzi gość — reszta siedzi w polach własnych i w szablonie motywu.', 'ai-faq-generator' ); ?></p>
+					</th>
+				</tr>
+
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Pobieranie własnych podstron', 'ai-faq-generator' ); ?></th>
+					<td>
+						<?php
+						/*
+						 * UKRYTY INPUT MUSI STAĆ PRZED CHECKBOXEM.
+						 * Odznaczony checkbox nie wysyła NICZEGO, a Settings::sanitize()
+						 * przetwarza to pole wyłącznie pod isset() (patrz komentarz przy
+						 * sanitize — idiom `! empty()` gasił crawl przy zapisie z frontu).
+						 * Bez tej pary „odznacz i zapisz" nie miałoby żadnego skutku.
+						 */
+						?>
+						<input type="hidden" name="aifaq_settings[crawl_enabled]" value="0">
+						<label for="aifaq-crawl-enabled">
+							<input
+								type="checkbox"
+								id="aifaq-crawl-enabled"
+								name="aifaq_settings[crawl_enabled]"
+								value="1"
+								<?php checked( '1', (string) ( $aifaq['crawl_enabled'] ?? '1' ) ); ?>
+							>
+							<?php esc_html_e( 'Pobieraj własne podstrony tak, jak widzi je gość (zalecane)', 'ai-faq-generator' ); ?>
+						</label>
+						<p class="description">
+							<?php esc_html_e( 'Serwer w tle odwiedza Twoje podstrony i czyta z nich gotowy tekst — także ten, który motyw dokłada z szablonu, a którego nie ma w treści wpisu. Pobieranie idzie paczkami w tle (cron), bez logowania. Wyłącz, jeśli hosting blokuje ruch „sam do siebie”.', 'ai-faq-generator' ); ?>
+						</p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-crawl-exclude"><?php esc_html_e( 'Wyklucz strony (slugi po przecinku) — z WSZYSTKICH źródeł', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="text"
+							id="aifaq-crawl-exclude"
+							name="aifaq_settings[crawl_exclude]"
+							value="<?php echo esc_attr( (string) ( $aifaq['crawl_exclude'] ?? '' ) ); ?>"
+							class="large-text"
+							placeholder="koszyk, moje-konto, regulamin"
+						>
+						<p class="description"><?php esc_html_e( 'Np. „koszyk, moje-konto”. Wykluczenie działa na CAŁĄ kaskadę: taka strona nie trafi do bazy wiedzy ani z treści wpisu, ani z pól własnych, ani z pobierania. Porównujemy pełny segment adresu, nie fragment.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-meta-keys"><?php esc_html_e( 'Dodatkowe pola własne (klucze po przecinku)', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="text"
+							id="aifaq-meta-keys"
+							name="aifaq_settings[meta_keys]"
+							value="<?php echo esc_attr( (string) ( $aifaq['meta_keys'] ?? '' ) ); ?>"
+							class="large-text"
+							placeholder="kadra_bio, program_opis"
+						>
+						<p class="description"><?php esc_html_e( 'Wtyczka i tak czyta pola o typowych nazwach (bio, opis, treść, description, content, text). Tutaj DOKŁADASZ własne — nie zastępujesz listy domyślnej. Pola techniczne (zaczynające się od podkreślnika) i pola SEO są pomijane.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-meta-post-types"><?php esc_html_e( 'Typy wpisów dla pól własnych', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="text"
+							id="aifaq-meta-post-types"
+							name="aifaq_settings[meta_post_types]"
+							value="<?php echo esc_attr( (string) ( $aifaq['meta_post_types'] ?? 'post,page' ) ); ?>"
+							class="regular-text"
+							placeholder="post,page"
+						>
+						<p class="description"><?php esc_html_e( 'Domyślnie wąsko: „post,page”. Dopisz własne typy treści tylko wtedy, gdy naprawdę mają być publicznie odpowiadalne — wszystko, co trafi do bazy wiedzy, generator może powtórzyć anonimowemu gościowi.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row"></th>
+					<td>
+						<p class="description">
+							<strong><?php esc_html_e( 'Uwaga o koszcie:', 'ai-faq-generator' ); ?></strong>
+							<?php esc_html_e( 'Zmiana dwóch pierwszych ustawień kasuje to, co już pobrano, i wymaga ponownego zaindeksowania treści — a to ponowne, płatne liczenie embeddingów u dostawcy AI.', 'ai-faq-generator' ); ?>
+						</p>
+					</td>
+				</tr>
+
 			</tbody>
 		</table>
 

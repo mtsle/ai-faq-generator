@@ -10,6 +10,10 @@
  * jest pomijany BEZ wołania embeddingów (drogie API). Sam nie rzuca wyjątków —
  * błędy per wpis zbiera w raporcie i kontynuuje z kolejnymi.
  *
+ * Krok 17 dokłada trzy rzeczy: batchowanie embeddingów PONAD wpisami (jedno
+ * żądanie na falę zamiast jednego na wpis), pomijanie pruningu przy niekompletnym
+ * źródle oraz bezpiecznik ilościowy sygnalizujący nagły ubytek fragmentów.
+ *
  * @package AI_FAQ_Generator
  */
 
@@ -25,6 +29,20 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Orkiestrator indeksowania.
  */
 class Indexer {
+
+	/**
+	 * Maksymalna liczba fragmentów w jednej fali embeddingów.
+	 *
+	 * Ochrona pamięci: przy `memory_limit = 128M` i witrynie z setkami wpisów
+	 * płaska lista wszystkich fragmentów naraz jest zbyt kosztowna. Fale są
+	 * niezależne — błąd jednej nie przerywa pozostałych.
+	 */
+	public const WAVE_SIZE = 500;
+
+	/**
+	 * Próg bezpiecznika ilościowego (spadek liczby fragmentów o 30%).
+	 */
+	public const DROP_ALERT = 0.30;
 
 	/**
 	 * Źródło treści.
@@ -85,31 +103,47 @@ class Indexer {
 	/**
 	 * Uruchamia indeksowanie całej treści.
 	 *
-	 * @return array{posts:int,indexed:int,skipped:int,cleared:int,pruned:int,chunks:int,errors:array<int,string>,warnings:array<int,string>}
+	 * @return array{posts:int,indexed:int,skipped:int,cleared:int,pruned:int,chunks:int,errors:array<int,string>,warnings:array<int,string>,sources:array<string,array{docs:int,chars:int}>,filtered_lines:int}
 	 *         Raport: liczba wpisów, zaindeksowanych, pominiętych (bez zmian),
 	 *         wyczyszczonych (utraciły treść), usuniętych osieroconych, zapisanych
-	 *         fragmentów, błędów oraz ostrzeżeń (rzeczy pominiętych świadomie).
+	 *         fragmentów, błędów, ostrzeżeń (rzeczy pominiętych świadomie), wkładu
+	 *         poszczególnych źródeł oraz liczby przeniesionych linii balastu.
 	 */
 	public function run(): array {
 		$report = array(
-			'posts'    => 0,
-			'indexed'  => 0,
-			'skipped'  => 0,
-			'cleared'  => 0,
-			'pruned'   => 0,
-			'chunks'   => 0,
-			'errors'   => array(),
-			'warnings' => array(),
+			'posts'          => 0,
+			'indexed'        => 0,
+			'skipped'        => 0,
+			'cleared'        => 0,
+			'pruned'         => 0,
+			'chunks'         => 0,
+			'errors'         => array(),
+			'warnings'       => array(),
+			'sources'        => array(),
+			'filtered_lines' => 0,
 		);
 
-		$seen = array();
+		// Bezpiecznik ilościowy — stan PRZED przebiegiem.
+		$chunks_before = $this->count_chunks();
+
+		$seen    = array();
+		$flat    = array();   // Płaska lista fragmentów do zwektoryzowania.
+		$map     = array();   // Równoległa mapa: indeks w $flat => post_id + chunk_index.
+		$pending = array();   // post_id => array{pieces, hashes} — wpisy do zapisania.
 
 		foreach ( $this->source->documents() as $doc ) {
 			++$report['posts'];
-			$post_id        = (int) $doc['post_id'];
+			$post_id          = (int) ( $doc['post_id'] ?? 0 );
 			$seen[ $post_id ] = true;
 
-			$pieces = $this->chunker->chunk( (string) $doc['text'] );
+			$text  = (string) ( $doc['text'] ?? '' );
+			$title = trim( (string) ( $doc['title'] ?? '' ) );
+
+			// Prepend tytułu WARUNKOWY: pusty tekst musi dalej dawać `cleared`,
+			// inaczej sam tytuł udawałby treść i wpis nigdy nie zostałby wyczyszczony.
+			$source_text = ( '' === trim( $text ) || '' === $title ) ? $text : $title . "\n" . $text;
+
+			$pieces = $this->chunker->chunk( $source_text );
 
 			// Wpis stracił treść tekstową — usuwamy jego stare fragmenty.
 			if ( array() === $pieces ) {
@@ -128,26 +162,75 @@ class Indexer {
 				$pieces
 			);
 
-			// Pomiń, jeśli zestaw fragmentów identyczny jak w bazie (zero kosztu API).
+			// NAJPIERW skip-unchanged, DOPIERO POTEM zbieranie do paczki. Odwrotna
+			// kolejność kasowałaby optymalizację M1 i czyniła każdy reindeks
+			// pełnopłatnym — czyli odwrotnie do celu batchowania.
 			if ( $this->unchanged( $hashes, $this->repo->hashes_for_post( $post_id ) ) ) {
 				++$report['skipped'];
 				continue;
 			}
 
-			$vectors = $this->batcher->embed_all( $pieces );
-			if ( is_wp_error( $vectors ) ) {
-				/* translators: 1: ID wpisu, 2: komunikat błędu */
-				$report['errors'][] = sprintf( __( 'Wpis %1$d: %2$s', 'ai-faq-generator' ), $post_id, $vectors->get_error_message() );
+			foreach ( $pieces as $i => $piece ) {
+				$map[ count( $flat ) ] = array(
+					'post_id'     => $post_id,
+					'chunk_index' => (int) $i,
+				);
+				$flat[] = $piece;
+			}
+
+			$pending[ $post_id ] = array(
+				'pieces' => $pieces,
+				'hashes' => $hashes,
+			);
+		}
+
+		// Wektoryzacja falami — jedno wywołanie embed_all() na falę, niezależnie
+		// od liczby wpisów w niej zawartych.
+		$vectors_by_post = array();
+		$failed_posts    = array();
+		$total           = count( $flat );
+
+		for ( $start = 0; $start < $total; $start += self::WAVE_SIZE ) {
+			$wave = array_slice( $flat, $start, self::WAVE_SIZE );
+
+			$vectors = $this->batcher->embed_all( $wave );
+
+			if ( self::is_error( $vectors ) ) {
+				// Polityka błędu: jeden błąd fali → po jednym wpisie w raporcie na
+				// każdy post_id z tej fali; pozostałe fale lecą normalnie.
+				$message = method_exists( $vectors, 'get_error_message' ) ? (string) $vectors->get_error_message() : '';
+				foreach ( $this->post_ids_in_wave( $map, $start, count( $wave ) ) as $pid ) {
+					$failed_posts[ $pid ] = true;
+					/* translators: 1: ID wpisu, 2: komunikat błędu */
+					$report['errors'][] = sprintf( __( 'Wpis %1$d: %2$s', 'ai-faq-generator' ), $pid, $message );
+				}
+				continue;
+			}
+
+			foreach ( array_keys( $wave ) as $offset ) {
+				$i = $start + (int) $offset;
+				if ( ! isset( $map[ $i ] ) ) {
+					continue;
+				}
+				$vectors_by_post[ $map[ $i ]['post_id'] ][ $map[ $i ]['chunk_index'] ] = is_array( $vectors ) ? ( $vectors[ $offset ] ?? null ) : null;
+			}
+		}
+
+		// Zapis per wpis (atomowy) — dopiero po zebraniu wektorów.
+		foreach ( $pending as $post_id => $data ) {
+			// Wpis, którego fala padła, NIE jest zapisywany częściowo — błąd już
+			// trafił do raportu, a stare (opłacone) fragmenty zostają nietknięte.
+			if ( isset( $failed_posts[ $post_id ] ) ) {
 				continue;
 			}
 
 			$chunks = array();
-			foreach ( $pieces as $i => $content ) {
+			foreach ( $data['pieces'] as $i => $content ) {
 				$chunks[] = array(
 					'chunk_index'  => $i,
 					'content'      => $content,
-					'content_hash' => $hashes[ $i ],
-					'embedding'    => $vectors[ $i ] ?? null,
+					'content_hash' => $data['hashes'][ $i ],
+					'embedding'    => $vectors_by_post[ $post_id ][ $i ] ?? null,
 					'tokens'       => $this->estimate_tokens( $content ),
 				);
 			}
@@ -164,16 +247,98 @@ class Indexer {
 			}
 		}
 
-		// H1: pruning tylko, gdy źródło COKOLWIEK zwróciło. Pusty wynik to prawie
-		// zawsze bug/wyścig/filtr wtyczki, więc NIE kasujemy całej bazy — chronimy
-		// (drogie) embeddingi. Pełny reset zostaje jawną akcją „Wyczyść bazę".
-		if ( array() !== $seen ) {
+		// Duck typing, nigdy `instanceof` — Indexer nie zna klas kaskady źródeł.
+		$incomplete = method_exists( $this->source, 'is_complete' ) && false === $this->source->is_complete();
+
+		if ( $incomplete ) {
+			$report['warnings'][] = __( 'Pobieranie treści renderowanej trwa — po zakończeniu uruchom indeksowanie ponownie.', 'ai-faq-generator' );
+			// Źródło nie zwróciło jeszcze wszystkiego — pruning skasowałby fragmenty
+			// stron, które po prostu nie zdążyły się pobrać.
+			$report['warnings'][] = __( 'Źródło treści jest niekompletne — pominięto usuwanie osieroconych fragmentów.', 'ai-faq-generator' );
+		} elseif ( array() !== $seen ) {
+			// H1: pruning tylko, gdy źródło COKOLWIEK zwróciło. Pusty wynik to prawie
+			// zawsze bug/wyścig/filtr wtyczki, więc NIE kasujemy całej bazy — chronimy
+			// (drogie) embeddingi. Pełny reset zostaje jawną akcją „Wyczyść bazę".
 			$report['pruned'] = $this->repo->delete_missing( array_keys( $seen ) );
 		} else {
 			$report['warnings'][] = __( 'Źródło nie zwróciło żadnych wpisów — pominięto usuwanie osieroconych. Baza wiedzy nietknięta.', 'ai-faq-generator' );
 		}
 
+		// Raport rozszerzony (§3.7 pkt 6).
+		if ( method_exists( $this->source, 'stats' ) ) {
+			$stats             = $this->source->stats();
+			$report['sources'] = is_array( $stats ) ? $stats : array();
+		}
+		$filter = __NAMESPACE__ . '\BoilerplateFilter';
+		if ( class_exists( $filter ) && property_exists( $filter, 'last_filtered' ) ) {
+			$report['filtered_lines'] = (int) BoilerplateFilter::$last_filtered;
+		}
+
+		// Bezpiecznik ilościowy — porównanie stanu bazy po przebiegu.
+		$chunks_after = $this->count_chunks();
+		if ( $chunks_before > 0 && $chunks_after < $chunks_before
+			&& ( ( $chunks_before - $chunks_after ) / $chunks_before ) >= self::DROP_ALERT ) {
+			/* translators: 1: liczba fragmentów przed, 2: liczba fragmentów po */
+			$report['warnings'][] = sprintf(
+				__( 'UWAGA: liczba fragmentów spadła z %1$d do %2$d — sprawdź źródła treści, zanim uznasz indeks za poprawny.', 'ai-faq-generator' ),
+				$chunks_before,
+				$chunks_after
+			);
+		}
+
 		return $report;
+	}
+
+	/**
+	 * Zbiera `post_id` obecne w danej fali fragmentów (bez powtórzeń, w kolejności).
+	 *
+	 * @param array<int,array{post_id:int,chunk_index:int}> $map   Mapa indeksów fragmentów.
+	 * @param int                                           $start Indeks początkowy fali.
+	 * @param int                                           $size  Rozmiar fali.
+	 * @return array<int,int>
+	 */
+	private function post_ids_in_wave( array $map, int $start, int $size ): array {
+		$ids = array();
+		for ( $i = $start; $i < $start + $size; $i++ ) {
+			if ( isset( $map[ $i ] ) ) {
+				$ids[ (int) $map[ $i ]['post_id'] ] = true;
+			}
+		}
+
+		return array_keys( $ids );
+	}
+
+	/**
+	 * Liczba fragmentów w bazie (0, gdy repozytorium nie potrafi tego podać).
+	 *
+	 * @return int
+	 */
+	private function count_chunks(): int {
+		if ( ! method_exists( $this->repo, 'stats' ) ) {
+			return 0;
+		}
+
+		try {
+			$stats = $this->repo->stats();
+		} catch ( \Throwable $e ) {
+			return 0;
+		}
+
+		return is_array( $stats ) ? (int) ( $stats['chunks'] ?? 0 ) : 0;
+	}
+
+	/**
+	 * Czy wartość jest błędem WordPressa (odporne na brak WP w CLI).
+	 *
+	 * @param mixed $value Wynik wywołania.
+	 * @return bool
+	 */
+	private static function is_error( $value ): bool {
+		if ( function_exists( 'is_wp_error' ) ) {
+			return is_wp_error( $value );
+		}
+
+		return $value instanceof \WP_Error;
 	}
 
 	/**

@@ -14,6 +14,7 @@ namespace AIFAQ\Core;
 
 use AIFAQ\Data\Schema;
 use AIFAQ\Data\Migrator;
+use AIFAQ\PublicUi\Shortcode;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -39,7 +40,24 @@ class Activator {
 		$router->add_rewrite_rules();
 		flush_rewrite_rules();
 
-		// 4. Zapis wersji bazy.
+		// 4. Podstrona „Generator FAQ" z shortcode'em (wejście dla gościa).
+		Shortcode::ensure_page();
+
+		// 5. Test pętli zwrotnej (Krok 17) — czy serwer potrafi pobrać własną stronę.
+		//    Robimy go RAZ, przy aktywacji i z pominięciem cache (`true`), żeby
+		//    właściciel zobaczył ostrzeżenie na Dashboardzie zanim kliknie indeksowanie,
+		//    a nie po nieudanym crawlu. Wynik zapisuje sama metoda (opcja `aifaq_loopback`).
+		//    Klasa należy do innego etapu — jej brak pomija krok, nigdy nie blokuje aktywacji.
+		if ( class_exists( '\AIFAQ\Index\RenderedContentSource' )
+			&& method_exists( '\AIFAQ\Index\RenderedContentSource', 'loopback_ok' ) ) {
+			try {
+				\AIFAQ\Index\RenderedContentSource::loopback_ok( true );
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
+		}
+
+		// 6. Zapis wersji bazy.
 		update_option( 'aifaq_db_version', AIFAQ_DB_VERSION );
 	}
 }

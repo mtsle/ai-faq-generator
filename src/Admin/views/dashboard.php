@@ -15,6 +15,43 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 $aifaq_stats = \AIFAQ\Admin\IndexController::stats();
 $aifaq_qa    = ( new \AIFAQ\Data\QaLogRepository() )->stats();
+
+// --- Krok 17: stan kaskady źródeł treści. ---
+
+// Czy właściciel zmienił ustawienia crawla? Komunikat pokazujemy TUTAJ, bo tu stoi
+// przycisk indeksowania — ostrzeżenie na ekranie Ustawień nikt by nie skojarzył
+// z kosztem. Gasimy flagę od razu po odczycie (jednorazowy komunikat).
+$aifaq_crawl_notice = ( '1' === (string) get_option( \AIFAQ\Core\Settings::CRAWL_NOTICE, '' ) );
+if ( $aifaq_crawl_notice ) {
+	delete_option( \AIFAQ\Core\Settings::CRAWL_NOTICE );
+}
+
+$aifaq_crawl_on = ( '1' === (string) \AIFAQ\Core\Settings::get_field( 'crawl_enabled', '1' ) );
+
+// Postęp pobierania — czytany z kolejki, ale jej brak nie może wywalić Dashboardu.
+$aifaq_crawl = array(
+	'total'         => 0,
+	'done'          => 0,
+	'running'       => false,
+	'needs_reindex' => false,
+	'warnings'      => array(),
+);
+if ( class_exists( '\AIFAQ\Index\CrawlQueue' ) ) {
+	try {
+		$aifaq_progress = ( new \AIFAQ\Index\CrawlQueue() )->progress();
+		if ( is_array( $aifaq_progress ) ) {
+			$aifaq_crawl = array_merge( $aifaq_crawl, $aifaq_progress );
+		}
+	} catch ( \Throwable $aifaq_e ) {
+		unset( $aifaq_e );
+	}
+}
+
+// Wynik testu pętli zwrotnej. Czytamy WYŁĄCZNIE zapisaną opcję — wołanie
+// `loopback_ok()` strzelałoby żądaniem HTTP przy każdym otwarciu Dashboardu.
+// Brak opcji = jeszcze nie sprawdzono → nie strasz użytkownika.
+$aifaq_loopback = get_option( 'aifaq_loopback', array() );
+$aifaq_loopback_bad = is_array( $aifaq_loopback ) && isset( $aifaq_loopback['ok'] ) && ! $aifaq_loopback['ok'];
 ?>
 <div class="wrap aifaq-wrap">
 	<h1 class="aifaq-title">
@@ -39,8 +76,52 @@ $aifaq_qa    = ( new \AIFAQ\Data\QaLogRepository() )->stats();
 			?>
 		</p>
 
+		<?php if ( $aifaq_crawl_notice ) : ?>
+			<div class="notice notice-warning inline">
+				<p>
+					<strong><?php esc_html_e( 'Zmieniłeś ustawienia źródeł treści.', 'ai-faq-generator' ); ?></strong>
+					<?php esc_html_e( 'Pobrane wcześniej strony zostały skasowane. Zaindeksuj treść ponownie — pamiętaj, że to ponowne, płatne liczenie embeddingów u dostawcy AI.', 'ai-faq-generator' ); ?>
+				</p>
+			</div>
+		<?php endif; ?>
+
+		<?php if ( $aifaq_crawl_on && $aifaq_loopback_bad ) : ?>
+			<div class="notice notice-warning inline">
+				<p>
+					<strong><?php esc_html_e( 'Serwer nie potrafi pobrać własnej strony.', 'ai-faq-generator' ); ?></strong>
+					<?php esc_html_e( 'Treść z szablonu motywu (to, co gość widzi na podstronach) nie trafi do bazy wiedzy — zaindeksujemy tylko treść wpisów i pola własne. Zwykle winne są: wtyczka „wkrótce otwieramy", ochrona hasłem katalogu, firewall albo brak wychodzącego HTTP na hostingu.', 'ai-faq-generator' ); ?>
+				</p>
+				<?php if ( ! empty( $aifaq_loopback['message'] ) ) : ?>
+					<p><code><?php echo esc_html( (string) $aifaq_loopback['message'] ); ?></code></p>
+				<?php endif; ?>
+				<p><?php esc_html_e( 'Indeksowanie nadal działa — możesz spokojnie kliknąć „Zaindeksuj treść".', 'ai-faq-generator' ); ?></p>
+			</div>
+		<?php endif; ?>
+
+		<?php if ( $aifaq_crawl_on && ! empty( $aifaq_crawl['needs_reindex'] ) ) : ?>
+			<div class="notice notice-info inline">
+				<p><?php esc_html_e( 'Pobieranie stron zakończone. Uruchom indeksowanie, żeby świeża treść trafiła do bazy wiedzy.', 'ai-faq-generator' ); ?></p>
+			</div>
+		<?php endif; ?>
+
+		<?php if ( ! empty( $aifaq_crawl['warnings'] ) && is_array( $aifaq_crawl['warnings'] ) ) : ?>
+			<div class="notice notice-warning inline">
+				<p><strong><?php esc_html_e( 'Uwagi z pobierania stron:', 'ai-faq-generator' ); ?></strong></p>
+				<ul style="list-style:disc;margin-left:1.5em;">
+					<?php foreach ( array_slice( $aifaq_crawl['warnings'], 0, 10 ) as $aifaq_warning ) : ?>
+						<li><?php echo esc_html( (string) $aifaq_warning ); ?></li>
+					<?php endforeach; ?>
+				</ul>
+			</div>
+		<?php endif; ?>
+
 		<p class="aifaq-index-actions">
-			<button type="button" class="button button-primary" id="aifaq-reindex">
+			<button
+				type="button"
+				class="button button-primary"
+				id="aifaq-reindex"
+				<?php disabled( $aifaq_crawl_on && ! empty( $aifaq_crawl['running'] ), true ); ?>
+			>
 				<?php esc_html_e( 'Zaindeksuj treść', 'ai-faq-generator' ); ?>
 			</button>
 			<button type="button" class="button" id="aifaq-clear">
@@ -48,6 +129,22 @@ $aifaq_qa    = ( new \AIFAQ\Data\QaLogRepository() )->stats();
 			</button>
 			<span class="aifaq-index-status" id="aifaq-index-status" role="status" aria-live="polite"></span>
 		</p>
+
+		<?php
+		// Miejsce na postęp pobierania. Wypełnia je indexer.js (textContent) odpytując
+		// GET /admin/status; render serwerowy tylko na wejściu, żeby stan był widoczny
+		// także przy wyłączonym JS.
+		$aifaq_crawl_note = '';
+		if ( $aifaq_crawl_on && ! empty( $aifaq_crawl['running'] ) ) {
+			$aifaq_crawl_note = sprintf(
+				/* translators: 1: liczba pobranych stron, 2: liczba wszystkich stron */
+				__( 'Pobieram strony w tle: %1$d z %2$d. Indeksowanie odblokuje się po zakończeniu.', 'ai-faq-generator' ),
+				(int) $aifaq_crawl['done'],
+				(int) $aifaq_crawl['total']
+			);
+		}
+		?>
+		<p class="aifaq-crawl-note" id="aifaq-crawl-note" role="status" aria-live="polite"><?php echo esc_html( $aifaq_crawl_note ); ?></p>
 
 		<div class="aifaq-index-report" id="aifaq-index-report" hidden></div>
 	</div>

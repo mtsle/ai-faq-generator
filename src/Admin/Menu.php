@@ -223,12 +223,24 @@ class Menu {
 					'nonce'         => wp_create_nonce( \AIFAQ\Admin\IndexController::NONCE ),
 					'actionReindex' => \AIFAQ\Admin\IndexController::AJAX_REINDEX,
 					'actionClear'   => \AIFAQ\Admin\IndexController::AJAX_CLEAR,
+					// Postęp pobierania stron (Krok 17) czytamy z ISTNIEJĄCEJ trasy
+					// `GET /admin/status` — kontrakt zabrania nowych tras REST.
+					'statusUrl'     => esc_url_raw( rest_url( 'aifaq/v1/admin/status' ) ),
+					'restNonce'     => wp_create_nonce( 'wp_rest' ),
+					'pollMs'        => 10000,
 					'i18n'          => array(
-						'running'      => __( 'Indeksuję treść…', 'ai-faq-generator' ),
-						'clearing'     => __( 'Czyszczę bazę…', 'ai-faq-generator' ),
-						'confirmClear' => __( 'Na pewno wyczyścić całą bazę wiedzy? Trzeba będzie zaindeksować treść od nowa.', 'ai-faq-generator' ),
-						'error'        => __( 'Wystąpił błąd. Spróbuj ponownie.', 'ai-faq-generator' ),
-						'done'         => __( 'Gotowe.', 'ai-faq-generator' ),
+						'running'       => __( 'Indeksuję treść…', 'ai-faq-generator' ),
+						'clearing'      => __( 'Czyszczę bazę…', 'ai-faq-generator' ),
+						'confirmClear'  => __( 'Na pewno wyczyścić całą bazę wiedzy? Trzeba będzie zaindeksować treść od nowa.', 'ai-faq-generator' ),
+						'error'         => __( 'Wystąpił błąd. Spróbuj ponownie.', 'ai-faq-generator' ),
+						'done'          => __( 'Gotowe.', 'ai-faq-generator' ),
+						// %1$s = pobrane, %2$s = wszystkie. Podstawienia robi JS.
+						'crawlRunning'  => __( 'Pobieram strony w tle: %1$s z %2$s. Indeksowanie odblokuje się po zakończeniu.', 'ai-faq-generator' ),
+						'crawlDone'     => __( 'Pobieranie stron zakończone — możesz zaindeksować treść.', 'ai-faq-generator' ),
+						'reportSources' => __( 'Źródła treści:', 'ai-faq-generator' ),
+						'reportFilter'  => __( 'Usunięto powtarzalnych linii (menu, stopka):', 'ai-faq-generator' ),
+						'reportWarn'    => __( 'Uwagi:', 'ai-faq-generator' ),
+						'reportErrors'  => __( 'Błędy:', 'ai-faq-generator' ),
 					),
 				)
 			);

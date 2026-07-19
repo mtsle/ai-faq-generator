@@ -99,6 +99,15 @@ class GeneratorPage {
 	}
 
 	/**
+	 * Tytuł generatora w języku UI — nazwa automatycznie tworzonej podstrony.
+	 *
+	 * @return string
+	 */
+	public static function page_title(): string {
+		return self::strings( self::lang() )['title'];
+	}
+
+	/**
 	 * Markup samego widgetu (reużywalny — Krok 9 montuje go w kokpicie).
 	 *
 	 * @return string

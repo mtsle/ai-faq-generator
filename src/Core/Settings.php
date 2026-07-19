@@ -42,6 +42,13 @@ class Settings {
 	const FLUSH_FLAG = 'aifaq_flush_needed';
 
 	/**
+	 * Flaga „ustawienia crawla zmienione — treść wymaga ponownego przeliczenia".
+	 * Podnoszona w {@see on_settings_updated()}, gaszona po pokazaniu komunikatu
+	 * na Dashboardzie (tam, gdzie stoi przycisk indeksowania).
+	 */
+	const CRAWL_NOTICE = 'aifaq_crawl_notice';
+
+	/**
 	 * Uprawnienie wymagane do zmian ustawień.
 	 */
 	const CAPABILITY = 'manage_options';
@@ -71,6 +78,15 @@ class Settings {
 			'rag_refusal_message_pl' => 'Przepraszam, potrafię odpowiadać wyłącznie na pytania dotyczące tej strony.',
 			'rag_refusal_message_en' => 'Sorry, I can only answer questions related to this website.',
 			'rag_refusal_message_de' => 'Entschuldigung, ich kann nur Fragen zu dieser Website beantworten.',
+
+			// --- Kaskada źródeł treści (Krok 17) — czym karmimy bazę wiedzy. ---
+			// Klucze MUSZĄ być tutaj, nie tylko w sanitize(): bez wpisu w defaults()
+			// `get_field()` zwraca `null` na świeżej instalacji, przez co crawl byłby
+			// domyślnie wyłączony (a dokładnie odwrotnie brzmi kontrakt).
+			'crawl_enabled'   => '1',        // '1'/'0' — pobieranie własnych podstron jako gość.
+			'crawl_exclude'   => '',         // Slugi po przecinku — wykluczenie z WSZYSTKICH źródeł.
+			'meta_keys'       => '',         // Dodatkowe klucze postmeta (dokładane do listy domyślnej).
+			'meta_post_types' => 'post,page', // Typy wpisów przeszukiwane przez źródło postmeta.
 		);
 	}
 
@@ -251,6 +267,41 @@ class Settings {
 			}
 		}
 
+		// --- Kaskada źródeł treści (Krok 17). ---
+
+		// Crawl własnej witryny — wartość LOGICZNA trzymana jako '1'/'0' i przetwarzana
+		// WYŁĄCZNIE pod `isset()`.
+		//
+		// PUŁAPKA (świadomie omijana): naturalny idiom `! empty( $input['crawl_enabled'] )`
+		// wyłączyłby crawl przy każdym zapisie, który tego pola nie przysyła — a
+		// `RestController::handle_settings_save()` przysyła tylko cztery pola. Skutek:
+		// zapisanie klucza API w panelu na froncie gasi crawl, a najbliższy reindeks
+		// patroszy bazę wiedzy z treści renderowanej. Dlatego pole nieprzysłane ZOSTAJE
+		// bez zmian, a formularz dokłada ukryty input `value="0"` przed checkboxem.
+		if ( isset( $input['crawl_enabled'] ) ) {
+			$out['crawl_enabled'] = ( '1' === (string) $input['crawl_enabled'] ) ? '1' : '0';
+		}
+
+		// Wykluczone slugi — lista po przecinku. Puste tokeny i białe znaki rozbiera
+		// dopiero konsument (parsowanie jest wspólne dla bramki i crawla), tutaj tylko
+		// odsiewamy znaczniki. Pusty ciąg jest POPRAWNĄ wartością (nic nie wykluczamy).
+		if ( isset( $input['crawl_exclude'] ) ) {
+			$out['crawl_exclude'] = sanitize_text_field( wp_unslash( $input['crawl_exclude'] ) );
+		}
+
+		// Dodatkowe klucze postmeta — DOKŁADANE do listy domyślnej, nie zastępujące jej.
+		// Pusty ciąg = „tylko klucze domyślne”, więc jest poprawną wartością.
+		if ( isset( $input['meta_keys'] ) ) {
+			$out['meta_keys'] = sanitize_text_field( wp_unslash( $input['meta_keys'] ) );
+		}
+
+		// Typy wpisów dla źródła postmeta. Pusty ciąg oznaczałby „nie czytaj niczego” —
+		// cichą utratę połowy kaskady, więc wracamy do domyślnych `post,page`.
+		if ( isset( $input['meta_post_types'] ) ) {
+			$types = trim( sanitize_text_field( wp_unslash( $input['meta_post_types'] ) ) );
+			$out['meta_post_types'] = ( '' !== $types ) ? $types : 'post,page';
+		}
+
 		return $out;
 	}
 
@@ -260,6 +311,11 @@ class Settings {
 	 * w panelu kończy się 404 na nowym adresie (reguły są cache'owane w opcji).
 	 *
 	 * Podpięte pod `update_option_{OPTION}` (patrz {@see \AIFAQ\Core\Plugin}).
+	 *
+	 * Krok 17: zmiana `crawl_enabled` albo `crawl_exclude` unieważnia to, co crawl
+	 * już pobrał (inny zbiór stron = inna treść), więc kasujemy kolejkę razem
+	 * z zapisanym HTML-em i zdejmujemy cron. Zostawiamy flagę na komunikat o koszcie —
+	 * ponowne indeksowanie oznacza ponowne (płatne) liczenie embeddingów.
 	 *
 	 * @param mixed $old_value Poprzednia wartość opcji.
 	 * @param mixed $new_value Nowa wartość opcji.
@@ -271,6 +327,32 @@ class Settings {
 		if ( $old_slug !== $new_slug ) {
 			update_option( self::FLUSH_FLAG, '1' );
 		}
+
+		$old_crawl = is_array( $old_value ) ? (string) ( $old_value['crawl_enabled'] ?? '1' ) : '1';
+		$new_crawl = is_array( $new_value ) ? (string) ( $new_value['crawl_enabled'] ?? '1' ) : '1';
+		$old_excl  = is_array( $old_value ) ? (string) ( $old_value['crawl_exclude'] ?? '' ) : '';
+		$new_excl  = is_array( $new_value ) ? (string) ( $new_value['crawl_exclude'] ?? '' ) : '';
+
+		if ( $old_crawl === $new_crawl && $old_excl === $new_excl ) {
+			return;
+		}
+
+		// Klasa należy do innego etapu — brak klasy pomija warunek, nigdy nie wywala.
+		if ( class_exists( '\AIFAQ\Index\CrawlQueue' ) ) {
+			try {
+				( new \AIFAQ\Index\CrawlQueue() )->clear();
+			} catch ( \Throwable $e ) {
+				// Świadomie cicho: zmiana ustawień nie może się wywrócić przez sprzątanie.
+				unset( $e );
+			}
+			if ( function_exists( 'wp_unschedule_hook' ) ) {
+				wp_unschedule_hook( \AIFAQ\Index\CrawlQueue::CRON_HOOK );
+			}
+		} elseif ( function_exists( 'wp_unschedule_hook' ) ) {
+			wp_unschedule_hook( 'aifaq_crawl_tick' );
+		}
+
+		update_option( self::CRAWL_NOTICE, '1', false );
 	}
 
 	/**
