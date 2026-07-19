@@ -21,7 +21,8 @@ Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 > z eksportem (`App\FaqToolPanel` — jedno źródło markupu dla kokpitu i frontu), a mechanizm
 > powstawania podstrony przestał cicho zawodzić (`PublicUi\PageGuard` + `Admin\PageNotice`).
 >
-> Dalej: **Krok 19** — jakość odpowiedzi bota RAG · **Krok 20** — v1.0.0 (audyt, RWA, instrukcje).
+> Dalej: **Krok 19** — jakość odpowiedzi bota RAG · **Krok 20** — ostatnie funkcje dla klienta
+> (automatyczny link w menu, capy dla Redaktora) · **Krok 21** — v1.0.0 (audyt, RWA, instrukcje).
 
 ## Założenia
 - **Dwa miejsca działania** — kokpit wp-admin (dla właściciela) oraz publiczna
