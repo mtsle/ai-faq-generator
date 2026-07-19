@@ -1,0 +1,254 @@
+/* AI FAQ Generator — Krok 16, metabox „AI FAQ" w edytorze wpisu/strony (wp-admin).
+ *
+ * Stylizuje DOM z KONTRAKT k16-v2 §3 / §3a (Etap 1 renderuje, Etap 2 ożywia).
+ * Wszystko pod prefiksem `.aifaq-mb` w kontenerze `.aifaq-mb > .aifaq`.
+ * Paleta z generator.css (zależność enqueue, §2b) przez zmienne --aifaq-*.
+ * Wzór spójności: faq-tool.css (ekran „Narzędzie FAQ") + sekcja historii w app.css.
+ *
+ * Trzy reguły, które trzymają ten arkusz w ryzach (§5):
+ *  1. Arkusz ładuje się na CAŁYM post.php, więc każdy selektor zaczyna się od
+ *     `.aifaq-mb*` — klasy stanu wyłącznie jako selektory złożone.
+ *  2. Metabox żyje w kolumnie o nieznanej szerokości (edytor blokowy potrafi ją
+ *     zwęzić do ~250 px), więc ZERO zapytań medialnych po szerokości okna —
+ *     układ jest jednokolumnowy, a łamie się wyłącznie przez `flex-wrap`.
+ *  3. Natywne klasy kokpitu (przyciski, pudełko metaboksa) zostają nietknięte —
+ *     panel ma wyglądać jak część edytora, nie jak wyspa.
+ */
+
+/* --- PRZYPIĘCIE JASNEGO MOTYWU ---------------------------------------------
+ * Pole treści wp-admin jest zawsze jasne, a generator.css przełącza paletę na
+ * ciemną w zapytaniu medialnym `prefers-color-scheme: dark` — na ciemnym systemie
+ * dostalibyśmy jasny tekst na jasnym tle, czyli metabox nie do odczytania.
+ * Dwie klasy `.aifaq-mb .aifaq` (0,2,0) biją pojedyncze `.aifaq` (0,1,0) z tamtej
+ * reguły niezależnie od kolejności plików, więc jasna paleta wygrywa zawsze.
+ * Ta sama pułapka i to samo rozwiązanie co `.aifaq-embed .aifaq` (K9/K10) oraz
+ * `.aifaq-ft .aifaq` (K13) — metabox jest trzecim takim kontenerem.
+ * Świadomie NIE używamy `--aifaq-shadow` ani `--aifaq-radius`: cienia w tym
+ * przypięciu nie ma (nie jest na liście 13 zmiennych), a płaski, kompaktowy
+ * panel i tak lepiej pasuje do wnętrza metaboksa. */
+.aifaq-mb .aifaq {
+	--aifaq-bg: #f6f7f8;
+	--aifaq-surface: #ffffff;
+	--aifaq-border: #e4e7e9;
+	--aifaq-text: #1b2128;
+	--aifaq-muted: #616a73;
+	--aifaq-faint: #9aa2ab;
+	--aifaq-accent: #0f766e;
+	--aifaq-accent-strong: #0b5f58;
+	--aifaq-accent-fg: #ffffff;
+	--aifaq-accent-ring: rgba(15, 118, 110, .18);
+	--aifaq-error: #b3261e;
+	--aifaq-error-soft: #fbe6e4;
+	--aifaq-error-border: #f0c0bc;
+
+	color: var(--aifaq-text);
+	font-family: var(--aifaq-sans);
+}
+
+/* --- POWŁOKA ---------------------------------------------------------------
+ * Bez własnej szerokości i bez marginesów — pudełko metaboksa daje swój padding,
+ * a szerokość dyktuje kolumna edytora. */
+.aifaq-mb {
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.aifaq-mb__lead {
+	margin: 0 0 12px;
+	color: var(--aifaq-muted);
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+/* --- RESET ELEMENTÓW CHOWANYCH ATRYBUTEM -----------------------------------
+ * OBOWIĄZKOWE (§5). Reguły wp-admin ustawiają `display` na `div`/`p` wewnątrz
+ * metaboksów, a taka deklaracja bije domyślną regułę przeglądarki dla `[hidden]`.
+ * Bez tego pusta ramka z „Wstaw / Kopiuj" oraz notka o przyciętej treści byłyby
+ * widoczne od chwili otwarcia edytora. */
+.aifaq-mb__results[hidden],
+.aifaq-mb__note[hidden] {
+	display: none;
+}
+
+/* --- PASEK STEROWANIA ------------------------------------------------------
+ * Jedyny rząd w całym panelu. Łamie się wyłącznie przez `flex-wrap`: gdy zabraknie
+ * miejsca, przycisk spada pod pole liczby, a nic się nie ucina. Decyduje realna
+ * szerokość kontenera, nie breakpoint okna. */
+.aifaq-mb__bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px 10px;
+	margin-bottom: 4px;
+}
+
+.aifaq-mb__label {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--aifaq-text);
+	white-space: nowrap;
+}
+
+/* Wąskie pole liczbowe — 5.5em mieści dwucyfrową wartość razem ze strzałkami. */
+.aifaq-mb__count {
+	width: 5.5em;
+	max-width: 100%;
+	flex: 0 0 auto;
+	font-variant-numeric: tabular-nums;
+}
+
+/* --- STATUS ----------------------------------------------------------------
+ * Klasy stanu WYŁĄCZNIE złożone z elementem statusu (§5). Gołe `.is-loading` /
+ * `.is-error` przemalowałyby edytor i metaboksy innych wtyczek: pierwsza należy
+ * do obszaru metaboksów w rdzeniu, druga do wp-components, a ten arkusz ładuje
+ * się na całym ekranie edycji wpisu.
+ * Pusty status nie zajmuje miejsca — panel nie „skacze" przed pierwszym klikiem. */
+.aifaq-mb__status {
+	margin: 10px 0 0;
+	padding: 7px 10px;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	font-size: 12.5px;
+	font-weight: 600;
+	line-height: 1.45;
+	color: var(--aifaq-muted);
+	overflow-wrap: anywhere;
+}
+.aifaq-mb__status:empty {
+	display: none;
+}
+.aifaq-mb__status.is-loading {
+	color: var(--aifaq-muted);
+	background: var(--aifaq-bg);
+	border-color: var(--aifaq-border);
+}
+.aifaq-mb__status.is-error {
+	color: var(--aifaq-error);
+	background: var(--aifaq-error-soft);
+	border-color: var(--aifaq-error-border);
+}
+/* Paleta nie ma zmiennej „sukces" — ta sama zieleń co w faq-tool.css (K13). */
+.aifaq-mb__status.is-ok {
+	color: #15803d;
+	background: #eef7f0;
+	border-color: #cfe7d6;
+}
+
+/* --- WYNIKI ---------------------------------------------------------------- */
+.aifaq-mb__results {
+	margin-top: 14px;
+	padding-top: 12px;
+	border-top: 1px solid var(--aifaq-border);
+}
+
+.aifaq-mb__summary {
+	margin: 0 0 8px;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--aifaq-text);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Notka o przyciętej treści — OSOBNA szuflada, nie duplikat statusu (§4c).
+ * Drobna, stonowana, z kreską z boku, żeby nie myliła się z podsumowaniem.
+ * Klas stanu nie dostaje (§3b.7). */
+.aifaq-mb__note {
+	margin: 0 0 10px;
+	padding: 4px 0 4px 9px;
+	border-left: 3px solid var(--aifaq-border);
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--aifaq-muted);
+	overflow-wrap: anywhere;
+}
+
+/* Lista par ma WŁASNY scroll: 20 długich par to kilka ekranów, a przyciski
+ * „Wstaw / Kopiuj" muszą zostać w zasięgu wzroku i nie rozpychać edytora.
+ * Jednostka vh (nie px, nie %) trzyma to samo zachowanie niezależnie od
+ * szerokości kolumny — wzorzec `.aifaq-gh__pairs` z K15. */
+.aifaq-mb__list {
+	max-height: 46vh;
+	overflow: auto;
+	overscroll-behavior: contain;
+	padding-right: 2px;
+}
+
+/* Karta pary. Świadomie ZWYKŁY blok, nie flex: `Usuń` wyrównuje się do prawej
+ * przez `margin-left: auto` (niżej), więc układ karty nie zależy od tego, czy
+ * jakakolwiek reguła kokpitu nadpisze `display` na tym elemencie. */
+.aifaq-mb__pair {
+	background: var(--aifaq-surface);
+	border: 1px solid var(--aifaq-border);
+	border-radius: 8px;
+	padding: 10px 12px;
+	margin-bottom: 8px;
+}
+.aifaq-mb__pair:last-child {
+	margin-bottom: 0;
+}
+
+.aifaq-mb__q {
+	margin: 0;
+	width: 100%;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.45;
+	color: var(--aifaq-text);
+	overflow-wrap: anywhere;
+}
+
+.aifaq-mb__a {
+	margin: 5px 0 0;
+	width: 100%;
+	font-size: 12.5px;
+	line-height: 1.5;
+	color: var(--aifaq-muted);
+	overflow-wrap: anywhere;
+}
+
+/* Akcja destrukcyjna: dyskretna, przy prawej krawędzi karty, czerwienieje dopiero
+ * pod kursorem/fokusem. Selektor złożony z kartą pary (0,2,0) — natywny wygląd
+ * linkopodobnego przycisku kokpitu ma tę samą specyficzność co pojedyncza klasa,
+ * więc bez tego decydowałaby kolejność arkuszy. To nadpisanie koloru, nie zmiana
+ * mechaniki przycisku.
+ * `display: block` + `margin-left: auto`: przycisk zachowuje szerokość własnej
+ * treści i ląduje przy prawej krawędzi karty — niezależnie od trybu wyświetlania
+ * rodzica (`align-self` działałby tylko we flexie). */
+.aifaq-mb__pair .aifaq-mb__del {
+	display: block;
+	margin-left: auto;
+	margin-top: 6px;
+	font-size: 12px;
+	line-height: 1.3;
+	color: var(--aifaq-faint);
+	text-decoration: none;
+	border-bottom: 1px solid transparent;
+	transition: color .15s ease, border-color .15s ease;
+}
+.aifaq-mb__pair .aifaq-mb__del:hover {
+	color: var(--aifaq-error);
+	border-bottom-color: currentColor;
+}
+.aifaq-mb__pair .aifaq-mb__del:focus-visible {
+	color: var(--aifaq-error);
+	outline: 2px solid var(--aifaq-error);
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
+/* --- AKCJE I PODPOWIEDŹ ---------------------------------------------------- */
+.aifaq-mb__acts {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.aifaq-mb__hint {
+	margin: 10px 0 0;
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--aifaq-faint);
+}

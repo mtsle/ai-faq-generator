@@ -13,6 +13,7 @@ namespace AIFAQ\Core;
 
 use AIFAQ\Admin\Menu;
 use AIFAQ\Admin\IndexController;
+use AIFAQ\Admin\PostMetaBox;
 use AIFAQ\Rest\RestController;
 use AIFAQ\Data\Schema;
 
@@ -49,6 +50,11 @@ final class Plugin {
 	 * Kontroler indeksowania (akcje AJAX Dashboardu).
 	 */
 	private ?IndexController $index_controller = null;
+
+	/**
+	 * Metabox „AI FAQ" w edytorze wpisu/strony.
+	 */
+	private ?PostMetaBox $post_metabox = null;
 
 	/**
 	 * Kontroler REST `aifaq/v1` (front + panel).
@@ -121,6 +127,10 @@ final class Plugin {
 			$this->index_controller = new IndexController();
 			add_action( 'wp_ajax_' . IndexController::AJAX_REINDEX, array( $this->index_controller, 'ajax_reindex' ) );
 			add_action( 'wp_ajax_' . IndexController::AJAX_CLEAR, array( $this->index_controller, 'ajax_clear' ) );
+
+			$this->post_metabox = new PostMetaBox();
+			add_action( 'add_meta_boxes', array( $this->post_metabox, 'register_box' ) );
+			add_action( 'admin_enqueue_scripts', array( $this->post_metabox, 'enqueue' ) );
 		}
 	}
 

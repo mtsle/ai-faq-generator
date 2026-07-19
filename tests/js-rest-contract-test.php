@@ -118,6 +118,109 @@ $panel = @file_get_contents( __DIR__ . '/../src/App/GenerationsPanel.php' );
 check( false !== $panel && false !== strpos( $panel, "REGEN_PARAM" ), 'GenerationsPanel definiuje stałą REGEN_PARAM' );
 check( false !== strpos( $js, 'cfg.regenParam' ), 'faq-tool.js czyta nazwę parametru z configu (cfg.regenParam), nie z literału' );
 
+// ---------------------------------------------------------------------------
+// Krok 16: trzeci styk — metabox „AI FAQ" w edytorze wpisu. Konsumuje TE SAME
+// trasy co Narzędzie FAQ (żadnej nowej), więc obowiązuje go ten sam kontrakt
+// nazw pól. Osobny plik JS = osobne miejsce, w którym ten regres mógłby wrócić.
+//
+// UWAGA na mechanizm: regex z sekcji B nie liczy zagnieżdżonych klamer, a body
+// eksportu ma postać `{ pairs: pairs.map( function ( p ) { return { question:
+// …, answer: … }; } ) }` — naiwne dopasowanie zwróciłoby `pairs, question,
+// answer` i test byłby czerwony na POPRAWNYM kodzie. Dlatego klucze najwyższego
+// poziomu wycinamy licznikiem klamer.
+// ---------------------------------------------------------------------------
+echo "\n=== F. Styk metaboksa: faq-metabox.js → /admin/generate-faq + /admin/export (K16) ===\n";
+
+/**
+ * Zwraca klucze NAJWYŻSZEGO poziomu obiektu body przekazanego do JSON.stringify
+ * w wywołaniu `fetch( <call>, … )`.
+ *
+ * @param string $js   Treść pliku JS.
+ * @param string $call Wyrażenie identyfikujące wywołanie, np. "cfg.endpoint".
+ * @return array|null  Lista kluczy albo null, gdy body nie jest literałem inline.
+ */
+function aifaq_body_keys( $js, $call ) {
+	$start = strpos( $js, 'fetch( ' . $call . ',' );
+	if ( false === $start ) {
+		return null;
+	}
+	$next  = strpos( $js, 'fetch(', $start + 6 );
+	$scope = ( false !== $next ) ? substr( $js, $start, $next - $start ) : substr( $js, $start );
+	$sp    = strpos( $scope, 'JSON.stringify(' );
+	if ( false === $sp ) {
+		return null; // body wyniesione do zmiennej → złamany wymóg „inline" z KONTRAKT §4b.
+	}
+	$i  = $sp + strlen( 'JSON.stringify(' );
+	$i += strspn( $scope, " \t\r\n", $i );
+	if ( ! isset( $scope[ $i ] ) || '{' !== $scope[ $i ] ) {
+		return null;
+	}
+	$depth = 0;
+	$top   = '';
+	for ( $n = strlen( $scope ); $i < $n; $i++ ) {
+		$ch = $scope[ $i ];
+		if ( '{' === $ch ) {
+			$depth++;
+		}
+		if ( 1 === $depth && '{' !== $ch ) {
+			$top .= $ch;
+		}
+		if ( '}' === $ch ) {
+			$depth--;
+			if ( 0 === $depth ) {
+				break;
+			}
+		}
+	}
+	preg_match_all( '/(?:^|[,{\s])([A-Za-z_$][\w$]*)\s*:/', $top, $km );
+	return array_values( array_unique( $km[1] ) );
+}
+
+$mb_path = __DIR__ . '/../assets/js/faq-metabox.js';
+$mb      = @file_get_contents( $mb_path );
+check( is_string( $mb ) && strlen( $mb ) > 200, 'assets/js/faq-metabox.js istnieje i nie jest zaślepką' );
+
+$mb_gen = aifaq_body_keys( (string) $mb, 'cfg.endpoint' );
+$mb_exp = aifaq_body_keys( (string) $mb, 'cfg.exportEndpoint' );
+
+// Bez tych dwóch asercji cała sekcja byłaby fałszywie zielona: null przechodzi
+// przez array_diff() jako „brak nieznanych kluczy".
+check( is_array( $mb_gen ), 'znaleziono body inline w fetch( cfg.endpoint, … ) — parser nie zwrócił null' );
+check( is_array( $mb_exp ), 'znaleziono body inline w fetch( cfg.exportEndpoint, … ) — parser nie zwrócił null' );
+
+$mb_gen = is_array( $mb_gen ) ? $mb_gen : array();
+$mb_exp = is_array( $mb_exp ) ? $mb_exp : array();
+sort( $mb_gen );
+sort( $mb_exp );
+
+// SEDNO — ten sam kontrakt nazw co sekcja D, tylko dla drugiego pliku JS.
+$mb_unknown = array_diff( $mb_gen, $rest_args );
+check(
+	empty( $mb_unknown ),
+	empty( $mb_unknown )
+		? 'każdy klucz z metaboksu jest zadeklarowany w args trasy generatora'
+		: 'metabox wysyła pola NIEZNANE trasie (będą po cichu zignorowane): ' . implode( ', ', $mb_unknown )
+);
+check(
+	array( 'count', 'description', 'language', 'topic' ) === $mb_gen,
+	'metabox wysyła DOKŁADNIE topic, description, count, language (jest: ' . implode( ', ', $mb_gen ) . ')'
+);
+check( ! in_array( 'extra_desc', $mb_gen, true ), "metabox NIE wysyła 'extra_desc' (nazwa kolumny, nie pola API)" );
+check( ! in_array( 'num_questions', $mb_gen, true ), "metabox NIE wysyła 'num_questions' (nazwa kolumny, nie pola API)" );
+
+// Trasa /admin/export NIE deklaruje 'args' (pary czyta ręcznie z żądania), więc
+// porównanie „klucze ⊆ args" jest tu z definicji niemożliwe — asertujemy kształt.
+check(
+	array( 'pairs' ) === $mb_exp,
+	'body eksportu ma DOKŁADNIE klucz pairs (jest: ' . implode( ', ', $mb_exp ) . ')'
+);
+
+// Jedno źródło prawdy dla limitu długości treści: stała PHP → config → JS.
+$mbox = @file_get_contents( __DIR__ . '/../src/Admin/PostMetaBox.php' );
+check( is_string( $mbox ) && strlen( $mbox ) > 200, 'src/Admin/PostMetaBox.php istnieje i nie jest zaślepką' );
+check( false !== strpos( (string) $mbox, 'MAX_CONTENT_CHARS' ), 'PostMetaBox definiuje stałą MAX_CONTENT_CHARS' );
+check( false !== strpos( (string) $mb, 'cfg.maxContentChars' ), 'metabox czyta limit z configu (cfg.maxContentChars), nie z literału' );
+
 echo "\n=== PODSUMOWANIE ===\n";
 echo ( 0 === $fail ) ? "TEST KONTRAKTU JS-REST: WSZYSTKIE ASERCJE OK\n" : "TEST KONTRAKTU JS-REST: $fail ASERCJI NIE PRZESZŁO\n";
 exit( $fail === 0 ? 0 : 1 );
