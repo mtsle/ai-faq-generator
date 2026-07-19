@@ -303,6 +303,15 @@
 	var expShown  = false;   // czy podgląd był już raz pokazany
 	var expTimer  = null;
 
+	// --- Ochrona przed wyścigiem unieważniania cache'u (hotfix v0.21.1) ---
+	// Bez tego: zmiana par w trakcie trwającego pobrania eksportu była CICHO PORZUCANA
+	// (`if ( expBusy ) return;`), a kończący się callback bezwarunkowo gasił `expDirty` —
+	// więc cache zostawał NIEAKTUALNY i jednocześnie oznaczony jako CZYSTY. Żaden kolejny
+	// klik go nie odświeżał, we WSZYSTKICH 5 formatach, aż do ponownej generacji.
+	// Skutek u klienta: eksport FAQ z pozycją, którą przed chwilą usunął — bez sygnału w UI.
+	var expPending = false;  // przyszła zmiana par w trakcie lotu → po powrocie trzeba powtórzyć
+	var expRev     = 0;      // licznik rewizji par; rośnie przy KAŻDEJ zmianie zestawu par
+
 	function expStr( v ) {
 		return ( typeof v === 'string' ) ? v : '';
 	}
@@ -420,15 +429,22 @@
 			setExpStatus( t.expEmpty || '', 'error' );
 			return;
 		}
+		// Trwa pobranie: NIE porzucaj tego wywołania po cichu — zapamiętaj, że po powrocie
+		// trzeba je powtórzyć. Inaczej zmiana par zrobiona w oknie ~1,5 s przepada.
 		if ( expBusy ) {
+			expPending = true;
 			return;
 		}
 		if ( expDirty || ! expCache ) {
 			setExpBusy( true );
 			setExpStatus( '' );
+			// Rewizja par w chwili STARTU żądania — po powrocie porównamy, czy w locie
+			// coś się nie zmieniło. Bez tego gasilibyśmy flagę podniesioną PO starcie.
+			var revAtStart = expRev;
 			fetchExport().then( function ( ok ) {
+				var stale = ( expRev !== revAtStart );
 				if ( ok ) {
-					expDirty = false;
+					expDirty = stale; // czysto TYLKO wtedy, gdy pary się w locie nie zmieniły
 					expShown = true;
 					renderExport();
 					setExpStatus( '' );
@@ -436,6 +452,14 @@
 					setExpStatus( t.errMsg || '', 'error' );
 				}
 				setExpBusy( false );
+				// Powtarzamy TYLKO po udanym pobraniu. Przy błędzie `expDirty` zostaje `true`,
+				// więc bezwarunkowe powtórzenie byłoby nieskończoną pętlą żądań na zepsutym
+				// endpoincie — użytkownik ma wtedy komunikat i może kliknąć sam.
+				var owed  = expPending || stale;
+				expPending = false;
+				if ( ok && owed ) {
+					showExportFormat( expFormat );
+				}
 			} );
 		} else {
 			expShown = true;
@@ -447,6 +471,7 @@
 	function resetExportForNewPairs() {
 		expCache = null;
 		expDirty = true;
+		expRev  += 1; // nowy zestaw par = nowa rewizja (hotfix v0.21.1)
 		expFormat = 'html';
 		expShown = false;
 		setActiveFormatBtn( 'html' );
@@ -463,6 +488,7 @@
 	// już pokazany — odśwież bieżący format, żeby nie pokazywał nieaktualnej treści.
 	function onPairsChanged() {
 		expDirty = true;
+		expRev  += 1; // edycja/usunięcie pary = nowa rewizja (hotfix v0.21.1)
 		if ( ! exportRoot ) {
 			return;
 		}
