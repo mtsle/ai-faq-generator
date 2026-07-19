@@ -4,7 +4,8 @@
  *
  * Gość widzi TYLKO generator (zero zakładek, zero paska) — identycznie jak
  * dotąd. Zalogowany właściciel (`manage_options`) dostaje zakładki:
- * Generator · Indeksowanie · Historia · Ustawienia. Każda funkcja zarządzania
+ * Generator · Indeksowanie · Historia · Narzędzie FAQ · Historia generowań ·
+ * Ustawienia. Każda funkcja zarządzania
  * jest bramkowana serwerowo (render tylko dla admina; akcje przez REST `/admin/*`
  * z uprawnieniem + nonce), więc gość nie widzi ani nie wywoła niczego z panelu.
  *
@@ -53,6 +54,7 @@ class AppShell {
 				'tabIndex'      => __( 'Indeksowanie', 'ai-faq-generator' ),
 				'tabHistory'    => __( 'Historia', 'ai-faq-generator' ),
 				'tabSettings'   => __( 'Ustawienia', 'ai-faq-generator' ),
+				'ftTab'         => __( 'Narzędzie FAQ', 'ai-faq-generator' ),
 				'ownerBadge'    => __( 'Panel właściciela', 'ai-faq-generator' ),
 				'idxTitle'      => __( 'Baza wiedzy (RAG)', 'ai-faq-generator' ),
 				'idxDesc'       => __( 'Indeksowanie zamienia treść strony na fragmenty z embeddingami — na tej bazie generator odpowiada wyłącznie w temacie strony.', 'ai-faq-generator' ),
@@ -89,6 +91,7 @@ class AppShell {
 				'tabIndex'      => __( 'Indexing', 'ai-faq-generator' ),
 				'tabHistory'    => __( 'History', 'ai-faq-generator' ),
 				'tabSettings'   => __( 'Settings', 'ai-faq-generator' ),
+				'ftTab'         => __( 'FAQ tool', 'ai-faq-generator' ),
 				'ownerBadge'    => __( 'Owner panel', 'ai-faq-generator' ),
 				'idxTitle'      => __( 'Knowledge base (RAG)', 'ai-faq-generator' ),
 				'idxDesc'       => __( 'Indexing turns your site content into embedded chunks — the generator answers only within the site’s topic.', 'ai-faq-generator' ),
@@ -125,6 +128,7 @@ class AppShell {
 				'tabIndex'      => __( 'Indexierung', 'ai-faq-generator' ),
 				'tabHistory'    => __( 'Verlauf', 'ai-faq-generator' ),
 				'tabSettings'   => __( 'Einstellungen', 'ai-faq-generator' ),
+				'ftTab'         => __( 'FAQ-Werkzeug', 'ai-faq-generator' ),
 				'ownerBadge'    => __( 'Inhaber-Panel', 'ai-faq-generator' ),
 				'idxTitle'      => __( 'Wissensbasis (RAG)', 'ai-faq-generator' ),
 				'idxDesc'       => __( 'Die Indexierung wandelt Ihre Inhalte in eingebettete Abschnitte um — der Generator antwortet nur zum Thema der Website.', 'ai-faq-generator' ),
@@ -219,11 +223,18 @@ class AppShell {
 
 		$lang = self::lang();
 		$t    = self::strings( $lang );
+		// Teksty narzędzia FAQ liczone LOKALNIE i trzymane osobno od `$t` — ich klucze
+		// są bez prefiksu i generyczne (`title`, `save`, `copy`, `export`), więc merge
+		// z i18n powłoki nadpisałby ją cicho, bez błędu (do `$t` wchodzi tylko `ftTab`).
+		$ft = FaqToolPanel::strings( $lang );
 
+		// `generator` MUSI zostać pierwszy: `is-active`/`aria-selected="true"` dostaje
+		// pierwszy element pętli, a aktywny panel jest zahardkodowany na `generator`.
 		$tabs = array(
 			'generator' => $t['tabGenerator'],
 			'index'     => $t['tabIndex'],
 			'history'   => $t['tabHistory'],
+			'ft'        => $t['ftTab'],
 			'gh'        => $t['ghTab'],
 			'settings'  => $t['tabSettings'],
 		);
@@ -260,6 +271,15 @@ class AppShell {
 
 			<div class="aifaq-app__panel" id="aifaq-panel-history" role="tabpanel" aria-labelledby="aifaq-tab-history" hidden>
 				<?php echo HistoryPanel::widget( $t ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup z esc_* w widget(). ?>
+			</div>
+
+			<?php // Klasa `aifaq-ftp` należy do POWŁOKI (nie do widgetu) — to jedyny hak, którym CSS odróżnia kontekst frontowy od kokpitu. ?>
+			<div class="aifaq-app__panel" id="aifaq-panel-ft" role="tabpanel" aria-labelledby="aifaq-tab-ft" hidden>
+				<div class="aifaq-card aifaq-ftp">
+					<h2 class="aifaq-card__h"><?php echo esc_html( $ft['title'] ); ?></h2>
+					<p class="aifaq-card__p"><?php echo esc_html( $ft['lead'] ); ?></p>
+					<?php echo FaqToolPanel::widget( $ft ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup z esc_* w widget(). ?>
+				</div>
 			</div>
 
 			<div class="aifaq-app__panel" id="aifaq-panel-gh" role="tabpanel" aria-labelledby="aifaq-tab-gh" hidden>

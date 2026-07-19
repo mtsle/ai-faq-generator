@@ -171,6 +171,15 @@ final class Plugin {
 		add_filter( 'cron_schedules', array( $this, 'register_cron_schedule' ) ); // phpcs:ignore WordPress.WP.CronInterval.ChangeDetected
 		add_action( self::CRAWL_HOOK, array( $this, 'run_crawl_tick' ) );
 
+		// Niezawodność podstrony generatora (Krok 18) — POZA gałęzią `is_admin()`,
+		// bo kosz bywa obsługiwany także z REST i z WP-CLI, gdzie `is_admin()` jest
+		// fałszem. Usunięcie TRWAŁE ma osobny callback: tylko rozdzielenie „leży
+		// w koszu" od „skasowane na zawsze" pozwala NIE odtwarzać strony, którą
+		// klient skasował świadomie.
+		add_action( 'trashed_post', array( $this, 'on_page_event' ), 10, 1 );
+		add_action( 'untrashed_post', array( $this, 'on_page_event' ), 10, 1 );
+		add_action( 'deleted_post', array( $this, 'on_page_deleted' ), 10, 1 );
+
 		if ( is_admin() ) {
 			$this->settings = new Settings();
 			add_action( 'admin_init', array( $this->settings, 'register' ) );
@@ -189,6 +198,14 @@ final class Plugin {
 			$this->post_metabox = new PostMetaBox();
 			add_action( 'add_meta_boxes', array( $this->post_metabox, 'register_box' ) );
 			add_action( 'admin_enqueue_scripts', array( $this->post_metabox, 'enqueue' ) );
+
+			// Stan podstrony generatora (Krok 18): audyt (bez tworzenia), komunikat
+			// dla właściciela i akcje naprawcze. Klasa komunikatu należy do innego
+			// etapu — hooki rejestrujemy bezwarunkowo, a jej brak pomija callback
+			// (ten sam idiom, co przy kolejce pobierania stron).
+			add_action( 'admin_notices', array( $this, 'render_page_notice' ) );
+			add_action( 'admin_post_aifaq_page_fix', array( $this, 'handle_page_fix' ) );
+			add_action( 'admin_init', array( __CLASS__, 'audit_page' ) );
 		}
 	}
 
@@ -224,6 +241,111 @@ final class Plugin {
 
 		try {
 			( new \AIFAQ\Index\CrawlQueue() )->tick();
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
+
+	/**
+	 * Wypisuje komunikat o stanie podstrony generatora (kokpit).
+	 *
+	 * Klasa komunikatu należy do innego etapu — jej brak pomija wypis i NIGDY
+	 * nie wywala kokpitu klienta (błąd na tym hooku wypisuje się wprost na górze
+	 * każdego ekranu panelu).
+	 */
+	public function render_page_notice(): void {
+		if ( ! class_exists( '\AIFAQ\Admin\PageNotice' ) ) {
+			return;
+		}
+
+		try {
+			\AIFAQ\Admin\PageNotice::render();
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
+
+	/**
+	 * Obsługuje kliknięcie przycisku naprawczego z komunikatu.
+	 *
+	 * Uprawnienie i nonce sprawdza sama klasa komunikatu — tutaj tylko routing.
+	 */
+	public function handle_page_fix(): void {
+		if ( ! class_exists( '\AIFAQ\Admin\PageNotice' ) ) {
+			return;
+		}
+
+		try {
+			\AIFAQ\Admin\PageNotice::handle_fix();
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
+
+	/**
+	 * Audyt stanu podstrony w panelu — przelicza stan, NIC nie tworzy.
+	 *
+	 * Metoda jest STATYCZNA celowo: konstruktor tej klasy jest prywatny i odpala
+	 * migrację schematu, więc audytu nie da się wywołać w teście przez instancję.
+	 *
+	 * Trzy bramki taniości są obowiązkowe. Hook, na którym to wisi, odpala się
+	 * także przy KAŻDYM żądaniu AJAX każdego zalogowanego użytkownika (koszyk,
+	 * autozapis, wtyczki sklepowe) oraz przy cronie — a stan czyta wyłącznie
+	 * właściciel z uprawnieniem `manage_options`.
+	 */
+	public static function audit_page(): void {
+		if ( function_exists( 'wp_doing_ajax' ) && wp_doing_ajax() ) {
+			return;
+		}
+
+		if ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) {
+			return;
+		}
+
+		if ( ! function_exists( 'current_user_can' ) || ! current_user_can( 'manage_options' ) ) {
+			return;
+		}
+
+		if ( ! class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
+			return;
+		}
+
+		try {
+			\AIFAQ\PublicUi\PageGuard::refresh();
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
+
+	/**
+	 * Podstrona trafiła do kosza albo z niego wróciła — przelicz stan.
+	 *
+	 * @param int|mixed $post_id ID wpisu, którego dotyczy zdarzenie.
+	 */
+	public function on_page_event( $post_id ): void {
+		if ( ! class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
+			return;
+		}
+
+		try {
+			\AIFAQ\PublicUi\PageGuard::on_post_event( $post_id );
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
+
+	/**
+	 * Podstrona została skasowana TRWALE — zapamiętaj to i nie odtwarzaj jej.
+	 *
+	 * @param int|mixed $post_id ID usuniętego wpisu.
+	 */
+	public function on_page_deleted( $post_id ): void {
+		if ( ! class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
+			return;
+		}
+
+		try {
+			\AIFAQ\PublicUi\PageGuard::on_post_deleted( $post_id );
 		} catch ( \Throwable $e ) {
 			unset( $e );
 		}

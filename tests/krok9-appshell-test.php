@@ -7,7 +7,7 @@
  *  - config(): zero sekretów (brak api_key), komplet 5 endpointów /admin/*, isOwner, nonce.
  *  - render_body(gość): dokładnie GeneratorPage::widget() — bez paska zakładek, bez data-tab,
  *    bez panelu ustawień (gość nie widzi panelu).
- *  - render_body(właściciel): pasek zakładek + 5 zakładek (od K15) + panel ustawień.
+ *  - render_body(właściciel): pasek zakładek + 6 zakładek (od K18) + panel ustawień.
  *  - settings_panel(): zapisany klucz NIE występuje w markupie (pole password value="").
  *  - strings()/lang(): nieznany język → pl; komplet kluczy per język.
  *
@@ -76,6 +76,9 @@ require __DIR__ . '/../src/Admin/IndexController.php';
 require __DIR__ . '/../src/PublicUi/GeneratorPage.php';
 require __DIR__ . '/../src/App/HistoryPanel.php';
 require __DIR__ . '/../src/App/GenerationsPanel.php';
+// K18: AppShell::render_body() osadza zakładkę „Narzędzie FAQ" przez FaqToolPanel —
+// bez tego require'u (PRZED AppShell) leci Fatal „Class not found".
+require __DIR__ . '/../src/App/FaqToolPanel.php';
 require __DIR__ . '/../src/App/AppShell.php';
 
 use AIFAQ\App\AppShell;
@@ -119,7 +122,8 @@ set_role( true, true );
 $owner = AppShell::render_body();
 check( false !== strpos( $owner, 'aifaq-app__bar' ), 'właściciel: pasek zakładek jest' );
 // K15 dołożył zakładkę „Historia generowań" (gh) → 4 zakładki stały się 5.
-check( 5 === substr_count( $owner, 'aifaq-app__tab"' ) + substr_count( $owner, 'aifaq-app__tab ' ), 'właściciel: 5 zakładek' );
+// K18 dołożył zakładkę „Narzędzie FAQ" (ft) → 5 zakładek stało się 6.
+check( 6 === substr_count( $owner, 'aifaq-app__tab"' ) + substr_count( $owner, 'aifaq-app__tab ' ), 'właściciel: 6 zakładek' );
 check( false !== strpos( $owner, 'aifaq-panel-settings' ), 'właściciel: panel ustawień jest' );
 check( false !== strpos( $owner, 'aifaq-panel-index' ), 'właściciel: panel indeksowania jest' );
 

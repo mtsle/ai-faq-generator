@@ -20,6 +20,7 @@
    też montowany w kokpicie K9). Definicja tylko na .aifaq nie dosięgałaby rodzica
    .aifaq-body (zmienne CSS dziedziczą w dół) → font/tło spadłyby na domyślne. */
 .aifaq-body,
+.aifaq-app,
 .aifaq {
 	/* Paleta — jasny motyw (domyślny). */
 	--aifaq-bg: #f6f7f8;
@@ -27,7 +28,10 @@
 	--aifaq-border: #e4e7e9;
 	--aifaq-text: #1b2128;
 	--aifaq-muted: #616a73;
-	--aifaq-faint: #9aa2ab;
+	/* Kolor metadanych drugorzędnych (data, źródło, wynik, podpowiedzi ustawień).
+	   Podniesiony przy spięciu K18 z #9aa2ab (2,57:1 na białym — poniżej WCAG AA)
+	   do #6b7480 (~4,8:1). Teksty mają 12–13px, więc obowiązuje próg 4,5:1, nie 3:1. */
+	--aifaq-faint: #6b7480;
 	--aifaq-accent: #0f766e;
 	--aifaq-accent-strong: #0b5f58;
 	--aifaq-accent-fg: #ffffff;
@@ -44,15 +48,36 @@
 	--aifaq-shadow: 0 1px 2px rgba(20, 30, 26, .05), 0 18px 40px -24px rgba(20, 30, 26, .28);
 }
 
+/* Na ścieżce shortcode'owej .aifaq-app nie ma przodka .aifaq-body, więc kolor tekstu
+   dziedziczyłby się z motywu klienta — po włączeniu palety dałoby to ciemny tekst
+   na ciemnej karcie przy prefers-color-scheme: dark.
+
+   POPRAWKA SPIĘCIA (Etap 6): sam `color` NIE WYSTARCZY i był regresją.
+   `.aifaq-body` maluje `--aifaq-bg` (l. 10) i dlatego trasa standalone `/faqgenerator`
+   jest czytelna. Na ścieżce shortcode'owej `.aifaq-body` NIE ISTNIEJE, więc po włączeniu
+   ciemnej palety jasny tekst `--aifaq-text` lądował na BIAŁYM tle motywu klienta
+   (Twenty Twenty-Five nie reaguje na schemat OS): tytuł „Generator FAQ" = 1,17:1,
+   plakietka „Panel właściciela" = 1,6:1. Zmierzone Playwrightem na żywej stronie.
+   Panel osadzony w cudzej stronie musi ALBO przejąć swój kontekst wizualny, ALBO go
+   dziedziczyć — nie pół na pół. Skoro włączamy paletę, malujemy też tło. */
+.aifaq-app {
+	color: var(--aifaq-text);
+	background: var(--aifaq-bg);
+	padding: 16px;
+	border-radius: 14px;
+}
+
 @media (prefers-color-scheme: dark) {
 	.aifaq-body,
+	.aifaq-app,
 	.aifaq {
 		--aifaq-bg: #121619;
 		--aifaq-surface: #1a2024;
 		--aifaq-border: #2c343a;
 		--aifaq-text: #e8eef1;
 		--aifaq-muted: #9aa6ae;
-		--aifaq-faint: #6d7982;
+		/* Jw. — podniesiony z #6d7982 (3,69:1 na --aifaq-surface #1a2024) do ~5,3:1. */
+		--aifaq-faint: #8c97a0;
 		--aifaq-accent: #2dd4bf;
 		--aifaq-accent-strong: #5ee0d0;
 		--aifaq-accent-fg: #08110f;

@@ -5,16 +5,23 @@ publicznej podstronie `/faqgenerator`, a odpowiedź powstaje **wyłącznie w tem
 treści tej strony** (RAG + embeddingi Gemini) — pytania off-topic są odrzucane.
 Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 
-> **Status:** w budowie · Kroki 0–14 gotowe (dwie połówki produktu):
-> **RAG** (`/faqgenerator`: Indexer + Retriever + TopicGuard + Answerer, REST `aifaq/v1`,
-> front rola-aware, dziennik pytań gości) **+ generator FAQ w kokpicie**
-> (Krok 11: `Faq\FaqGenerator` — temat→pary Q&A jako structured JSON, tabela `wp_aifaq_generations`;
-> Krok 12: REST `/admin/generate-faq` + `/admin/generations`;
-> Krok 13: ekran „Narzędzie FAQ" — formularz Temat/Opis/Liczba + tabela par z Edytuj/Usuń/Kopiuj;
-> Krok 14: eksport par do 5 formatów (HTML/Gutenberg/Elementor/JSON/JSON-LD FAQPage) — `Faq\Exporter`, REST `/admin/export`, sekcja Kopiuj/Pobierz na ekranie narzędzia;
-> Krok 15: Historia generowań — `App\GenerationsPanel` w DWÓCH miejscach (podstrona kokpitu + zakładka na froncie), podgląd zapisanych par, Usuń, „Ponownie wygeneruj" prefillujące formularz;
-> **Krok 16: panel „AI FAQ" w edytorze wpisu — `Admin\PostMetaBox` (metabox dla `post`/`page`): „Generuj z treści wpisu" → pary Q&A → „Wstaw do wpisu" (bloki Gutenberga przez `Faq\Exporter`)**).
-> Dalej: Krok 17 (v1.0.0) — audyt, długi, pełne README z instrukcjami.
+> **Status:** w budowie · **Kroki 0–18 gotowe** (dwie połówki produktu).
+> **Zakres ze zlecenia (pkt 1–8) jest ZAMKNIĘTY** od Kroku 16.
+>
+> **Połówka generator (kokpit)** — gotowa do oddania klientowi: `Faq\FaqGenerator` (temat→pary Q&A
+> jako structured JSON) · REST `/admin/generate-faq` · ekran „Narzędzie FAQ" · eksport do 5 formatów
+> (`Faq\Exporter`, w tym JSON-LD `FAQPage`) · Historia generowań w dwóch miejscach ·
+> metabox „AI FAQ" w edytorze wpisu.
+>
+> **Połówka RAG (front)** — `/faqgenerator` + shortcode `[aifaq_generator]` + automatyczna podstrona;
+> Indexer z **kaskadą czterech źródeł treści** (K17: `post_content` + postmeta/ACF + crawl-jako-gość
+> + filtr balastu) · Retriever + TopicGuard + Answerer · dziennik pytań gości.
+>
+> **Krok 18 (v0.21.0):** podstrona `/generator-faq/` dostała **szóstą zakładkę „Narzędzie FAQ"**
+> z eksportem (`App\FaqToolPanel` — jedno źródło markupu dla kokpitu i frontu), a mechanizm
+> powstawania podstrony przestał cicho zawodzić (`PublicUi\PageGuard` + `Admin\PageNotice`).
+>
+> Dalej: **Krok 19** — jakość odpowiedzi bota RAG · **Krok 20** — v1.0.0 (audyt, RWA, instrukcje).
 
 ## Założenia
 - **Dwa miejsca działania** — kokpit wp-admin (dla właściciela) oraz publiczna
@@ -32,9 +39,16 @@ src/Data/      Schema (5 tabel) + repozytoria + Migrator
 src/Http/      HttpClient (interfejs) + WpHttpClient — generyczny transport HTTP
 src/Providers/ ProviderInterface, GeminiProvider, ProviderFactory — warstwa AI (BYOK)
 src/Admin/     Menu + FaqToolPage + views/ (Dashboard, Generator, Narzędzie FAQ, Ustawienia, Historia)
-src/Rest/ (Krok 7) · src/PublicUi/ (Krok 8) · src/App/ (Krok 9-10, +GenerationsPanel w K15)
+src/Rest/ (Krok 7) 13 tras `aifaq/v1` — publiczne `/ask` + `/admin/*`
+src/PublicUi/ (Krok 8) GeneratorPage · (K17) Shortcode — `[aifaq_generator]` + automatyczna podstrona
+              (K18) PageGuard — stan podstrony, samo-naprawa, zamek atomowy
+src/App/  (Krok 9-10) AppShell + HistoryPanel · (K15) GenerationsPanel
+          (K18) FaqToolPanel — JEDNO źródło markupu narzędzia FAQ (kokpit + front)
+src/Index/ (Krok 5, rozbud. K17) Chunker, Indexer + kaskada źródeł: WpContentSource,
+          PostMetaContentSource, RenderedContentSource, CrawlQueue, BoilerplateFilter, CompositeContentSource
 src/Faq/  (Krok 11) FaqGenerator — kreatywny generator par Q&A (osobny od RAG)
           (Krok 14) Exporter — pary Q&A → 5 formatów eksportu (HTML/Gutenberg/Elementor/JSON/JSON-LD)
+src/Admin/ (K16) PostMetaBox · (K18) PageNotice — komunikaty o stanie podstrony
 ```
 Tabele (schema v4): `wp_aifaq_knowledge` (fragmenty+wektory), `wp_aifaq_qa_log`
 (dziennik pytań gości), `wp_aifaq_cache` (dedup odpowiedzi), `wp_aifaq_faq`
@@ -65,14 +79,60 @@ Metabox na ekranie edycji wpisu i strony (`post` / `page`). Bierze **tytuł i tr
 - Treść wpisu jest przycinana do **6000 znaków** przed wysłaniem do modelu (koszt i limity kontekstu);
   gdy do tego dojdzie, metabox mówi o tym wprost.
 
+## Podstrona generatora (Krok 18)
+
+Wtyczka **sama tworzy podstronę** o slugu `generator-faq` — bo trasa `/faqgenerator` jest wirtualna
+(rewrite), więc nie ma jej w *Stronach* i klient nie doda jej do menu. Podstrona zawiera shortcode
+`[aifaq_generator]` i jest **świadoma roli**:
+
+| kto | co widzi |
+|---|---|
+| gość | samo pole pytania (generator RAG) |
+| zalogowany właściciel | **6 zakładek**: Generator · Indeksowanie · Historia · **Narzędzie FAQ** · Historia generowań · Ustawienia |
+
+Zakładka **„Narzędzie FAQ"** (nowość K18) to ten sam generator par Q&A i ta sama sekcja eksportu,
+co ekran w kokpicie — markup ma **jedno źródło prawdy** (`App\FaqToolPanel::widget()`), więc nie ma
+dwóch kopii tych samych identyfikatorów do rozjechania się.
+
+**Gdy z podstroną coś się stanie, wtyczka mówi o tym w kokpicie.** `PublicUi\PageGuard` rozpoznaje
+osiem stanów, a `Admin\PageNotice` pokazuje komunikat z działającym przyciskiem:
+
+| stan | co się stało | co robi wtyczka |
+|---|---|---|
+| `ok` | wszystko gra | komunikat sukcesu z linkiem (zamykalny na stałe) |
+| `missing` / `failed` | nie udało się utworzyć | przycisk „Utwórz podstronę" + treść błędu, ponowienie z backoffem |
+| `trashed` | trafiła do kosza | przycisk „Przywróć" (slug wraca bez sufiksu `__trashed`) |
+| `not_public` | jest szkicem / prywatna | przycisk „Opublikuj" |
+| `no_shortcode` | ktoś usunął shortcode z treści | link do edytora |
+| `slug_taken` | pod tym adresem jest cudza strona | link do Ustawień |
+| `deleted` | **właściciel usunął ją trwale** | przycisk „Utwórz podstronę ponownie" |
+
+> ⚠️ **Podstrona usunięta TRWALE nie wraca sama** — także po deaktywacji i ponownej aktywacji wtyczki.
+> To jest **zamierzone**: automat nie ma walczyć z decyzją właściciela. Droga powrotu jest jedna —
+> świadome kliknięcie „Utwórz podstronę ponownie" w komunikacie kokpitu.
+
+**Nowe opcje w `wp_options`:** `aifaq_page_state` (stan, 6 kluczy) · `aifaq_page_ok` (tania bramka
+trójstanowa) · `aifaq_page_lock` (zamek `ensure()`) · `aifaq_page_notice_dismissed`.
+Wszystkie kasowane przy odinstalowaniu — **samej podstrony wtyczka nie kasuje**, bo to treść klienta.
+
+**Nowe hooki:** `admin_notices` (pierwszy we wtyczce) · `admin_post_aifaq_page_fix` (akcje naprawcze,
+za `check_admin_referer` + capem) · `trashed_post` / `untrashed_post` / `deleted_post` (reakcja na
+zmianę losu podstrony) · `loop_start` (reset flagi jednokrotnego renderu shortcode'u).
+
 ## Ograniczenia (znane, świadome)
 - **Metabox widzi tylko administrator** (`manage_options`). Redaktor i Autor — czyli role, które na
   typowej stronie faktycznie piszą wpisy — go nie zobaczą, bo trasy REST wtyczki wymagają tego samego
-  uprawnienia. Poluzowanie capów jest zaplanowane na Krok 17.
+  uprawnienia. Poluzowanie capów jest zaplanowane na Krok 20.
 - **Gałąź klasycznego edytora (TinyMCE) nie ma pokrycia testem na żywej instancji** — środowisko dev
   nie ma wtyczki Classic Editor; ta ścieżka jest pokryta wyłącznie testem statycznym.
 - **Historia generowań rośnie bez ograniczeń** — każde kliknięcie „Generuj" (również z metaboksu)
-  zapisuje wiersz ze snapshotem par. Retencja (`prune()`) to zadanie Kroku 17.
+  zapisuje wiersz ze snapshotem par. Retencja (`prune()`) to zadanie Kroku 20.
+- **„Ponownie wygeneruj" z zakładki na froncie prowadzi do kokpitu** (`wp-admin`), nie przełącza
+  zakładki na miejscu — konsekwencja zasady „zero zmian w `assets/js/*`" w Kroku 18.
+- **Nonce `wp_rest` nie odświeża się bez przeładowania** — podstrona otwarta przez noc może zwrócić
+  403 przy generowaniu; obejście to `F5`. Do Kroku 20.
+- **Jakość odpowiedzi bota RAG** przy słabszym dopasowaniu jest niska (jednozdaniowe odpowiedzi,
+  fałszywe odmowy) — rozpoznane, naprawa to **Krok 19**.
 
 ## Wymagania (dev)
 - WordPress 6.x, PHP 8.x

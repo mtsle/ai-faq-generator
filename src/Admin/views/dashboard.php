@@ -52,6 +52,32 @@ if ( class_exists( '\AIFAQ\Index\CrawlQueue' ) ) {
 // Brak opcji = jeszcze nie sprawdzono → nie strasz użytkownika.
 $aifaq_loopback = get_option( 'aifaq_loopback', array() );
 $aifaq_loopback_bad = is_array( $aifaq_loopback ) && isset( $aifaq_loopback['ok'] ) && ! $aifaq_loopback['ok'];
+
+// --- Krok 18: podstrona generatora. ---
+
+// Szybka trasa `/{slug}` (wirtualna, obsługiwana przez Router) i podstrona WP
+// `/generator-faq/` (realna strona z shortcode'em) to DWA RÓŻNE adresy. Mylenie ich
+// było źródłem cichej awarii, przez którą właściciel nie wiedział, że podstrona
+// w ogóle nie powstała — dlatego linkujemy oba, osobno i wprost.
+$aifaq_slug = ltrim( (string) \AIFAQ\Core\Settings::get_field( 'page_slug', 'faqgenerator' ), '/' );
+
+// Adres podstrony pokazujemy WYŁĄCZNIE wtedy, gdy naprawdę działa (stan `ok`).
+// Czytamy zapisany stan, nie świeżą diagnozę — ta kosztuje zapytania, a `admin_init`
+// i tak utrwala ją przed wyrysowaniem ekranu. Brak klasy strażnika nie ma prawa
+// wywalić Dashboardu.
+$aifaq_page_url = '';
+if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
+	try {
+		$aifaq_page_state = \AIFAQ\PublicUi\PageGuard::state();
+		if ( is_array( $aifaq_page_state )
+			&& isset( $aifaq_page_state['status'] )
+			&& \AIFAQ\PublicUi\PageGuard::STATE_OK === $aifaq_page_state['status'] ) {
+			$aifaq_page_url = (string) \AIFAQ\PublicUi\PageGuard::page_url();
+		}
+	} catch ( \Throwable $aifaq_e ) {
+		unset( $aifaq_e );
+	}
+}
 ?>
 <div class="wrap aifaq-wrap">
 	<h1 class="aifaq-title">
@@ -208,9 +234,20 @@ $aifaq_loopback_bad = is_array( $aifaq_loopback ) && isset( $aifaq_loopback['ok'
 			<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=' . \AIFAQ\Admin\Menu::SLUG_GENERATOR ) ); ?>">
 				<?php esc_html_e( 'Otwórz generator', 'ai-faq-generator' ); ?>
 			</a>
-			<a class="button" href="<?php echo esc_url( home_url( '/' . ltrim( (string) \AIFAQ\Core\Settings::get_field( 'page_slug', 'faqgenerator' ), '/' ) ) ); ?>" target="_blank" rel="noopener">
-				<?php esc_html_e( 'Zobacz publiczną stronę ↗', 'ai-faq-generator' ); ?>
+			<a class="button" href="<?php echo esc_url( home_url( '/' . $aifaq_slug ) ); ?>" target="_blank" rel="noopener">
+				<?php
+				printf(
+					/* translators: %s: slug szybkiej trasy generatora, np. „faqgenerator". */
+					esc_html__( 'Otwórz szybki adres /%s ↗', 'ai-faq-generator' ),
+					esc_html( $aifaq_slug )
+				);
+				?>
 			</a>
+			<?php if ( '' !== $aifaq_page_url ) : ?>
+				<a class="button" href="<?php echo esc_url( $aifaq_page_url ); ?>" target="_blank" rel="noopener">
+					<?php esc_html_e( 'Otwórz podstronę «Generator FAQ» ↗', 'ai-faq-generator' ); ?>
+				</a>
+			<?php endif; ?>
 		</p>
 	</div>
 </div>

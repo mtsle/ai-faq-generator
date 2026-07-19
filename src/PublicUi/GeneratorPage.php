@@ -171,10 +171,15 @@ class GeneratorPage {
 		$js_url   = AIFAQ_PLUGIN_URL . 'assets/js/generator.js';
 		$app_css  = AIFAQ_PLUGIN_URL . 'assets/css/app.css';
 		$app_js   = AIFAQ_PLUGIN_URL . 'assets/js/app.js';
+		// Krok 18 — zakładka „Narzędzie FAQ" pojawia się też na tej trasie, więc jej
+		// assety muszą tu polecieć ręcznie (dokument jest poza kolejką WP).
+		$ft_css   = AIFAQ_PLUGIN_URL . 'assets/css/faq-tool.css';
+		$ft_js    = AIFAQ_PLUGIN_URL . 'assets/js/faq-tool.js';
 		$ver      = AIFAQ_VERSION;
 		$config   = wp_json_encode( self::config() );
 		$is_owner = AppShell::is_owner();
 		$app_cfg  = $is_owner ? wp_json_encode( AppShell::config() ) : '';
+		$ft_cfg   = $is_owner ? wp_json_encode( \AIFAQ\App\FaqToolPanel::config() ) : '';
 		$doc_title = $t['title'] . ( '' !== $site ? ' — ' . $site : '' );
 		?>
 <!doctype html>
@@ -187,6 +192,7 @@ class GeneratorPage {
 	<link rel="stylesheet" href="<?php echo esc_url( $css_url ); ?>?ver=<?php echo esc_attr( $ver ); ?>">
 	<?php if ( $is_owner ) : ?>
 	<link rel="stylesheet" href="<?php echo esc_url( $app_css ); ?>?ver=<?php echo esc_attr( $ver ); ?>">
+	<link rel="stylesheet" href="<?php echo esc_url( $ft_css ); ?>?ver=<?php echo esc_attr( $ver ); ?>">
 	<?php endif; ?>
 </head>
 <body class="aifaq-body">
@@ -199,10 +205,12 @@ class GeneratorPage {
 	<script>window.aifaqFront = <?php echo $config; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
 	<?php if ( $is_owner ) : ?>
 	<script>window.aifaqApp = <?php echo $app_cfg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
+	<script>window.aifaqFaqTool = <?php echo $ft_cfg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
 	<?php endif; ?>
 	<script src="<?php echo esc_url( $js_url ); ?>?ver=<?php echo esc_attr( $ver ); ?>"></script>
 	<?php if ( $is_owner ) : ?>
 	<script src="<?php echo esc_url( $app_js ); ?>?ver=<?php echo esc_attr( $ver ); ?>"></script>
+	<script src="<?php echo esc_url( $ft_js ); ?>?ver=<?php echo esc_attr( $ver ); ?>"></script>
 	<?php endif; ?>
 </body>
 </html>

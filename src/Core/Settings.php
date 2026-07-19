@@ -218,11 +218,59 @@ class Settings {
 			$out['language'] = $input['language'];
 		}
 
-		// Slug publicznej trasy — bezpieczny slug; pusty/niepoprawny → zostaje bieżący.
+		// Slug publicznej trasy — bezpieczny slug; pusty/zarezerwowany/zajęty → zostaje bieżący.
+		//
+		// Bramka jest obowiązkowa, bo regułę rewrite trasy rejestrujemy z priorytetem
+		// `top` (Router::add_rewrite_rules): wpisanie tu sluga automatycznej podstrony
+		// PRZESŁANIAŁOBY ją wirtualną trasą i klient przestałby ją widzieć, choć
+		// w Stronach dalej by wisiała.
+		//
+		// Odrzucenie MUSI być widoczne. Bez komunikatu powstaje pętla bez wyjścia:
+		// komunikat o kolizji mówi „otwórz ustawienia", klient klika Zapisz,
+		// WordPress pokazuje zielone „Ustawienia zapisane", wartość po cichu wraca
+		// do starej, a czerwony komunikat wisi dalej.
 		if ( isset( $input['page_slug'] ) ) {
-			$slug = sanitize_title( wp_unslash( $input['page_slug'] ) );
+			$slug     = sanitize_title( wp_unslash( $input['page_slug'] ) );
+			$reserved = class_exists( '\AIFAQ\PublicUi\Shortcode' )
+				? \AIFAQ\PublicUi\Shortcode::PAGE_SLUG
+				: 'generator-faq';
+
+			$taken = false;
 			if ( '' !== $slug ) {
+				if ( function_exists( 'get_page_by_path' ) ) {
+					$page  = get_page_by_path( $slug );
+					$taken = ( $page instanceof \WP_Post && 'publish' === $page->post_status );
+				}
+				// Reguła rewrite z priorytetem `top` przesłania KAŻDY adres najwyższego
+				// poziomu, nie tylko strony (wpisy, taksonomie, archiwa) — więc o zajętość
+				// pytamy sam WordPress, zamiast zgadywać po typach treści.
+				if ( ! $taken && function_exists( 'url_to_postid' ) && function_exists( 'home_url' ) ) {
+					$taken = ( (int) url_to_postid( home_url( '/' . $slug . '/' ) ) > 0 );
+				}
+			}
+
+			if ( '' !== $slug && $slug !== $reserved && ! $taken ) {
 				$out['page_slug'] = $slug;
+			} elseif ( function_exists( 'add_settings_error' ) ) {
+				// `add_settings_error()` pod `function_exists()`, bo sanitize() bywa
+				// wołane z REST i z WP-CLI, gdzie Settings API nie jest załadowane.
+				if ( '' === $slug ) {
+					$msg = __( 'Adres podstrony generatora nie może być pusty. Zostawiono poprzedni adres.', 'ai-faq-generator' );
+				} elseif ( $slug === $reserved ) {
+					$msg = sprintf(
+						/* translators: %s: slug wpisany przez użytkownika. */
+						__( 'Adres «%s» jest zarezerwowany dla podstrony generatora. Zostawiono poprzedni adres.', 'ai-faq-generator' ),
+						$slug
+					);
+				} else {
+					$msg = sprintf(
+						/* translators: %s: slug wpisany przez użytkownika. */
+						__( 'Adres «%s» jest już zajęty przez inną treść witryny. Zostawiono poprzedni adres.', 'ai-faq-generator' ),
+						$slug
+					);
+				}
+
+				add_settings_error( self::OPTION, 'aifaq_page_slug', $msg, 'error' );
 			}
 		}
 

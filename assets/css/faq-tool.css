@@ -37,22 +37,20 @@
 }
 
 /* --- NAGŁÓWEK EKRANU -------------------------------------------------------- */
-.aifaq-ft .aifaq__head {
-	margin: 6px 0 20px;
-}
-.aifaq-ft .aifaq__title {
-	font-size: 22px;
-	line-height: 1.2;
-	letter-spacing: -.01em;
-	font-weight: 700;
-	margin: 0;
-}
-.aifaq-ft .aifaq__subtitle,
+/* Lead leży w views/faq-tool.php:29, czyli POZA <div class="aifaq"> — bez fallbacku
+   --aifaq-muted nie ma się tam z czego rozwiązać. */
 .aifaq-ft .aifaq-lead {
 	margin: 8px 0 0;
 	max-width: 70ch;
-	color: var(--aifaq-muted);
+	color: var(--aifaq-muted, #50575e);
 	font-size: 14px;
+}
+
+/* --- KORZEŃ WIDGETU --------------------------------------------------------- */
+/* Neutralnie: korzeń nie wnosi ani palety, ani własnej powierzchni — chrome należy
+   do kontekstu (kokpit: .aifaq-ft > .aifaq; front: karta powłoki). */
+.aifaq-ft__panel {
+	display: block;
 }
 
 /* --- FORMULARZ -------------------------------------------------------------- */
@@ -66,6 +64,18 @@
 	display: grid;
 	gap: 14px;
 	max-width: 720px;
+}
+
+/* Front: formularz leży już w .aifaq-card (app.css) — druga identyczna
+   powierzchnia dawałaby ramkę w ramce. */
+.aifaq-ftp .aifaq-ft__form {
+	background: transparent;
+	border: 0;
+	border-left: 4px solid var(--aifaq-accent);
+	border-radius: 0;
+	box-shadow: none;
+	padding: 0 0 0 14px;
+	max-width: none;
 }
 
 /* Etykiety pól (Etap 1 renderuje label + kontrolkę). Nie wymuszamy konkretnej
@@ -87,7 +97,7 @@
 	box-sizing: border-box;
 	border: 1px solid var(--aifaq-border);
 	border-radius: var(--aifaq-radius-sm, 8px);
-	background: #fff;
+	background: var(--aifaq-surface, #fff);
 	color: var(--aifaq-text);
 	font: inherit;
 	line-height: 1.5;
@@ -195,10 +205,8 @@
 }
 
 /* --- WYNIKI: pasek narzędzi + tabela ---------------------------------------- */
-/* Kontener przewijalny w poziomie na wąsko — tabela nie rozjeżdża layoutu. */
 .aifaq-ft__results {
 	margin-top: 24px;
-	overflow-x: auto;
 	animation: aifaq-ft-rise .18s ease both;
 }
 .aifaq-ft__results[hidden] {
@@ -213,8 +221,15 @@
 	margin-bottom: 10px;
 }
 
+/* Przewija się WYŁĄCZNIE tabela — pasek eksportu (formaty, Kopiuj/Pobierz, <pre>)
+   leży poza tym opakowaniem i zostaje na miejscu w wąskiej kolumnie. */
+.aifaq-ft__tablewrap {
+	overflow-x: auto;
+}
+
 .aifaq-ft__table {
 	width: 100%;
+	min-width: 520px;
 	border-collapse: collapse;
 	background: var(--aifaq-surface);
 	border: 1px solid var(--aifaq-border);
@@ -299,12 +314,6 @@
 	outline: 2px solid var(--aifaq-accent);
 	outline-offset: 1px;
 }
-.aifaq-ft__act .dashicons {
-	font-size: 16px;
-	width: 16px;
-	height: 16px;
-	line-height: 1;
-}
 .aifaq-ft__act--edit:hover,
 .aifaq-ft__act--save:hover {
 	color: var(--aifaq-accent);
@@ -329,7 +338,7 @@
 	min-height: 64px;
 	border: 1px solid var(--aifaq-accent);
 	border-radius: 6px;
-	background: #fff;
+	background: var(--aifaq-surface, #fff);
 	color: var(--aifaq-text);
 	font: inherit;
 	font-size: 14px;
@@ -372,7 +381,6 @@
 @media (max-width: 600px) {
 	.aifaq-ft__form { padding: 16px; }
 	.aifaq-ft__actions .aifaq-ft__btn--primary { flex: 1 1 auto; justify-content: center; }
-	.aifaq-ft__table { min-width: 520px; }
 	.aifaq-ft__q { width: auto; }
 }
 
@@ -469,7 +477,7 @@
  * pole nigdy nie rozjechało layoutu; nadmiar pionowo pod scrollem (max-height). */
 .aifaq-ft__exp-output {
 	margin: 0;
-	max-height: 340px;
+	max-height: 46vh;
 	overflow: auto;
 	box-sizing: border-box;
 	border: 1px solid var(--aifaq-border);
@@ -498,5 +506,5 @@
 	.aifaq-ft__exp-btn { padding: 7px 11px; font-size: 12.5px; }
 	.aifaq-ft__exp-bar .aifaq-ft__btn { flex: 1 1 auto; justify-content: center; }
 	.aifaq-ft__exp-bar .aifaq-ft__status { margin-left: 0; flex-basis: 100%; }
-	.aifaq-ft__exp-output { max-height: 260px; font-size: 12px; padding: 12px; }
+	.aifaq-ft__exp-output { font-size: 12px; padding: 12px; }
 }

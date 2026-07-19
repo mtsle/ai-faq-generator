@@ -46,6 +46,18 @@ delete_option( 'aifaq_crawl_notice' );
 // (CrawlQueue::LOCK), więc bez tego zostałby po odinstalowaniu wtyczki.
 delete_option( 'aifaq_crawl_lock' );
 
+// Niezawodność podstrony (Krok 18). Literały, nie stałe klas — jw., bez autoloadera
+// `PageGuard::OPTION` byłoby Fatal errorem.
+delete_option( 'aifaq_page_state' );            // Tablica stanu podstrony (6 kluczy).
+delete_option( 'aifaq_page_ok' );               // Tania bramka trójstanowa '1'/'0'/''.
+delete_option( 'aifaq_page_lock' );             // Timestamp zamka `ensure()`.
+delete_option( 'aifaq_page_notice_dismissed' ); // Status, dla którego zamknięto komunikat.
+
+// Zaległość sprzed Kroku 18: jedyna opcja wtyczki, która przeżywała odinstalowanie.
+delete_option( 'aifaq_flush_needed' );
+
+// Samej podstrony NIE kasujemy — to treść w witrynie klienta (patrz komentarz niżej).
+
 // Zdejmij cron pobierania stron — bez tego zostałoby zadanie bez obsługi.
 if ( function_exists( 'wp_unschedule_hook' ) ) {
 	wp_unschedule_hook( 'aifaq_crawl_tick' );
