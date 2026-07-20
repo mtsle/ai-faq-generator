@@ -71,13 +71,16 @@ class Settings {
 
 			// --- RAG (Krok 6) — pokrętła rdzenia generatora zawężonego do tematu strony. ---
 			'rag_threshold'          => 0.7,   // Próg cosinusa bramki tematu (0.0–1.0).
+			'rag_threshold_hard'     => 0.65,  // Próg twardy: fragmenty poniżej nie wchodzą do kontekstu (0.05–1.0). ZMIERZONA w K19 (M-cal2): max( 0.55 ; max_off 0.6184 + 0.03 ) = 0.6484, zaokrąglone w górę. Źródło: zasoby/bench/bench-058-mcal2.tsv, 2026-07-20.
 			'rag_top_k'              => 5,     // Ile najlepszych fragmentów bierze Answerer (1–10).
 			'rag_rate_limit'         => 30,    // Pytań/godz. na gościa (0 = wyłączony; 0–200).
 			'rag_temperature'        => 0.2,   // Temperatura odpowiedzi RAG (osobna od `temperature`).
 			'rag_max_tokens'         => 500,   // Limit długości odpowiedzi (64–2048).
+			'rag_thinking_budget'    => 0,     // Budżet myślenia modelu: 0 = wyłączone, -1 = dynamiczne, 128–24576 = jawny budżet tokenów rozumowania.
 			'rag_refusal_message_pl' => 'Przepraszam, potrafię odpowiadać wyłącznie na pytania dotyczące tej strony.',
 			'rag_refusal_message_en' => 'Sorry, I can only answer questions related to this website.',
 			'rag_refusal_message_de' => 'Entschuldigung, ich kann nur Fragen zu dieser Website beantworten.',
+			'rag_contact_hint'       => '',    // Dane kontaktowe wstrzykiwane do odpowiedzi przy częściowym pokryciu. Puste = bot odsyła ogólnie do zakładki Kontakt.
 
 			// --- Kaskada źródeł treści (Krok 17) — czym karmimy bazę wiedzy. ---
 			// Klucze MUSZĄ być tutaj, nie tylko w sanitize(): bez wpisu w defaults()
@@ -284,6 +287,23 @@ class Settings {
 			$out['rag_threshold'] = max( 0.05, min( 1.0, round( (float) $input['rag_threshold'], 2 ) ) );
 		}
 
+		// Próg twardy — 0.05–1.0, ale NIGDY powyżej progu miękkiego. To jedyna
+		// walidacja krzyżowa w tym pliku: blok stoi PO bloku `rag_threshold`,
+		// żeby czytać już zsanityzowaną wartość sąsiada, a nie surowe wejście.
+		//
+		// Brak `isset()` jest CELOWY — blok wykonuje się przy KAŻDYM zapisie, także
+		// gdy pola nie przysłano (`RestController::handle_settings_save()` przysyła
+		// cztery pola), inaczej klucz nigdy nie zmaterializowałby się w `wp_options`.
+		//
+		// Zejście do granicy jest CICHE — idiom „poza zakresem → GRANICA" obowiązuje
+		// dla wszystkich pól liczbowych; głośny wariant z komunikatem jest
+		// zarezerwowany dla `page_slug`, gdzie ciche cofnięcie tworzyło pętlę bez wyjścia.
+		$hard = max( 0.05, min( 1.0, round( (float) ( $input['rag_threshold_hard'] ?? $out['rag_threshold_hard'] ), 2 ) ) );
+		if ( $hard > $out['rag_threshold'] ) {
+			$hard = $out['rag_threshold'];   // cicho do granicy, BEZ add_settings_error()
+		}
+		$out['rag_threshold_hard'] = $hard;
+
 		// Liczba fragmentów top-K — 1–10.
 		if ( isset( $input['rag_top_k'] ) ) {
 			$out['rag_top_k'] = max( 1, min( 10, (int) $input['rag_top_k'] ) );
@@ -304,6 +324,28 @@ class Settings {
 			$out['rag_max_tokens'] = max( 64, min( 2048, (int) $input['rag_max_tokens'] ) );
 		}
 
+		// Budżet myślenia modelu. Zbiór legalny: {-1, 0} ∪ [128, 24576].
+		//
+		// UWAGA: to JEDYNE pole w tym pliku z legalną wartością UJEMNĄ. Idiom
+		// `max( 0, min( …, (int) … ) )` z sąsiedniego bloku `rag_max_tokens`
+		// zabiłby semantykę `-1` (= „model decyduje sam") i zgasił jedyne pokrętło
+		// mitygacji dla modeli, które nie pozwalają wyłączyć myślenia.
+		//
+		// Zakres nie jest wymyślony: API odrzuca `thinkingBudget` z przedziału
+		// 1..127 błędem 400, a sufit modeli 2.5 to 24576 (flash) / 32768 (pro).
+		// Zbiór jest NIECIĄGŁY — żadna kombinacja max()/min() go nie wyraża.
+		$b = (int) ( $input['rag_thinking_budget'] ?? $out['rag_thinking_budget'] );
+		if ( $b < -1 ) {
+			$b = -1;
+		} elseif ( 0 === $b ) {
+			$b = 0;
+		} elseif ( $b > 0 && $b < 128 ) {
+			$b = 128;   // „granica", nie „bieżąca"
+		} elseif ( $b > 24576 ) {
+			$b = 24576;
+		}
+		$out['rag_thinking_budget'] = $b;
+
 		// Komunikaty odmowy per język — sanitize_textarea_field; pusty submit ZOSTAWIA bieżący (M11/GC2).
 		foreach ( array( 'pl', 'en', 'de' ) as $lang ) {
 			$key = 'rag_refusal_message_' . $lang;
@@ -313,6 +355,18 @@ class Settings {
 					$out[ $key ] = $msg;
 				}
 			}
+		}
+
+		// Dane kontaktowe wstrzykiwane do odpowiedzi przy CZĘŚCIOWYM pokryciu tematu
+		// (podstawiane jako {KONTAKT} w systemInstruction — Krok 19 §2.9). Puste jest
+		// poprawne: wtedy bot odsyła ogólnie do zakładki Kontakt, bez zmyślania numeru.
+		//
+		// Tu `isset()` JEST — inaczej niż w blokach progu twardego i budżetu myślenia:
+		// pole tekstowe wolno wyczyścić do pusta, więc wartość musi pochodzić z wejścia,
+		// a pole nieprzysłane ma zostać nietknięte. Przycięcie idzie PO
+		// `sanitize_text_field()`, bo ta funkcja sama potrafi skrócić string.
+		if ( isset( $input['rag_contact_hint'] ) ) {
+			$out['rag_contact_hint'] = mb_substr( sanitize_text_field( (string) $input['rag_contact_hint'] ), 0, 120 );
 		}
 
 		// --- Kaskada źródeł treści (Krok 17). ---

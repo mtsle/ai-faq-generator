@@ -79,13 +79,90 @@ class ProviderFactory {
 	}
 
 	/**
-	 * Składa providera wg ustawień, z podanym kluczem i transportem.
+	 * Jak {@see make()}, ale provider liczy embeddingi w trybie ZAPYTANIA (asymetrycznym).
 	 *
-	 * @param string          $api_key Klucz API.
-	 * @param HttpClient|null $http    Transport (domyślnie {@see WpHttpClient}).
+	 * @param HttpClient|null $http Transport (domyślnie {@see WpHttpClient}).
 	 * @return ProviderInterface
 	 */
-	private static function build( string $api_key, ?HttpClient $http ): ProviderInterface {
+	public static function make_for_query( ?HttpClient $http = null ): ProviderInterface {
+		if ( null !== self::$override ) {
+			return self::$override;
+		}
+
+		return self::build( (string) Settings::get_field( 'api_key', '' ), $http, self::query_task() );
+	}
+
+	/**
+	 * Jak {@see make()}, ale provider liczy embeddingi w trybie DOKUMENTU (indeksowanie).
+	 *
+	 * Sufit czekania na ponowienie jest tu wyższy (60 s zamiast 5 s): reindeks idzie
+	 * w kontekście admina, a nie w żądaniu gościa blokującym workera PHP-FPM.
+	 *
+	 * @param HttpClient|null $http Transport (domyślnie {@see WpHttpClient}).
+	 * @return ProviderInterface
+	 */
+	public static function make_for_index( ?HttpClient $http = null ): ProviderInterface {
+		if ( null !== self::$override ) {
+			return self::$override;
+		}
+
+		return self::build( (string) Settings::get_field( 'api_key', '' ), $http, self::doc_task(), 60 );
+	}
+
+	/**
+	 * Efektywne zadanie embeddingu DOKUMENTÓW — JEDYNE źródło prawdy, także dla podpisu indeksu.
+	 *
+	 * @return string Wartość PO filtrze `aifaq_embed_task`.
+	 */
+	public static function doc_task(): string {
+		return self::task( 'RETRIEVAL_DOCUMENT', 'doc' );
+	}
+
+	/**
+	 * Efektywne zadanie embeddingu PYTAŃ.
+	 *
+	 * @return string Wartość PO filtrze `aifaq_embed_task`.
+	 */
+	public static function query_task(): string {
+		return self::task( 'RETRIEVAL_QUERY', 'query' );
+	}
+
+	/**
+	 * Nakłada filtr `aifaq_embed_task` — DOKŁADNIE RAZ, w jednym miejscu.
+	 *
+	 * Świadomie NIE w `build()`: tam filtr działałby dwukrotnie na ścieżkach `make_for_*()`
+	 * i — co gorsza — raz na wartości `''` ścieżki legacy `make()`, która ma pozostać
+	 * bit w bit dzisiejsza. Opisane w `plany/krok19/ODCHYLENIA.md`.
+	 *
+	 * @param string $default Wartość domyślna zadania.
+	 * @param string $flavour Rodzaj ścieżki (`doc` albo `query`).
+	 * @return string
+	 */
+	private static function task( string $default, string $flavour ): string {
+		$task = $default;
+
+		if ( function_exists( 'apply_filters' ) ) {
+			$task = (string) apply_filters( 'aifaq_embed_task', $task, $flavour );
+		}
+
+		return $task;
+	}
+
+	/**
+	 * Składa providera wg ustawień, z podanym kluczem i transportem.
+	 *
+	 * @param string          $api_key    Klucz API.
+	 * @param HttpClient|null $http       Transport (domyślnie {@see WpHttpClient}).
+	 * @param string          $embed_task `taskType` embeddingów; `''` = nie wysyłaj (ścieżka legacy).
+	 * @param int             $max_wait   Sufit czekania na ponowienie w sekundach.
+	 * @return ProviderInterface
+	 */
+	private static function build(
+		string $api_key,
+		?HttpClient $http,
+		string $embed_task = '',
+		int $max_wait = 5
+	): ProviderInterface {
 		// GA5: domyślny transport, chyba że wstrzyknięto atrapę.
 		$http = $http ?? new WpHttpClient();
 
@@ -113,7 +190,8 @@ class ProviderFactory {
 			// więc `default` to jedyna realna wartość, nie cichy fallback.
 			case 'gemini':
 			default:
-				return new GeminiProvider( $http, $api_key, $model, $embed_model );
+				// Szósty argument (`$sleeper`) zostaje `null` — fabryka nie wstrzykuje uśpienia.
+				return new GeminiProvider( $http, $api_key, $model, $embed_model, $embed_task, null, $max_wait );
 		}
 	}
 

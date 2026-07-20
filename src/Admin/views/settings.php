@@ -203,6 +203,23 @@ $aifaq_refusal_langs = array(
 
 				<tr>
 					<th scope="row">
+						<label for="aifaq-rag-threshold-hard"><?php esc_html_e( 'Próg twardy (odcięcie fragmentów)', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-rag-threshold-hard"
+							name="aifaq_settings[rag_threshold_hard]"
+							min="0.05" max="1" step="0.05"
+							value="<?php echo esc_attr( $aifaq['rag_threshold_hard'] ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( 'Fragmenty o dopasowaniu poniżej tej wartości w ogóle nie trafiają do odpowiedzi. Musi być mniejszy lub równy progowi dopasowania tematu — wyższa wartość zostanie po cichu obniżona do niego.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
 						<label for="aifaq-rag-top-k"><?php esc_html_e( 'Liczba fragmentów (top-K)', 'ai-faq-generator' ); ?></label>
 					</th>
 					<td>
@@ -272,6 +289,23 @@ $aifaq_refusal_langs = array(
 					</td>
 				</tr>
 
+				<tr>
+					<th scope="row">
+						<label for="aifaq-rag-thinking-budget"><?php esc_html_e( 'Budżet myślenia modelu', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-rag-thinking-budget"
+							name="aifaq_settings[rag_thinking_budget]"
+							min="-1" max="24576" step="any"
+							value="<?php echo esc_attr( $aifaq['rag_thinking_budget'] ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( '0 = myślenie wyłączone (zalecane — cały limit długości idzie na odpowiedź). -1 = model decyduje sam. Wartości dodatnie: od 128 do 24576 tokenów rozumowania; 1–127 API odrzuca.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
 				<?php foreach ( $aifaq_refusal_langs as $aifaq_lang => $aifaq_lang_label ) : ?>
 					<tr>
 						<th scope="row">
@@ -292,6 +326,23 @@ $aifaq_refusal_langs = array(
 						</td>
 					</tr>
 				<?php endforeach; ?>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-rag-contact-hint"><?php esc_html_e( 'Dane kontaktowe podpowiadane w odpowiedziach', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="text"
+							id="aifaq-rag-contact-hint"
+							name="aifaq_settings[rag_contact_hint]"
+							size="60"
+							maxlength="120"
+							value="<?php echo esc_attr( (string) ( $aifaq['rag_contact_hint'] ?? '' ) ); ?>"
+						>
+						<p class="description"><?php esc_html_e( 'np. »tel. 123 456 789, biuro@przyklad.pl«. Zostaw puste, żeby bot odsyłał ogólnie do zakładki Kontakt.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
 
 				<tr>
 					<th scope="row" colspan="2" class="aifaq-section-head">

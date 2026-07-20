@@ -30,9 +30,13 @@ interface HttpClient {
 	 *                                       - `body`    (string)               — ciało żądania,
 	 *                                       - `timeout` (int)                  — limit czasu w sekundach.
 	 *
-	 * @return array{status:int,body:string}|\WP_Error
-	 *         Przy sukcesie tablica `array{ status:int, body:string }`,
+	 * @return array{status:int,body:string,headers:array<string,string>}|\WP_Error
+	 *         Przy sukcesie tablica `array{ status:int, body:string, headers:array<string,string> }`,
 	 *         przy błędzie sieci/transportu obiekt `\WP_Error`.
+	 *
+	 *         Klucz `headers` ma klucze nagłówków ZAWSZE w lowercase, a wartości jako `string`.
+	 *         Implementacje starsze niż Krok 19 oraz atrapy testowe mogą go NIE zwracać, więc
+	 *         każdy odczyt po stronie wołającego idzie przez `?? array()` — nigdy wprost.
 	 */
 	public function request( string $method, string $url, array $options = array() );
 }

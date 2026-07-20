@@ -225,11 +225,21 @@
 	font-weight: 500;
 }
 .aifaq__answer-q[hidden] { display: none; }
+/* POPRAWKA K19 (Etap 6): `color` JAWNIE, nie przez dziedziczenie.
+   Zmierzone Playwrightem na zywej stronie Dworku (`pw-k19-gosc.mjs`, asercja 4):
+   kontrast 1,98:1 przy `prefers-color-scheme: dark` — fg rgb(91,75,64) zamiast
+   `--aifaq-text` #e8eef1. `.aifaq-app` ustawia `color` na SOBIE, ale motyw klienta
+   nadpisuje go na POTOMKACH selektorem o wyzszej specyficznosci, a ten element
+   jako JEDYNY w panelu nie deklarowal wlasnego koloru (warianty --refused,
+   --error i --loading nizej deklaruja i dlatego byly czytelne).
+   Poprawka kontrastu z K18 byla weryfikowana na Twenty Twenty-Five i na motywie
+   Dworku sie nie trzymala. Patrz ODCHYLENIA.md O-24. */
 .aifaq__answer-body {
 	white-space: pre-wrap;
 	word-wrap: break-word;
 	font-size: 16px;
 	line-height: 1.62;
+	color: var(--aifaq-text);
 }
 .aifaq__answer-foot {
 	margin-top: 12px;

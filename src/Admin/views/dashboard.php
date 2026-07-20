@@ -141,6 +141,41 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 			</div>
 		<?php endif; ?>
 
+		<?php
+		// --- Krok 19: stan bazy wektorow (migracja M5). Komunikat stoi PRZY LEKU,
+		// czyli tuz nad przyciskiem "Zaindeksuj tresc" — a nie nad lista ostrzezen
+		// crawla, ktora go od tego przycisku oddziela. Idiom obronny widoku:
+		// blad tutaj wywala CALY Dashboard klienta, wiec class_exists() + try/catch.
+		$aifaq_index_state  = '';
+		$aifaq_index_reason = '';
+		if ( class_exists( '\AIFAQ\Admin\IndexNotice' ) ) {
+			try {
+				$aifaq_index_state  = (string) \AIFAQ\Admin\IndexNotice::state();
+				$aifaq_index_reason = (string) \AIFAQ\Admin\IndexNotice::reason();
+			} catch ( \Throwable $aifaq_e ) {
+				unset( $aifaq_e );
+			}
+		}
+
+		// Te same cztery teksty co w IndexNotice (widok jest osobna warstwa i18n;
+		// czwarta metoda publiczna w tamtej klasie jest zabroniona — sygnatura
+		// zamrozona). Powod spoza whitelisty daje '' i tekst domyslny.
+		$aifaq_index_texts = array(
+			'crawl'  => __( 'Pobieranie stron jeszcze trwa. Poczekaj na jego zakończenie, potem uruchom indeksowanie ponownie.', 'ai-faq-generator' ),
+			'errors' => __( 'Część fragmentów nie została przeliczona (błędy dostawcy). Uruchom indeksowanie ponownie — policzone fragmenty zostaną pominięte.', 'ai-faq-generator' ),
+			'budget' => __( 'Indeksowanie przerwano po wyczerpaniu budżetu czasu. Uruchom je ponownie, żeby dokończyć.', 'ai-faq-generator' ),
+			''       => __( 'Baza wiedzy jest policzona starą metodą. Uruchom indeksowanie, żeby bot odpowiadał trafniej.', 'ai-faq-generator' ),
+		);
+		$aifaq_index_msg = isset( $aifaq_index_texts[ $aifaq_index_reason ] )
+			? $aifaq_index_texts[ $aifaq_index_reason ]
+			: $aifaq_index_texts[''];
+		?>
+		<?php if ( 'stale' === $aifaq_index_state || 'partial' === $aifaq_index_state ) : ?>
+			<div class="notice <?php echo esc_attr( 'partial' === $aifaq_index_state ? 'notice-info' : 'notice-warning' ); ?> inline">
+				<p><?php echo esc_html( $aifaq_index_msg ); ?></p>
+			</div>
+		<?php endif; ?>
+
 		<p class="aifaq-index-actions">
 			<button
 				type="button"

@@ -37,8 +37,8 @@ class WpHttpClient implements HttpClient {
 	 * @param string               $url     Docelowy adres URL.
 	 * @param array<string,mixed>  $options Opcje żądania (`headers`, `body`, `timeout`).
 	 *
-	 * @return array{status:int,body:string}|\WP_Error
-	 *         Przy sukcesie tablica `array{ status:int, body:string }`,
+	 * @return array{status:int,body:string,headers:array<string,string>}|\WP_Error
+	 *         Przy sukcesie tablica `array{ status:int, body:string, headers:array<string,string> }`,
 	 *         przy błędzie sieci/transportu obiekt `\WP_Error`.
 	 */
 	public function request( string $method, string $url, array $options = array() ) {
@@ -70,9 +70,34 @@ class WpHttpClient implements HttpClient {
 			return $response;
 		}
 
+		// K19 (§2.6): nagłówki odpowiedzi jako kanał UZUPEŁNIAJĄCY dla retry (`Retry-After`).
+		// `wp_remote_retrieve_headers()` zwraca OBIEKT (CaseInsensitiveDictionary) z `protected $data`
+		// — surowe `(array)` daje klucz "\0*\0data" i po cichu gubi wszystkie nagłówki.
+		// Kolejność jest istotna: getAll() → (array) → is_array.
+		$headers = array();
+		if ( function_exists( 'wp_remote_retrieve_headers' ) ) {
+			$raw = wp_remote_retrieve_headers( $response );
+
+			if ( is_object( $raw ) && method_exists( $raw, 'getAll' ) ) {
+				$raw = $raw->getAll();
+			}
+			if ( is_object( $raw ) ) {
+				$raw = (array) $raw;
+			}
+			if ( is_array( $raw ) ) {
+				foreach ( $raw as $key => $value ) {
+					// Powtórzony nagłówek bywa tablicą — bierzemy pierwszą wartość.
+					$headers[ strtolower( (string) $key ) ] = is_array( $value )
+						? (string) reset( $value )
+						: (string) $value;
+				}
+			}
+		}
+
 		return array(
-			'status' => (int) wp_remote_retrieve_response_code( $response ),
-			'body'   => (string) wp_remote_retrieve_body( $response ),
+			'status'  => (int) wp_remote_retrieve_response_code( $response ),
+			'body'    => (string) wp_remote_retrieve_body( $response ),
+			'headers' => $headers,
 		);
 	}
 }

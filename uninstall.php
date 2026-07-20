@@ -56,6 +56,10 @@ delete_option( 'aifaq_page_notice_dismissed' ); // Status, dla którego zamknię
 // Zaległość sprzed Kroku 18: jedyna opcja wtyczki, która przeżywała odinstalowanie.
 delete_option( 'aifaq_flush_needed' );
 
+// Migracja przestrzeni wektorów (Krok 19). Literały, nie stałe klas — jw.
+delete_option( 'aifaq_index_signature' );   // Podpis bazy wektorów (pełny albo znacznik partial:).
+delete_option( 'aifaq_cache_flushed_for' ); // Wersja, dla której wyczyszczono cache odpowiedzi.
+
 // Samej podstrony NIE kasujemy — to treść w witrynie klienta (patrz komentarz niżej).
 
 // Zdejmij cron pobierania stron — bez tego zostałoby zadanie bez obsługi.

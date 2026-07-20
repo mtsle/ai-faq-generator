@@ -132,8 +132,58 @@ zmianę losu podstrony) · `loop_start` (reset flagi jednokrotnego renderu short
   zakładki na miejscu — konsekwencja zasady „zero zmian w `assets/js/*`" w Kroku 18.
 - **Nonce `wp_rest` nie odświeża się bez przeładowania** — podstrona otwarta przez noc może zwrócić
   403 przy generowaniu; obejście to `F5`. Do Kroku 20.
-- **Jakość odpowiedzi bota RAG** przy słabszym dopasowaniu jest niska (jednozdaniowe odpowiedzi,
-  fałszywe odmowy) — rozpoznane, naprawa to **Krok 19**.
+- **Wewnętrzny limiter `rag_rate_limit` jest niedostrojony do realiów dostawcy.** Domyślne
+  30 zapytań/**godzinę** na gościa (`RateLimiter::WINDOW = 3600`) przepuszcza wielokrotnie więcej,
+  niż wynosi darmowa kwota Gemini (rzędu 20 żądań/**dobę** na model). Kalibracja → Krok 20.
+- **`gemini-2.5-pro` i `gemini-2.0-flash` mogą mieć na darmowym kluczu przydział zero.** Kokpit
+  oferuje je w wyborze modelu jako równorzędne; klient, który przełączy się na „jakość", może
+  dostać błąd na każde pytanie. Oznaczenie modeli bez darmowej kwoty → Krok 20.
+- **Reindeks jest synchroniczny.** Krok 19 wprowadził budżet czasowy i tempo (F1-lite), więc duża
+  witryna wymaga kilku kliknięć „Zaindeksuj treść"; reindeks w tle (cron) → Krok 20.
+- **Ścieżka wycofania (downgrade) nie została przetestowana end-to-end** — patrz akapit niżej.
+
+## Jakość odpowiedzi RAG (Krok 19, v0.22.0)
+
+Krok 19 usunął przyczynę jednozdaniowych odpowiedzi i fałszywych odmów. Przyczyna była jedna:
+model `gemini-2.5-flash` **myśli**, a tokeny rozumowania liczą się do `maxOutputTokens`. Przy sufcie
+500 potrafiło zostać **5 tokenów na odpowiedź**, więc model oddawał sentinel odmowy mimo pełnego
+pokrycia tematu. Zmierzone na żywej witrynie: przed zmianą `thoughts` 117–476 na pytanie, po zmianie
+**0**.
+
+**Nowe klucze ustawień:** `rag_threshold_hard` (próg twardy, domyślnie **0.65** — wartość zmierzona,
+nie zgadnięta), `rag_thinking_budget` (`0` = myślenie wyłączone, `-1` = dynamiczne, `128–24576`
+= jawny budżet), `rag_contact_hint` (dane kontaktowe wstrzykiwane przy częściowym pokryciu).
+
+> **`rag_contact_hint` jest domyślnie PUSTE.** Bez wypełnienia bot przy częściowym pokryciu odeśle
+> tylko ogólnie do zakładki Kontakt. Wypełnij je zaraz po instalacji — to krok konfiguracyjny,
+> nie opcja.
+
+**Nowe opcje `wp_options`:** `aifaq_index_signature` (autoload `no`) — podpis metody, którą policzono
+bazę wektorów; `aifaq_cache_flushed_for` (autoload `yes`) — jednorazowy flush cache'u per wersja.
+**Obie kasowane w `uninstall.php`.**
+
+Wtyczka pokazuje w kokpicie **komunikat migracji**, gdy baza wektorów została policzona starszą
+metodą — wystarczy kliknąć „Zaindeksuj treść". Doszło też ponawianie żądań przy `429`/`503`
+z odczytem opóźnienia z ciała odpowiedzi (Gemini nie wysyła nagłówka `Retry-After`).
+
+> **Downgrade.** Po cofnięciu wtyczki do wersji wcześniejszej niż 0.22.0 — i po każdym uruchomieniu
+> „Zaindeksuj treść" na tamtej wersji — uruchom „Zaindeksuj treść" raz jeszcze po powrocie na 0.22.0.
+> Baza wektorów jest liczona inną metodą i wtyczka nie ma jak wykryć, że przeliczyła ją starsza wersja.
+
+**Ograniczenie kalibracji:** domyślny próg twardy `0.65` skalibrowano na **jednym** korpusie
+(69 fragmentów). Na witrynie o innym profilu treści może wymagać korekty w ustawieniach.
+
+### Filtry rozszerzeń (17, wszystkie pod `function_exists`)
+
+`aifaq_rag_debug` · `aifaq_thinking_budget` · `aifaq_ask_min_tokens` · `aifaq_truncation_guard` ·
+`aifaq_topk_filter` · `aifaq_context_order` · `aifaq_system_instruction` · `aifaq_sentinel_strict` ·
+`aifaq_embed_task` · `aifaq_http_retry` · `aifaq_index_budget` · `aifaq_threshold_hard` ·
+`aifaq_index_pace` · `aifaq_prompt_legacy` · `aifaq_index_complete` · `aifaq_blocked_as_refusal` ·
+`aifaq_min_threshold`
+
+Plus dwa zastane sprzed Kroku 19: `aifaq_content_sources`, `aifaq_skip_post` (**razem 19 nazw**).
+Ustawienie wszystkich siedemnastu w tryb „wyłączony" odtwarza zachowanie v0.21.1 co do bajtu —
+z tego korzysta bench pomiarowy.
 
 ## Wymagania (dev)
 - WordPress 6.x, PHP 8.x

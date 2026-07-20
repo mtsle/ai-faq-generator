@@ -33,7 +33,7 @@ function check( $cond, $label ) {
 require __DIR__ . '/../src/Core/Settings.php';
 use AIFAQ\Core\Settings;
 
-echo "=== Dział 3: defaults() ma 8 kluczy RAG z bezpiecznymi wartościami ===\n";
+echo "=== Dział 3: defaults() ma 11 kluczy RAG z bezpiecznymi wartościami ===\n";
 $d = Settings::defaults();
 check( 0.7 === $d['rag_threshold'], 'default rag_threshold = 0.7' );
 check( 5 === $d['rag_top_k'], 'default rag_top_k = 5' );

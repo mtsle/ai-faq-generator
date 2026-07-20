@@ -97,6 +97,7 @@ final class Plugin {
 	private function __construct() {
 		$this->guard_crawl_request();
 		$this->maybe_upgrade_db();
+		self::maybe_flush_cache();
 		$this->init_hooks();
 	}
 
@@ -141,6 +142,86 @@ final class Plugin {
 		if ( version_compare( $stored, AIFAQ_DB_VERSION, '<' ) ) {
 			Schema::install();
 			update_option( 'aifaq_db_version', AIFAQ_DB_VERSION );
+		}
+	}
+
+	/**
+	 * Czy cache odpowiedzi wymaga jednorazowego wyczyszczenia po aktualizacji.
+	 *
+	 * CZYSTA DECYZJA — zero I/O, testowalna bez WordPressa. Rozdział „decyzja vs
+	 * skorupa" jest wymogiem, nie stylem: gdyby warunek siedział inline w
+	 * {@see self::maybe_flush_cache()}, mutacja odwracająca go nie miałaby czego
+	 * zaczerwienić i mechanizm pojechałby na produkcję niesprawdzony.
+	 *
+	 * @param string $stored  Wersja, dla której cache już wyczyszczono.
+	 * @param string $version Wersja bieżąca wtyczki.
+	 */
+	public static function should_flush_cache( string $stored, string $version ): bool {
+		return '' !== $version && $stored !== $version;
+	}
+
+	/**
+	 * Jednorazowo czyści cache odpowiedzi po podbiciu wersji wtyczki.
+	 *
+	 * `wp_aifaq_cache` nie ma TTL, a klucz nie zawiera wersji kodu — więc każda
+	 * utrwalona zła odpowiedź (klasyczne „Tak.") przeżyłaby całą naprawę Kroku 19:
+	 * model nigdy nie zostałby zapytany ponownie. Reindeks czyści cache, ale klient,
+	 * który NIGDY nie kliknie reindeksu, inaczej zostaje ze starymi odpowiedziami na
+	 * zawsze. To jest ten drugi, bezobsługowy poziom.
+	 *
+	 * PUBLIC STATIC, nie private: `Plugin` ma prywatny konstruktor i nigdy nie jest
+	 * instancjonowany w testach, więc metoda prywatna byłaby niewywoływalna — a wtedy
+	 * jedyny mechanizm gwarantujący nowe odpowiedzi klientowi nieklikającemu reindeksu
+	 * byłby sprawdzany co najwyżej `substr_count` na źródle, czyli fałszywą zielenią.
+	 *
+	 * Wołane PO {@see self::maybe_upgrade_db()} — tabela cache'u musi już istnieć.
+	 */
+	public static function maybe_flush_cache(): void {
+		if ( ! defined( 'AIFAQ_VERSION' ) || ! function_exists( 'get_option' ) ) {
+			return;
+		}
+
+		$stored = (string) get_option( 'aifaq_cache_flushed_for', '' );
+		if ( ! self::should_flush_cache( $stored, (string) AIFAQ_VERSION ) ) {
+			return;
+		}
+
+		// Zamek: metoda wisi na `plugins_loaded`, czyli na KAŻDYM żądaniu, w tym
+		// równoległych. Bez niego pierwsze N żądań po podmianie plików (bot + gość
+		// + admin) wykonałoby N × TRUNCATE — blokada tabeli i widoczne zamulenie
+		// witryny dokładnie w momencie, gdy klient patrzy.
+		if ( function_exists( 'get_transient' ) && get_transient( 'aifaq_cache_flush_lock' ) ) {
+			return;
+		}
+		if ( function_exists( 'set_transient' ) ) {
+			set_transient( 'aifaq_cache_flush_lock', 1, 60 );
+		}
+
+		$rows = null;
+		if ( class_exists( '\AIFAQ\Data\CacheRepository' ) ) {
+			try {
+				$rows = ( new \AIFAQ\Data\CacheRepository() )->clear_all();
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
+		}
+
+		// TRUNCATE padło (hosting bez uprawnień, tabela jeszcze nieutworzona, baza
+		// w read-only) → flagi NIE zapisujemy i spróbujemy przy następnym żądaniu.
+		// Zapis „zrobione" mimo porażki odbierałby klientowi drugą szansę po cichu.
+		if ( null === $rows ) {
+			return;
+		}
+
+		// Autoload `yes` — odwrotnie niż przy `aifaq_index_signature`. Ta flaga jest
+		// czytana bezwarunkowo na `plugins_loaded`, także dla gości, na każdym żądaniu
+		// witryny; z autoloadem `no` byłby to dodatkowy SELECT przy każdym wyświetleniu
+		// każdej podstrony, w nieskończoność, dla wartości „już zrobione".
+		if ( function_exists( 'add_option' ) ) {
+			add_option( 'aifaq_cache_flushed_for', '', '', 'yes' );
+		}
+		if ( function_exists( 'update_option' ) ) {
+			update_option( 'aifaq_cache_flushed_for', AIFAQ_VERSION, true );
 		}
 	}
 
@@ -247,21 +328,34 @@ final class Plugin {
 	}
 
 	/**
-	 * Wypisuje komunikat o stanie podstrony generatora (kokpit).
+	 * Wypisuje komunikaty kokpitu: stan podstrony generatora (K18) i stan bazy
+	 * wektorów po migracji przestrzeni embeddingów (K19).
 	 *
-	 * Klasa komunikatu należy do innego etapu — jej brak pomija wypis i NIGDY
-	 * nie wywala kokpitu klienta (błąd na tym hooku wypisuje się wprost na górze
-	 * każdego ekranu panelu).
+	 * DWA komunikaty na JEDNYM callbacku — celowo. Drugi hook admin notices
+	 * (bez apostrofów, żeby nie podbić licznika strażnika K18) zaczerwieniłby
+	 * asercję #62 testu podstrony, która wymaga dokładnie jednego wystąpienia
+	 * tego literału w tym pliku.
+	 *
+	 * Bloki są NIEZALEŻNE (żadnego wczesnego `return`): brak klasy z Kroku 18
+	 * nie ma prawa wyciszyć komunikatu migracji z Kroku 19 i odwrotnie. Klasy
+	 * należą do innych etapów — ich brak pomija wypis i NIGDY nie wywala kokpitu
+	 * klienta (błąd na tym hooku wypisuje się wprost na górze każdego ekranu panelu).
 	 */
 	public function render_page_notice(): void {
-		if ( ! class_exists( '\AIFAQ\Admin\PageNotice' ) ) {
-			return;
+		if ( class_exists( '\AIFAQ\Admin\PageNotice' ) ) {
+			try {
+				\AIFAQ\Admin\PageNotice::render();
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
 		}
 
-		try {
-			\AIFAQ\Admin\PageNotice::render();
-		} catch ( \Throwable $e ) {
-			unset( $e );
+		if ( class_exists( '\AIFAQ\Admin\IndexNotice' ) ) {
+			try {
+				\AIFAQ\Admin\IndexNotice::render();
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
 		}
 	}
 

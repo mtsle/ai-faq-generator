@@ -199,19 +199,51 @@ class IndexController {
 			: new WpContentSource();
 
 		// 4. Dotychczasowy przebieg.
+
+		// Krok 19 (M5): indeksowanie liczy wektory w trybie DOKUMENTU. `make()` jest
+		// świadomie zostawione ścieżce PYTANIA (§6.2 — „bez zmian, jak dziś”), więc
+		// użycie go tutaj dałoby trzecią przestrzeń wektorów (FZ4).
+		$batcher = method_exists( ProviderFactory::class, 'make_for_index' )
+			? new EmbeddingBatcher( ProviderFactory::make_for_index() )
+			: new EmbeddingBatcher( ProviderFactory::make() );
+
+		// Podpis liczony RAZ: ten sam ciąg wchodzi do hashy fragmentów, do zapisanej
+		// opcji i jako trzeci segment znacznika `partial:`. Dwa wyliczenia mogłyby się
+		// rozjechać (np. gdy filtr `aifaq_embed_task` zwróci co innego za drugim razem).
+		$sig = self::index_signature();
+
 		$indexer = new Indexer(
 			$source,
 			new Chunker(),
-			new EmbeddingBatcher( ProviderFactory::make() ),
+			$batcher,
 			new KnowledgeRepository(),
-			self::index_signature()
+			$sig
 		);
 
 		$report = $indexer->run();
 
-		// Treść się zmieniła → unieważnij cache odpowiedzi, inaczej `/ask` serwuje
-		// stare odpowiedzi (z pominięciem retrievera i bramki tematu).
-		( new CacheRepository() )->clear_all();
+		// KONTRAKT k19-v3 §6.3. BEZPIECZNA STRONA: brak klucza => traktuj jak NIEPEŁNY
+		// (`?? 1`, nigdy `?? 0`) — inaczej niezaimplementowany licznik wygląda jak sukces
+		// i podpis zapisuje się po przebiegu, który zostawił część bazy w starej przestrzeni.
+		$complete = ! (bool) ( $report['incomplete'] ?? true )
+			&& 0 === (int) ( $report['skipped_no_vector'] ?? 1 )
+			&& 0 === (int) ( $report['chunks_missing_vector'] ?? 1 );
+
+		if ( function_exists( 'apply_filters' ) ) {
+			$complete = (bool) apply_filters( 'aifaq_index_complete', $complete, $report );
+		}
+
+		if ( $complete ) {
+			self::save_index_signature( $sig );
+
+			// Treść się zmieniła → unieważnij cache odpowiedzi, inaczej `/ask` serwuje
+			// stare odpowiedzi (z pominięciem retrievera i bramki tematu). WYŁĄCZNIE po
+			// przebiegu PEŁNYM (§6.4 pkt 1): czyszczenie po przebiegu przerwanym zabierałoby
+			// nawet dobre odpowiedzi i pogarszało bota dokładnie wtedy, gdy właściciel go naprawia.
+			( new CacheRepository() )->clear_all();
+		} else {
+			self::save_index_signature( 'partial:' . self::partial_reason( $report ) . ':' . $sig );
+		}
 
 		$stats = ( new KnowledgeRepository() )->stats();
 
@@ -245,6 +277,13 @@ class IndexController {
 		// Cache odpowiedzi to funkcja bazy wiedzy — znika razem z nią.
 		( new CacheRepository() )->clear_all();
 
+		// Krok 19 (M5): baza wektorów przestała istnieć, więc podpis nie ma czego opisywać.
+		// Bez tego po „Wyczyść bazę" komunikat migracji dawał stan 'ok', a ścieżka pytania
+		// włączała tryb asymetryczny przy PUSTEJ bazie.
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( 'aifaq_index_signature' );
+		}
+
 		return array(
 			'ok'      => true,
 			'status'  => 200,
@@ -263,12 +302,86 @@ class IndexController {
 	 * TREŚĆ karmiącą embeddingi, więc stare wektory opisują już co innego. Świadomie
 	 * wymusza pełny re-embed przy pierwszym reindeksie po aktualizacji.
 	 *
+	 * Token `q:<zadanie>` (Krok 19) należy do tej samej rodziny: `taskType` embeddingu
+	 * zmienia PRZESTRZEŃ wektorów, więc wektory policzone bez niego opisują co innego.
+	 * Wartość pochodzi z {@see ProviderFactory::doc_task()} — jedynego źródła prawdy —
+	 * a NIE z literału, bo filtr `aifaq_embed_task` potrafi to zadanie zmienić i podpis
+	 * nie ma prawa wtedy kłamać.
+	 *
+	 * ŚWIADOMIE BEZ `AIFAQ_VERSION` (KONTRAKT k19-v3, FZ10): podpis wchodzi do content_hash
+	 * każdego fragmentu, a każde wydanie wtyczki wymuszałoby wtedy pełny, płatny re-embed.
+	 *
 	 * @return string
 	 */
 	public static function index_signature(): string {
 		return (string) Settings::get_field( 'provider', 'gemini' ) . '|'
 			. (string) Settings::get_field( 'embed_model', '' ) . '|'
-			. \AIFAQ\Providers\GeminiProvider::EMBED_DIMENSIONS . '|src2';
+			. \AIFAQ\Providers\GeminiProvider::EMBED_DIMENSIONS . '|src2|'
+			. 'q:' . self::embed_doc_task();
+	}
+
+	/**
+	 * Efektywne zadanie embeddingu dokumentów — token przestrzeni wektorów do podpisu.
+	 *
+	 * Źródłem prawdy jest fabryka (KONTRAKT k19-v3 §3.8): podpis MUSI mówić prawdę o tym,
+	 * jak realnie policzono wektory. Gdy fabryka nie zna jeszcze zadania dokumentu,
+	 * indeksowanie idzie ścieżką `make()` — czyli BEZ `taskType` — i podpis odzwierciedla
+	 * to PUSTYM tokenem, nigdy zmyślonym literałem. Inaczej twierdziłby „baza policzona
+	 * asymetrycznie” przy bazie policzonej symetrycznie, a ścieżka pytania włączyłaby tryb
+	 * asymetryczny do zupełnie innej przestrzeni wektorów.
+	 *
+	 * @return string
+	 */
+	private static function embed_doc_task(): string {
+		if ( method_exists( ProviderFactory::class, 'doc_task' ) ) {
+			return (string) ProviderFactory::doc_task();
+		}
+
+		return '';
+	}
+
+	/**
+	 * Zapisuje podpis przestrzeni wektorów (albo znacznik `partial:`) — autoload 'no'.
+	 *
+	 * Dwutakt `add_option()` + `update_option()` jest obowiązkowy (KONTRAKT §2.8, wzorce
+	 * `CrawlQueue.php:405-415`, `PageNotice.php:427-432`): opcja utworzona samym
+	 * `update_option()` domyślnie się autoładuje, a ta ma być czytana wyłącznie w `/ask`
+	 * i w kokpicie. `function_exists()` nie jest ozdobą — testy chodzą bez WordPressa.
+	 *
+	 * @param string $value Podpis albo znacznik `partial:<powod>:<podpis>`.
+	 */
+	private static function save_index_signature( string $value ): void {
+		if ( function_exists( 'add_option' ) ) {
+			add_option( 'aifaq_index_signature', '', '', 'no' );
+		}
+		if ( function_exists( 'update_option' ) ) {
+			update_option( 'aifaq_index_signature', $value, false );
+		}
+	}
+
+	/**
+	 * Powód niepełnego przebiegu — środkowy segment znacznika `partial:<powod>:<podpis>`.
+	 *
+	 * Kolejność jest wiążąca: budżet czasu zawsze pociąga za sobą pominięte wektory,
+	 * więc sprawdzany jest PIERWSZY — inaczej klient dostawałby diagnozę „błędy” zamiast
+	 * jedynej użytecznej informacji „kliknij drugi raz”. `incomplete` bez `budget_hit`
+	 * znaczy niekompletne źródło, czyli trwający crawl (§4.9 — trzy rozdzielne flagi).
+	 *
+	 * Zbiór zwracanych wartości jest ZAMKNIĘTY (`crawl|errors|budget`) — wartość spoza
+	 * niego komunikat migracji zmapuje na pusty powód i klient straci diagnozę.
+	 *
+	 * @param array $report Raport z {@see Indexer::run()}.
+	 * @return string 'crawl'|'errors'|'budget'
+	 */
+	private static function partial_reason( array $report ): string {
+		if ( ! empty( $report['budget_hit'] ) ) {
+			return 'budget';
+		}
+		if ( ! empty( $report['incomplete'] ) ) {
+			return 'crawl';
+		}
+
+		return 'errors';
 	}
 
 	/**

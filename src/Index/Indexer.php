@@ -45,6 +45,24 @@ class Indexer {
 	public const DROP_ALERT = 0.30;
 
 	/**
+	 * Budżet czasu jednego przebiegu (sekundy) — poniżej typowego 60 s reverse proxy.
+	 *
+	 * Mierzony WYŁĄCZNIE w pętli fal embeddingów: tam idzie cały czas przebiegu.
+	 * Po jego wyczerpaniu przebieg kończy się kulturalnie i prosi o ponowne kliknięcie
+	 * (wznowienie jest RĘCZNE — skip-unchanged jest hashowy, więc idempotentne).
+	 */
+	public const BUDGET_SECONDS = 45;
+
+	/**
+	 * Odstęp między falami embeddingów (sekundy) — ≈4,6 żądania/min, poniżej limitu 5/min.
+	 *
+	 * Bez tego reindeks 1500 fragmentów wystrzeliwuje 15 żądań batch w kilka sekund; od
+	 * szóstego lecą 429, a `embed_all()` porzuca CAŁĄ falę (do 500 fragmentów) na pierwszym
+	 * błędnym batchu — łącznie z paczkami już opłaconymi.
+	 */
+	public const INDEX_PACE_SECONDS = 13;
+
+	/**
 	 * Źródło treści.
 	 *
 	 * @var ContentSource
@@ -103,24 +121,36 @@ class Indexer {
 	/**
 	 * Uruchamia indeksowanie całej treści.
 	 *
-	 * @return array{posts:int,indexed:int,skipped:int,cleared:int,pruned:int,chunks:int,errors:array<int,string>,warnings:array<int,string>,sources:array<string,array{docs:int,chars:int}>,filtered_lines:int}
+	 * @return array{posts:int,indexed:int,skipped:int,cleared:int,pruned:int,chunks:int,errors:array<int,string>,warnings:array<int,string>,sources:array<string,array{docs:int,chars:int}>,filtered_lines:int,incomplete:bool,budget_hit:bool,skipped_no_vector:int,chunks_missing_vector:int}
 	 *         Raport: liczba wpisów, zaindeksowanych, pominiętych (bez zmian),
 	 *         wyczyszczonych (utraciły treść), usuniętych osieroconych, zapisanych
 	 *         fragmentów, błędów, ostrzeżeń (rzeczy pominiętych świadomie), wkładu
 	 *         poszczególnych źródeł oraz liczby przeniesionych linii balastu.
+	 *
+	 *         Cztery ostatnie klucze (Krok 19) są WEWNĘTRZNE — czyta je
+	 *         {@see \AIFAQ\Admin\IndexController::run_reindex()}, żeby odróżnić przebieg
+	 *         pełny od częściowego; UI ich nie renderuje (JS czyta stałą listę kluczy),
+	 *         a jedynym kanałem do właściciela pozostaje `warnings`. Obecne ZAWSZE,
+	 *         także wartościami zerowymi — brak klucza po stronie czytającej znaczy
+	 *         „przebieg niepełny”, więc milczenie nigdy nie udaje sukcesu.
 	 */
 	public function run(): array {
 		$report = array(
-			'posts'          => 0,
-			'indexed'        => 0,
-			'skipped'        => 0,
-			'cleared'        => 0,
-			'pruned'         => 0,
-			'chunks'         => 0,
-			'errors'         => array(),
-			'warnings'       => array(),
-			'sources'        => array(),
-			'filtered_lines' => 0,
+			'posts'                 => 0,
+			'indexed'               => 0,
+			'skipped'               => 0,
+			'cleared'               => 0,
+			'pruned'                => 0,
+			'chunks'                => 0,
+			'errors'                => array(),
+			'warnings'              => array(),
+			'sources'               => array(),
+			'filtered_lines'        => 0,
+			// Krok 19 — klucze WEWNĘTRZNE (JS renderuje stałą listę i po prostu je ignoruje).
+			'incomplete'            => false,
+			'budget_hit'            => false,
+			'skipped_no_vector'     => 0,
+			'chunks_missing_vector' => 0,
 		);
 
 		// Bezpiecznik ilościowy — stan PRZED przebiegiem.
@@ -190,7 +220,41 @@ class Indexer {
 		$failed_posts    = array();
 		$total           = count( $flat );
 
+		// F1-lite (§4.9): budżet czasu przebiegu. Rzutowany na FLOAT, bo budżety
+		// ułamkowe muszą działać, a `(int)` ścinałby je do 0, czyli do „wyłączony”.
+		$budget = self::BUDGET_SECONDS;
+		if ( function_exists( 'apply_filters' ) ) {
+			$budget = apply_filters( 'aifaq_index_budget', $budget );
+		}
+		$budget = (float) $budget;      // 0 (albo mniej) = budżet wyłączony
+
+		// Tempo (§4.9-bis): odstęp między falami wobec limitu 5 żądań/min u dostawcy.
+		$pace = self::INDEX_PACE_SECONDS;
+		if ( function_exists( 'apply_filters' ) ) {
+			$pace = apply_filters( 'aifaq_index_pace', $pace );
+		}
+		$pace = (int) $pace;            // 0 = tempo wyłączone
+
+		$budget_hit = false;
+		$started_at = microtime( true );
+
 		for ( $start = 0; $start < $total; $start += self::WAVE_SIZE ) {
+			// Gwarancja postępu (wzorzec CrawlQueue.php:229-231): pierwsza fala leci
+			// ZAWSZE, dopiero kolejne podlegają budżetowi. Bez tego przebieg mógłby nie
+			// wykonać ani jednej jednostki pracy i reindeks stanąłby na zawsze.
+			// Mierzone `microtime()`, nie `time()` — sekundowa rozdzielczość nie wystarcza.
+			if ( $start > 0 && $budget > 0 && ( microtime( true ) - $started_at ) >= $budget ) {
+				$budget_hit = true;
+				break;
+			}
+
+			// Odstęp MIĘDZY falami. Na początku kolejnej iteracji, więc po ostatniej fali
+			// nie ma go z definicji, a przy przerwaniu budżetem nie zdąży się wykonać
+			// (break jest wyżej). Legalny sen: kontekst admina, nie żądanie gościa.
+			if ( $start > 0 && $pace > 0 ) {
+				sleep( $pace );
+			}
+
 			$wave = array_slice( $flat, $start, self::WAVE_SIZE );
 
 			$vectors = $this->batcher->embed_all( $wave );
@@ -217,10 +281,34 @@ class Indexer {
 		}
 
 		// Zapis per wpis (atomowy) — dopiero po zebraniu wektorów.
+		$skipped_no_vector     = 0;
+		$chunks_missing_vector = 0;
+
 		foreach ( $pending as $post_id => $data ) {
 			// Wpis, którego fala padła, NIE jest zapisywany częściowo — błąd już
 			// trafił do raportu, a stare (opłacone) fragmenty zostają nietknięte.
 			if ( isset( $failed_posts[ $post_id ] ) ) {
+				++$skipped_no_vector;
+				$chunks_missing_vector += count( $data['pieces'] );
+				continue;
+			}
+
+			// TAK SAMO wpis, dla którego brakuje CHOĆBY JEDNEGO wektora — bo fale go nie
+			// objęły (budżet czasu) albo objęły tylko część jego fragmentów (wpis leżący
+			// na styku dwóch fal). Zapis z `embedding => null` byłby gorszy niż pominięcie:
+			// fragment dostałby NOWY content_hash przy ŻADNYM wektorze, więc `unchanged()`
+			// (porównuje wyłącznie hasze) pomijałby ten wpis przy każdym kolejnym przebiegu
+			// — dziura nie do naprawienia reindeksem, wyłącznie przez „Wyczyść bazę".
+			$post_vectors = $vectors_by_post[ $post_id ] ?? array();
+			$missing      = 0;
+			foreach ( array_keys( $data['pieces'] ) as $i ) {
+				if ( null === ( $post_vectors[ $i ] ?? null ) ) {
+					++$missing;
+				}
+			}
+			if ( $missing > 0 ) {
+				++$skipped_no_vector;
+				$chunks_missing_vector += count( $data['pieces'] );
 				continue;
 			}
 
@@ -230,7 +318,7 @@ class Indexer {
 					'chunk_index'  => $i,
 					'content'      => $content,
 					'content_hash' => $data['hashes'][ $i ],
-					'embedding'    => $vectors_by_post[ $post_id ][ $i ] ?? null,
+					'embedding'    => $post_vectors[ $i ],
 					'tokens'       => $this->estimate_tokens( $content ),
 				);
 			}
@@ -248,13 +336,32 @@ class Indexer {
 		}
 
 		// Duck typing, nigdy `instanceof` — Indexer nie zna klas kaskady źródeł.
-		$incomplete = method_exists( $this->source, 'is_complete' ) && false === $this->source->is_complete();
+		$source_incomplete = method_exists( $this->source, 'is_complete' ) && false === $this->source->is_complete();
 
-		if ( $incomplete ) {
+		// TRZY ROZDZIELNE FLAGI, nie jedna zOR-owana (§4.9): $source_incomplete steruje
+		// komunikatami o crawlu, $budget_hit komunikatem o budżecie i wyciszeniem
+		// DROP_ALERT, a $prune_blocked WYŁĄCZNIE pruningiem. Po zOR-owaniu klient
+		// z wyłączonym crawlem dostawał diagnozę „crawl się zawiesił” zamiast jedynej
+		// użytecznej informacji „kliknij drugi raz”.
+		$prune_blocked = $source_incomplete || $budget_hit;
+
+		if ( $source_incomplete ) {
 			$report['warnings'][] = __( 'Pobieranie treści renderowanej trwa — po zakończeniu uruchom indeksowanie ponownie.', 'ai-faq-generator' );
 			// Źródło nie zwróciło jeszcze wszystkiego — pruning skasowałby fragmenty
 			// stron, które po prostu nie zdążyły się pobrać.
 			$report['warnings'][] = __( 'Źródło treści jest niekompletne — pominięto usuwanie osieroconych fragmentów.', 'ai-faq-generator' );
+		}
+
+		if ( $budget_hit ) {
+			$report['warnings'][] = __( 'Indeksowanie przerwane po wyczerpaniu budżetu czasu — uruchom je ponownie, żeby dokończyć.', 'ai-faq-generator' );
+		}
+
+		if ( $prune_blocked ) {
+			// Pruning pominięty: $seen jest NIEPUSTE także przy przebiegu częściowym
+			// (buduje je pętla po dokumentach, która przechodzi cała), więc zabezpieczenie
+			// pustej listy w KnowledgeRepository NIE zadziała, a delete_missing()
+			// skasowałby fragmenty wszystkich wpisów, których fale nie zdążyły objąć.
+			$report['pruned'] = 0;
 		} elseif ( array() !== $seen ) {
 			// H1: pruning tylko, gdy źródło COKOLWIEK zwróciło. Pusty wynik to prawie
 			// zawsze bug/wyścig/filtr wtyczki, więc NIE kasujemy całej bazy — chronimy
@@ -275,8 +382,11 @@ class Indexer {
 		}
 
 		// Bezpiecznik ilościowy — porównanie stanu bazy po przebiegu.
+		// Wyciszany TYLKO przy przerwaniu budżetem: tam spadek jest spodziewany i normalny.
+		// Przy niekompletnym ŹRÓDLE bezpiecznik ma strzelać — chroni od Kroku 5 przed
+		// niezauważonym zjazdem bazy i Krok 19 nie ma prawa gasić go przy okazji.
 		$chunks_after = $this->count_chunks();
-		if ( $chunks_before > 0 && $chunks_after < $chunks_before
+		if ( ! $budget_hit && $chunks_before > 0 && $chunks_after < $chunks_before
 			&& ( ( $chunks_before - $chunks_after ) / $chunks_before ) >= self::DROP_ALERT ) {
 			/* translators: 1: liczba fragmentów przed, 2: liczba fragmentów po */
 			$report['warnings'][] = sprintf(
@@ -285,6 +395,15 @@ class Indexer {
 				$chunks_after
 			);
 		}
+
+		// Klucze wewnętrzne — ustawiane ZAWSZE, także zerami. Na nich `run_reindex()`
+		// warunkuje zapis podpisu przestrzeni wektorów (§6.3): brak któregokolwiek
+		// znaczy po stronie czytającej „przebieg niepełny”, więc migracja nigdy nie
+		// domknęłaby się po cichu na przebiegu, który zostawił fragmenty bez wektorów.
+		$report['incomplete']            = $prune_blocked;
+		$report['budget_hit']            = $budget_hit;
+		$report['skipped_no_vector']     = $skipped_no_vector;
+		$report['chunks_missing_vector'] = $chunks_missing_vector;
 
 		return $report;
 	}
