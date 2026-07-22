@@ -37,7 +37,12 @@ if ( ! defined( 'AIFAQ_VERSION' ) ) { define( 'AIFAQ_VERSION', '0.19.0-test' ); 
 // Rejestry wywołań (shimy zbierają, sekcje D/E asertują).
 // ---------------------------------------------------------------------------
 $GLOBALS['__opt']              = array();     // magazyn get_option()
-$GLOBALS['__aifaq_can']        = true;        // sterowanie current_user_can()
+$GLOBALS['__aifaq_can']        = true;        // czy ktokolwiek jest zalogowany (wyłącznik zbiorczy)
+// K20 (§11.5, RYZYKO NR 1): atrapa `current_user_can()` musi być CAP-ŚWIADOMA. Globalny bool
+// przepuszczał każdy cap, więc sekcja D była zielona NIEZALEŻNIE od tego, jakiego capa
+// sprawdza kod — dało się wpisać `edit_posts` i nie zobaczyć ani jednej czerwieni.
+// Domyślna tożsamość: administrator.
+$GLOBALS['__aifaq_caps']       = array( 'manage_options', 'publish_posts', 'edit_posts', 'edit_others_posts', 'read' );
 $GLOBALS['__aifaq_screen']     = null;        // wynik get_current_screen()
 $GLOBALS['__aifaq_boxes']      = array();
 $GLOBALS['__aifaq_styles']     = array();
@@ -71,7 +76,12 @@ if ( ! function_exists( 'get_option' ) ) {
 	}
 }
 if ( ! function_exists( 'current_user_can' ) ) {
-	function current_user_can( $cap ) { return (bool) $GLOBALS['__aifaq_can']; }
+	function current_user_can( $cap ) {
+		if ( ! (bool) $GLOBALS['__aifaq_can'] ) {
+			return false;   // nikt nie jest zalogowany — żaden cap nie przechodzi
+		}
+		return in_array( (string) $cap, (array) $GLOBALS['__aifaq_caps'], true );
+	}
 }
 if ( ! function_exists( 'get_current_screen' ) ) {
 	function get_current_screen() { return $GLOBALS['__aifaq_screen']; }
@@ -359,10 +369,37 @@ if ( $has_mb && method_exists( 'AIFAQ\\Admin\\PostMetaBox', 'register_box' ) ) {
 	$GLOBALS['__aifaq_can'] = false;
 	mb_reset_boxes();
 	$box->register_box( 'post' );
-	check( 0 === count( $GLOBALS['__aifaq_boxes'] ), 'brak manage_options → 0 add_meta_box (R5)' );
+	check( 0 === count( $GLOBALS['__aifaq_boxes'] ), 'gosc (zero capow) → 0 add_meta_box (R5)' );
 	$GLOBALS['__aifaq_can'] = true;
 
-	check( class_exists( 'AIFAQ\\Admin\\Menu' ) && 'manage_options' === Menu::CAPABILITY, 'Menu::CAPABILITY = manage_options (zrodlo capa dla metaboksa)' );
+	// --- K20 (§5.1): cap metaboksa POLUZOWANY z `manage_options` do capa narzedzia. ---
+	// Kontrola samej atrapy PRZED czymkolwiek innym — inaczej cala reszta sekcji stoi
+	// na niesprawdzonym narzedziu (wzorzec z krok20-capy-test.php).
+	$mb_caps_backup = $GLOBALS['__aifaq_caps'];
+	$GLOBALS['__aifaq_caps'] = array( 'edit_posts', 'read' );
+	check( false === current_user_can( 'manage_options' ), 'atrapa cap-swiadoma: brak manage_options na liscie → false' );
+	check( true === current_user_can( 'edit_posts' ), 'atrapa cap-swiadoma: edit_posts na liscie → true' );
+	check( false === current_user_can( 'publish_posts' ), 'atrapa cap-swiadoma: publish_posts poza lista → false' );
+
+	// Wspolpracownik: ma `edit_posts`, NIE ma `publish_posts`. Metabox ma go ODBIC.
+	// To jest asercja, ktora wykrywa podmiane capa narzedzia na luzniejszy `edit_posts`.
+	mb_reset_boxes();
+	$box->register_box( 'post' );
+	check( 0 === count( $GLOBALS['__aifaq_boxes'] ), 'Wspolpracownik (edit_posts bez publish_posts) → 0 add_meta_box' );
+
+	// Redaktor: ma `publish_posts`, nie ma `manage_options`. Metabox ma go WPUSCIC (K20).
+	$GLOBALS['__aifaq_caps'] = array( 'publish_posts', 'edit_posts', 'read' );
+	mb_reset_boxes();
+	$box->register_box( 'post' );
+	check( 1 === count( $GLOBALS['__aifaq_boxes'] ), 'Redaktor (publish_posts bez manage_options) → 1 add_meta_box (K20 §5.1)' );
+
+	$GLOBALS['__aifaq_caps'] = $mb_caps_backup;
+
+	// Zrodlem capa metaboksa NIE jest juz `Menu::CAPABILITY` (K16), tylko jedna metoda
+	// wspolna z trasa REST — inaczej UI i trasa moglyby sie rozjechac (FZ19).
+	check( class_exists( 'AIFAQ\\Rest\\RestController' ) && method_exists( 'AIFAQ\\Rest\\RestController', 'tool_capability' ), 'zrodlem capa metaboksa jest RestController::tool_capability()' );
+	check( 'publish_posts' === RestController::tool_capability(), 'tool_capability() = publish_posts (domyslnie, bez filtra)' );
+	check( 0 === substr_count( (string) file_get_contents( dirname( __DIR__ ) . '/src/Admin/PostMetaBox.php' ), 'Menu::CAPABILITY' ), 'PostMetaBox NIE czyta juz Menu::CAPABILITY (0 trafien)' );
 } else {
 	check( false, 'sekcja D pominieta — brak PostMetaBox::register_box()' );
 }

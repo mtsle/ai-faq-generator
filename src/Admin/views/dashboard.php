@@ -28,6 +28,24 @@ if ( $aifaq_crawl_notice ) {
 
 $aifaq_crawl_on = ( '1' === (string) \AIFAQ\Core\Settings::get_field( 'crawl_enabled', '1' ) );
 
+// --- Krok 20: ponowienie nieudanych stron (§9.3 pkt 3). ---
+//
+// Akcja stoi TUTAJ, a nie w `admin_post_*`, bo ten widok jest jedynym plikiem
+// crawla w tym etapie, a rejestracja hooka wymagałaby cudzego pliku. Nagłówki są
+// już wysłane (kokpit wyrysował swoją górę), więc po zapisie NIE przekierowujemy —
+// pokazujemy potwierdzenie i odświeżony stan. Bramka: uprawnienie + nonce.
+$aifaq_crawl_retried = -1;
+if ( isset( $_POST['aifaq_crawl_retry'] ) && class_exists( '\AIFAQ\Index\CrawlQueue' ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
+	if ( current_user_can( \AIFAQ\Admin\Menu::CAPABILITY ) ) {
+		check_admin_referer( 'aifaq_crawl_retry' );
+		try {
+			$aifaq_crawl_retried = ( new \AIFAQ\Index\CrawlQueue() )->retry_failed();
+		} catch ( \Throwable $aifaq_e ) {
+			unset( $aifaq_e );
+		}
+	}
+}
+
 // Postęp pobierania — czytany z kolejki, ale jej brak nie może wywalić Dashboardu.
 $aifaq_crawl = array(
 	'total'         => 0,
@@ -41,6 +59,27 @@ if ( class_exists( '\AIFAQ\Index\CrawlQueue' ) ) {
 		$aifaq_progress = ( new \AIFAQ\Index\CrawlQueue() )->progress();
 		if ( is_array( $aifaq_progress ) ) {
 			$aifaq_crawl = array_merge( $aifaq_crawl, $aifaq_progress );
+		}
+	} catch ( \Throwable $aifaq_e ) {
+		unset( $aifaq_e );
+	}
+}
+
+// Diagnoza crawla (Krok 20): pauza, werdykt sondy, liczba nieudanych stron.
+// Osobne wejście od `progress()`, bo tamto zasila REST z zamrożonymi kluczami.
+$aifaq_crawl_diag = array(
+	'paused'          => false,
+	'verdict'         => '',
+	'since'           => 0,
+	'failed'          => 0,
+	'retryable'       => 0,
+	'timeouts_in_row' => 0,
+);
+if ( class_exists( '\AIFAQ\Index\CrawlQueue' ) && method_exists( '\AIFAQ\Index\CrawlQueue', 'diagnostics' ) ) {
+	try {
+		$aifaq_diag = ( new \AIFAQ\Index\CrawlQueue() )->diagnostics();
+		if ( is_array( $aifaq_diag ) ) {
+			$aifaq_crawl_diag = array_merge( $aifaq_crawl_diag, $aifaq_diag );
 		}
 	} catch ( \Throwable $aifaq_e ) {
 		unset( $aifaq_e );
@@ -111,6 +150,82 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 			</div>
 		<?php endif; ?>
 
+		<?php if ( $aifaq_crawl_retried >= 0 ) : ?>
+			<div class="notice notice-success inline">
+				<p>
+					<?php
+					if ( $aifaq_crawl_retried > 0 ) {
+						printf(
+							/* translators: %d: liczba stron zwolnionych do ponownego pobrania */
+							esc_html( _n(
+								'Zwolniono %d stronę do ponownego pobrania. Pobieranie ruszy w ciągu minuty.',
+								'Zwolniono %d stron do ponownego pobrania. Pobieranie ruszy w ciągu minuty.',
+								$aifaq_crawl_retried,
+								'ai-faq-generator'
+							) ),
+							(int) $aifaq_crawl_retried
+						);
+					} else {
+						esc_html_e( 'Nie ma stron do ponowienia — lista nieudanych pobrań jest pusta.', 'ai-faq-generator' );
+					}
+					?>
+				</p>
+			</div>
+		<?php endif; ?>
+
+		<?php
+		// --- Krok 20: JEDEN czytelny komunikat zamiast serii ostrzeżeń per adres.
+		// Rozróżniamy dwa światy, bo mylny werdykt „zwiększ procesy PHP" jest
+		// gorszy niż brak werdyktu: równoległe żądania padają też przez firewall
+		// hostingu, Cloudflare i mod_evasive — i dlatego mówimy o tym wprost.
+		if ( $aifaq_crawl_on && ! empty( $aifaq_crawl_diag['paused'] ) ) :
+			$aifaq_concurrency = ( \AIFAQ\Index\CrawlQueue::VERDICT_CONCURRENCY === (string) $aifaq_crawl_diag['verdict'] );
+			?>
+			<div class="notice notice-error inline">
+				<p>
+					<strong>
+						<?php
+						echo esc_html(
+							$aifaq_concurrency
+								? __( 'Pobieranie stron wstrzymane — serwer nie obsługuje dwóch jednoczesnych żądań.', 'ai-faq-generator' )
+								: __( 'Pobieranie stron wstrzymane — strony witryny są nieosiągalne.', 'ai-faq-generator' )
+						);
+						?>
+					</strong>
+				</p>
+				<?php if ( $aifaq_concurrency ) : ?>
+					<p><?php esc_html_e( 'Wtyczka pobiera podstrony, odpytując Twoją witrynę po HTTP. Gdy hosting ma za mało procesów PHP, żądanie do samego siebie nie ma wolnego procesu i czeka aż do przekroczenia limitu czasu. Strona główna odpowiada, więc witryna działa — problem dotyczy wyłącznie dwóch żądań naraz.', 'ai-faq-generator' ); ?></p>
+					<p><?php esc_html_e( 'Co zrobić: poproś operatora hostingu o zwiększenie liczby procesów PHP (w Local: „pm.max_children") albo wyłącz pobieranie stron w Ustawieniach. Ten sam objaw dają firewall hostingu, Cloudflare i mod_evasive — jeśli hosting potwierdzi, że procesów jest dość, sprawdź je.', 'ai-faq-generator' ); ?></p>
+				<?php else : ?>
+					<p><?php esc_html_e( 'Wtyczka nie doczekała się odpowiedzi z kilku kolejnych adresów, a próba pobrania strony głównej też się nie powiodła. Sprawdź, czy witryna otwiera się w przeglądarce i czy hosting pozwala na wychodzące połączenia HTTP do własnej domeny.', 'ai-faq-generator' ); ?></p>
+					<p><?php esc_html_e( 'Do czasu wyjaśnienia możesz wyłączyć pobieranie stron w Ustawieniach — indeksowanie treści wpisów i pól własnych działa niezależnie.', 'ai-faq-generator' ); ?></p>
+				<?php endif; ?>
+			</div>
+		<?php endif; ?>
+
+		<?php if ( $aifaq_crawl_on && (int) $aifaq_crawl_diag['failed'] > 0 ) : ?>
+			<p class="aifaq-crawl-retry">
+				<?php
+				printf(
+					/* translators: %s: liczba stron, których nie udało się pobrać */
+					esc_html( _n(
+						'Nie udało się pobrać %s strony.',
+						'Nie udało się pobrać %s stron.',
+						(int) $aifaq_crawl_diag['failed'],
+						'ai-faq-generator'
+					) ),
+					'<strong>' . esc_html( number_format_i18n( (int) $aifaq_crawl_diag['failed'] ) ) . '</strong>'
+				);
+				?>
+				<form method="post" action="" style="display:inline;">
+					<?php wp_nonce_field( 'aifaq_crawl_retry' ); ?>
+					<button type="submit" class="button" name="aifaq_crawl_retry" value="1">
+						<?php esc_html_e( 'Ponów nieudane strony', 'ai-faq-generator' ); ?>
+					</button>
+				</form>
+			</p>
+		<?php endif; ?>
+
 		<?php if ( $aifaq_crawl_on && $aifaq_loopback_bad ) : ?>
 			<div class="notice notice-warning inline">
 				<p>
@@ -132,12 +247,26 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 
 		<?php if ( ! empty( $aifaq_crawl['warnings'] ) && is_array( $aifaq_crawl['warnings'] ) ) : ?>
 			<div class="notice notice-warning inline">
-				<p><strong><?php esc_html_e( 'Uwagi z pobierania stron:', 'ai-faq-generator' ); ?></strong></p>
+				<?php
+				// Przy zapalonej diagnozie lista adresów jest SZCZEGÓŁEM, nie
+				// komunikatem: właściciel ma zobaczyć jedno zdanie o przyczynie,
+				// a nie dziesięć wierszy różniących się wyłącznie adresem.
+				$aifaq_fold = ! empty( $aifaq_crawl_diag['paused'] );
+				if ( $aifaq_fold ) :
+					?>
+					<details>
+						<summary><strong><?php esc_html_e( 'Pokaż adresy, których nie udało się pobrać', 'ai-faq-generator' ); ?></strong></summary>
+				<?php else : ?>
+					<p><strong><?php esc_html_e( 'Uwagi z pobierania stron:', 'ai-faq-generator' ); ?></strong></p>
+				<?php endif; ?>
 				<ul style="list-style:disc;margin-left:1.5em;">
 					<?php foreach ( array_slice( $aifaq_crawl['warnings'], 0, 10 ) as $aifaq_warning ) : ?>
 						<li><?php echo esc_html( (string) $aifaq_warning ); ?></li>
 					<?php endforeach; ?>
 				</ul>
+				<?php if ( $aifaq_fold ) : ?>
+					</details>
+				<?php endif; ?>
 			</div>
 		<?php endif; ?>
 

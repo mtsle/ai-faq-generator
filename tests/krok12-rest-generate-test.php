@@ -89,9 +89,12 @@ use AIFAQ\Providers\ProviderFactory;
  */
 class FakeGenProvider implements \AIFAQ\Providers\ProviderInterface {
 	public $last_prompt = '';
+	// K20 (§6.1 pkt 1): reguły generatora (w tym liczba par) idą kanałem `system`,
+	// a nie turą użytkownika — atrapa musi zapamiętać opcje, inaczej nie ma czego asertować.
+	public $last_options = array();
 	private $ret;
 	public function __construct( $ret ) { $this->ret = $ret; }
-	public function generate( string $prompt, array $options = array() ) { $this->last_prompt = $prompt; return $this->ret; }
+	public function generate( string $prompt, array $options = array() ) { $this->last_prompt = $prompt; $this->last_options = $options; return $this->ret; }
 	public function embed( array $texts ) { return array(); }
 	public function verify() { return true; }
 }
@@ -155,21 +158,21 @@ check( 2 === ( $d['count'] ?? 0 ) && 2 === count( $d['pairs'] ), 'zwraca 2 pary'
 check( true === $wpdb->insert_called, 'zapis do repozytorium wykonany' );
 check( 'Krowy mleczne' === ( $wpdb->last_data['topic'] ?? '' ), 'zapisany topic' );
 check( 5 === ( $wpdb->last_data['user_id'] ?? 0 ), 'zapisany user_id (get_current_user_id)' );
-check( false !== strpos( $prov->last_prompt, 'dokładnie 5 PAR' ), 'liczba pytań (5) przekazana do generatora' );
+check( false !== strpos( (string) ( $prov->last_options['system'] ?? '' ), 'dokładnie 5 PAR' ), 'liczba pytań (5) przekazana do generatora (kanał system, K20 §6.1)' );
 
 echo "\n=== C. clamp liczby pytań do 5..20 (na poziomie REST) ===\n";
 $prov = new FakeGenProvider( json_encode( $pairs ) );
 ProviderFactory::set_override( $prov );
 $c->handle_generate_faq( req( array( 'topic' => 'X', 'count' => 100 ) ) );
-check( false !== strpos( $prov->last_prompt, 'dokładnie 20 PAR' ), 'count=100 → clamp do 20' );
+check( false !== strpos( (string) ( $prov->last_options['system'] ?? '' ), 'dokładnie 20 PAR' ), 'count=100 → clamp do 20' );
 $prov = new FakeGenProvider( json_encode( $pairs ) );
 ProviderFactory::set_override( $prov );
 $c->handle_generate_faq( req( array( 'topic' => 'X', 'count' => 2 ) ) );
-check( false !== strpos( $prov->last_prompt, 'dokładnie 5 PAR' ), 'count=2 → clamp do 5' );
+check( false !== strpos( (string) ( $prov->last_options['system'] ?? '' ), 'dokładnie 5 PAR' ), 'count=2 → clamp do 5' );
 $prov = new FakeGenProvider( json_encode( $pairs ) );
 ProviderFactory::set_override( $prov );
 $c->handle_generate_faq( req( array( 'topic' => 'X', 'count' => 0 ) ) );
-check( false !== strpos( $prov->last_prompt, 'dokładnie 20 PAR' ), 'count=0 → domyślne z ustawień (20)' );
+check( false !== strpos( (string) ( $prov->last_options['system'] ?? '' ), 'dokładnie 20 PAR' ), 'count=0 → domyślne z ustawień (20)' );
 
 echo "\n=== D. generate-faq — błąd providera → 502, bez zapisu, bez wycieku ===\n";
 ProviderFactory::set_override( new FakeGenProvider( new WP_Error( 'aifaq_gemini_http', 'RAW: Gemini 500 internal boom' ) ) );

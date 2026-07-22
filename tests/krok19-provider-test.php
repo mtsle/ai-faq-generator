@@ -222,10 +222,12 @@ function k19_provider( $http, $model = 'gemini-2.5-flash', $task = '', $sleeper 
 	return new \AIFAQ\Providers\GeminiProvider( $http, 'K', $model, 'e', $task, $sleeper, $max_wait );
 }
 
+// K20 (obszar F): trzynasty klucz `quota_scope` — rodzaj limitu odczytany z `quotaId`
+// (`day` | `minute` | `''`). Bez niego retry nie odróżnia limitu dobowego od minutowego.
 $META_KEYS = array(
 	'finish_reason', 'truncated', 'empty_text', 'prompt_tokens', 'thoughts_tokens',
 	'output_tokens', 'total_tokens', 'http_status', 'error_code', 'thinking_sent',
-	'retries', 'model',
+	'retries', 'model', 'quota_scope',
 );
 
 // ===========================================================================
@@ -341,7 +343,7 @@ if ( $has_prov && method_exists( 'AIFAQ\Providers\GeminiProvider', 'last_meta' )
 	$h = new K19_Http( k19_resp( 200, k19_cand( 'ok' ) ) );
 	$p = k19_provider( $h );
 	$m = $p->last_meta();
-	check( 12 === count( $m ), 'NOWE — A1: last_meta() ma 12 kluczy PRZED pierwszym generate() (jest: ' . count( $m ) . ')' );
+	check( 13 === count( $m ), 'NOWE — A1: last_meta() ma 13 kluczy PRZED pierwszym generate() (K20: +quota_scope; jest: ' . count( $m ) . ')' );
 	check( array() === array_diff( array_keys( $m ), $META_KEYS ), 'NOWE — A2: brak kluczy NADMIAROWYCH wobec §2.1' );
 	check( array() === array_diff( $META_KEYS, array_keys( $m ) ), 'NOWE — A2: brak kluczy BRAKUJĄCYCH wobec §2.1' );
 

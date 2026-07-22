@@ -37,7 +37,7 @@ echo "=== Dział 3: defaults() ma 11 kluczy RAG z bezpiecznymi wartościami ===\
 $d = Settings::defaults();
 check( 0.7 === $d['rag_threshold'], 'default rag_threshold = 0.7' );
 check( 5 === $d['rag_top_k'], 'default rag_top_k = 5' );
-check( 30 === $d['rag_rate_limit'], 'default rag_rate_limit = 30' );
+check( 10 === $d['rag_rate_limit'], 'default rag_rate_limit = 10 (K20: 30 -> 10, kalibracja limitera)' );
 check( 0.2 === $d['rag_temperature'], 'default rag_temperature = 0.2' );
 check( 500 === $d['rag_max_tokens'], 'default rag_max_tokens = 500' );
 check( '' !== $d['rag_refusal_message_pl'] && '' !== $d['rag_refusal_message_en'] && '' !== $d['rag_refusal_message_de'], 'defaulty odmów pl/en/de niepuste' );
@@ -59,14 +59,17 @@ check( 0 === $o['rag_rate_limit'], 'rag_rate_limit clamp dolny → 0' );
 check( 1.0 === $o['rag_temperature'], 'rag_temperature clamp górny → 1.0' );
 check( 64 === $o['rag_max_tokens'], 'rag_max_tokens clamp dolny → 64' );
 
+// K20 (H2): próg miękki ma podłogę 0.70, więc wartością „w zakresie" nie jest już 0.55.
+// Podniesione do 0.85 — asercja dalej ROZRÓŻNIA „zachowane" od „nadpisane domyślną" (0.70),
+// czego bump na samo 0.70 by nie robił.
 $o2 = Settings::sanitize( array(
-	'rag_threshold'  => 0.55,
+	'rag_threshold'  => 0.85,
 	'rag_top_k'      => 3,
 	'rag_rate_limit' => 15,
 	'rag_temperature'=> 0.3,
 	'rag_max_tokens' => 800,
 ) );
-check( 0.55 === $o2['rag_threshold'], 'rag_threshold w zakresie zachowany' );
+check( 0.85 === $o2['rag_threshold'], 'rag_threshold w zakresie zachowany (0.85 > podłoga 0.70)' );
 check( 3 === $o2['rag_top_k'], 'rag_top_k w zakresie zachowany' );
 check( 800 === $o2['rag_max_tokens'], 'rag_max_tokens w zakresie zachowany' );
 

@@ -60,6 +60,40 @@ delete_option( 'aifaq_flush_needed' );
 delete_option( 'aifaq_index_signature' );   // Podpis bazy wektorów (pełny albo znacznik partial:).
 delete_option( 'aifaq_cache_flushed_for' ); // Wersja, dla której wyczyszczono cache odpowiedzi.
 
+// --- Menu nawigacji (Krok 20). Literały, nie stałe klas — jw. ---
+//
+// NAJPIERW pozycja, POTEM opcje: bez ID i bez znacznika proweniencji nie da się już
+// rozstrzygnąć, co wolno skasować. Usunięcie wtyczki BEZ wcześniejszej deaktywacji
+// (`wp plugin delete` robi dokładnie to) zostawiłoby w nawigacji klienta martwy link
+// do nieistniejącego generatora — jedyną sierotę widoczną dla wszystkich gości.
+// Kasujemy WYŁĄCZNIE pozycję, którą wtyczka sama utworzyła (`owned === '1'`);
+// pozycja dodana ręką klienta jest jego treścią i zostaje nietknięta.
+$aifaq_menu_item  = (int) get_option( 'aifaq_menu_item_id', 0 );
+$aifaq_menu_state = get_option( 'aifaq_menu_state', array() );
+$aifaq_menu_owned = ( is_array( $aifaq_menu_state ) && isset( $aifaq_menu_state['owned'] ) && is_scalar( $aifaq_menu_state['owned'] ) )
+	? (string) $aifaq_menu_state['owned']
+	: '';
+
+if ( $aifaq_menu_item > 0 && '1' === $aifaq_menu_owned && function_exists( 'wp_delete_post' ) ) {
+	// Pozycja menu jest zwykłym wpisem typu `nav_menu_item` — rdzeń kasuje ją tak samo.
+	wp_delete_post( $aifaq_menu_item, true );
+}
+
+delete_option( 'aifaq_menu_item_id' );          // ID naszej pozycji w menu.
+delete_option( 'aifaq_menu_state' );            // Tablica stanu menu (9 kluczy, w tym `owned`).
+delete_option( 'aifaq_menu_ok' );               // Tania bramka trójstanowa '1'/'0'/''.
+delete_option( 'aifaq_menu_lock' );             // Timestamp zamka `ensure()`.
+delete_option( 'aifaq_menu_notice_dismissed' ); // Stan, dla którego zamknięto komunikat.
+delete_option( 'aifaq_menu_optout' );           // Znacznik „klient usunął link świadomie".
+
+// Limity i tożsamość gościa (Krok 20). Należą do innych etapów, ale sprzątanie
+// mieszka wyłącznie tutaj — bez tych trzech wpisów zostałyby sierotami w wp_options.
+delete_option( 'aifaq_daily_usage' );  // Licznik dobowego sufitu witryny.
+delete_option( 'aifaq_budget_hit' );   // Znacznik przekroczenia sufitu (komunikat).
+delete_option( 'aifaq_proxy_seen' );   // Sygnał „witryna stoi za proxy" przy wyłączonym przełączniku.
+
+// Wyciszenia komunikatu edytora tu NIE ma — siedzi w metadanych użytkownika, nie w opcjach.
+
 // Samej podstrony NIE kasujemy — to treść w witrynie klienta (patrz komentarz niżej).
 
 // Zdejmij cron pobierania stron — bez tego zostałoby zadanie bez obsługi.

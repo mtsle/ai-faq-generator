@@ -21,8 +21,14 @@ Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 > z eksportem (`App\FaqToolPanel` — jedno źródło markupu dla kokpitu i frontu), a mechanizm
 > powstawania podstrony przestał cicho zawodzić (`PublicUi\PageGuard` + `Admin\PageNotice`).
 >
-> Dalej: **Krok 19** — jakość odpowiedzi bota RAG · **Krok 20** — ostatnie funkcje dla klienta
-> (automatyczny link w menu, capy dla Redaktora) · **Krok 21** — v1.0.0 (audyt, RWA, instrukcje).
+> **Krok 19 (v0.22.0):** jakość odpowiedzi bota RAG — przyczyną „biednych" odpowiedzi był budżet
+> rozumowania modelu zjadający limit tokenów wyjścia; progi skalibrowane pomiarem.
+>
+> **Krok 20 (v0.23.0):** dostępność u klienta — **link do generatora w menu nawigacji**, capy dla
+> Redaktora/Autora, retencja historii, kalibracja limitera + **dobowy sufit witryny**, parser limitów
+> dostawcy po `quotaId` i naprawa wyłącznika obwodu, wykrycie zagłodzenia workerów PHP przy crawlu.
+>
+> Dalej: **Krok 21** — v1.0.0 (audyt, RWA, instrukcja wdrożenia).
 
 ## Założenia
 - **Dwa miejsca działania** — kokpit wp-admin (dla właściciela) oraz publiczna
@@ -121,26 +127,107 @@ za `check_admin_referer` + capem) · `trashed_post` / `untrashed_post` / `delete
 zmianę losu podstrony) · `loop_start` (reset flagi jednokrotnego renderu shortcode'u).
 
 ## Ograniczenia (znane, świadome)
-- **Metabox widzi tylko administrator** (`manage_options`). Redaktor i Autor — czyli role, które na
-  typowej stronie faktycznie piszą wpisy — go nie zobaczą, bo trasy REST wtyczki wymagają tego samego
-  uprawnienia. Poluzowanie capów jest zaplanowane na Krok 20.
+
+> Cztery pozycje z tej listy **zamknął Krok 20 (v0.23.0)** i zostały stąd skreślone:
+> metabox tylko dla administratora · historia rosnąca bez ograniczeń · niedostrojony limiter ·
+> modele z przydziałem zero. Opis tego, co je zastąpiło, jest w sekcji
+> „Dostępność, uprawnienia i limity (Krok 20)".
+
 - **Gałąź klasycznego edytora (TinyMCE) nie ma pokrycia testem na żywej instancji** — środowisko dev
   nie ma wtyczki Classic Editor; ta ścieżka jest pokryta wyłącznie testem statycznym.
-- **Historia generowań rośnie bez ograniczeń** — każde kliknięcie „Generuj" (również z metaboksu)
-  zapisuje wiersz ze snapshotem par. Retencja (`prune()`) to zadanie Kroku 20.
 - **„Ponownie wygeneruj" z zakładki na froncie prowadzi do kokpitu** (`wp-admin`), nie przełącza
   zakładki na miejscu — konsekwencja zasady „zero zmian w `assets/js/*`" w Kroku 18.
 - **Nonce `wp_rest` nie odświeża się bez przeładowania** — podstrona otwarta przez noc może zwrócić
-  403 przy generowaniu; obejście to `F5`. Do Kroku 20.
-- **Wewnętrzny limiter `rag_rate_limit` jest niedostrojony do realiów dostawcy.** Domyślne
-  30 zapytań/**godzinę** na gościa (`RateLimiter::WINDOW = 3600`) przepuszcza wielokrotnie więcej,
-  niż wynosi darmowa kwota Gemini (rzędu 20 żądań/**dobę** na model). Kalibracja → Krok 20.
-- **`gemini-2.5-pro` i `gemini-2.0-flash` mogą mieć na darmowym kluczu przydział zero.** Kokpit
-  oferuje je w wyborze modelu jako równorzędne; klient, który przełączy się na „jakość", może
-  dostać błąd na każde pytanie. Oznaczenie modeli bez darmowej kwoty → Krok 20.
+  403 przy generowaniu; obejście to `F5`. Do Kroku 21.
 - **Reindeks jest synchroniczny.** Krok 19 wprowadził budżet czasowy i tempo (F1-lite), więc duża
-  witryna wymaga kilku kliknięć „Zaindeksuj treść"; reindeks w tle (cron) → Krok 20.
+  witryna wymaga kilku kliknięć „Zaindeksuj treść"; reindeks w tle (cron) → Krok 21.
+- **Wtyczka NIE UTWORZY menu nawigacji za klienta.** Jeżeli motyw nie ma żadnego menu przypiętego do
+  lokalizacji, wtyczka **wyłącznie o tym informuje** w kokpicie. Powód jest zmierzony, nie ostrożnościowy:
+  wiele motywów (w tym motyw Czarodziejskiego Dworku) renderuje nawigację funkcją `fallback_cb`,
+  która **przestaje działać w chwili przypięcia jakiegokolwiek menu** — automatyczne utworzenie menu
+  skasowałoby klientowi całą widoczną nawigację. Link dokładamy wyłącznie do menu, które **już istnieje**.
+- **Motywy blokowe (FSE) są poza zakresem.** Nawigację renderuje tam blok `core/navigation`
+  (`wp_navigation`), który klasycznych menu nie czyta; wtyczka rozpoznaje taki motyw i mówi wprost,
+  że linku nie doda. Obsługa `wp_navigation` → Krok 21.
+- **Po zmianie motywu pozycja zostaje w menu motywu starego** — wtyczka tego nie diagnozuje.
+- **Limiter gościa jest „best-effort", nie atomowy.** Bez zewnętrznego cache'u obiektowego (Redis,
+  Memcached) odczyt i zapis licznika nie są jedną operacją, więc równoległe żądania mogą przepuścić
+  pojedyncze zapytanie ponad limit. Twardym zabezpieczeniem kwoty jest **dobowy sufit witryny**, nie ten licznik.
+- **Ścieżka administratora nie jest limitowana** — limiter i sufit dotyczą gości. Właściciel
+  **zwiększa** licznik dobowy (jego pytania realnie zjadają pulę), ale nie jest przez niego blokowany.
+- **Włączenie „zaufanego proxy" jednorazowo resetuje bieżące limity** — zmienia się źródło adresu IP,
+  więc `ip_hash` każdego gościa jest liczony na nowo. Świadoma nieciągłość, nie błąd.
 - **Ścieżka wycofania (downgrade) nie została przetestowana end-to-end** — patrz akapit niżej.
+  Krok 20 wykonał wyłącznie „tanią próbę" (podmiana podpisu indeksu → powrót na wariant legacy
+  + stan `stale` w kokpicie); pełna próba z fizycznym cofnięciem plików → Krok 21.
+
+## Dostępność, uprawnienia i limity (Krok 20, v0.23.0)
+
+### Link do generatora w menu nawigacji
+
+Po aktywacji wtyczka **dokłada pozycję „Generator FAQ"** do menu przypiętego do lokalizacji
+nawigacyjnej motywu (kolejność preferencji: `primary` → `main` → `header` → `menu-1` → `top`).
+Bez tego gość nie miał jak trafić na podstronę generatora — istniała, ale nie prowadził do niej
+żaden odnośnik.
+
+Zasady, które warto znać:
+
+- **Wtyczka nigdy nie tworzy menu ani go nie przypina** — gdy menu nie ma, pokazuje komunikat w kokpicie
+  (powód w „Ograniczeniach").
+- **Cudzej pozycji nie kasujemy.** Jeżeli link do podstrony dodał wcześniej klient ręcznie, wtyczka
+  go **adoptuje** i oznacza jako nieswój (`owned = '0'`) — deaktywacja go nie tknie.
+- **Deaktywacja kasuje pozycję**, ale tylko tę, którą wtyczka **sama utworzyła**.
+- **Ręczne usunięcie linku jest respektowane na stałe** — nie wraca ani po odświeżeniu, ani po
+  reaktywacji. Przywraca go wyłącznie świadome kliknięcie „utwórz ponownie" w komunikacie kokpitu.
+- **Wyłączenie przełącznika „Link w menu" nie kasuje istniejącej pozycji** — automat przestaje się
+  nią tylko interesować. Kasuje ją dopiero deaktywacja.
+- **Odinstalowanie wtyczki bez wcześniejszej deaktywacji** też sprząta pozycję (znowu: tylko własną).
+
+### Kto co widzi (model uprawnień)
+
+| element | wymagane uprawnienie |
+|---|---|
+| narzędzie „Narzędzie FAQ", metabox „AI FAQ" w edytorze, `POST /admin/generate-faq`, `POST /admin/export` | **`publish_posts`** (Redaktor, Autor) |
+| Ustawienia, klucz API, indeksowanie, dziennik pytań gości, historia generowań i **wszystkie pozostałe trasy `/admin/*`** | `manage_options` (Administrator) |
+| `POST /ask` (pytanie gościa) | publiczne |
+
+Administrator przechodzi zawsze. Cap narzędzia zmienia filtr `aifaq_tool_capability` — działa
+jednocześnie na interfejs i na trasę REST, więc nie da się ich rozjechać.
+
+### Nowe ustawienia
+
+| ustawienie | domyślnie | co robi |
+|---|---|---|
+| **Link w menu** (`menu_link_enabled`) | włączony | dokładanie pozycji do menu |
+| **Lokalizacja menu** (`menu_location`) | auto | wymuszenie konkretnej lokalizacji motywu |
+| **Etykieta** (`menu_label`) | „Generator FAQ" | tekst pozycji (do 60 znaków) |
+| **Historia: ile wierszy trzymać** (`generations_keep_rows`) | **0 = nie kasuj nic** | retencja historii generowań |
+| **Historia: ile dni trzymać** (`generations_keep_days`) | **0 = nie kasuj nic** | j.w., wymiar niezależny |
+| **Okno limitu** (`rag_rate_window`) | godzina | godzina albo doba |
+| **Limit pytań na gościa** (`rag_rate_limit`) | **10** (było 30) | w oknie jak wyżej |
+| **Dobowy sufit witryny** (`rag_daily_budget`) | **12** | łączna liczba pytań na dobę; `0` = wyłączony (klucz płatny) |
+| **Zaufany proxy** (`rag_trusted_proxy`) | wyłączony | czytaj IP z `CF-Connecting-IP` / `X-Forwarded-For` |
+
+> **Retencja jest opt-in.** Obie wartości domyślne to `0`, czyli „nie kasuj nic". Włączenie kasuje
+> wiersze **trwale**, bez kosza.
+
+> **Dlaczego sufit dobowy.** Darmowy przydział Gemini to **20 żądań na dobę na model** (zmierzone
+> prosto z API). Bez sufitu jeden bot wyczerpywał pulę do południa i wszyscy kolejni goście
+> dostawali błąd. Pule `generateContent` i `embedContent` są **odrębne**.
+
+### Limity dostawcy — rozróżnienie doby od minuty
+
+Wtyczka czyta z odpowiedzi 429 pole `quotaId` i rozróżnia limit **dobowy** od **minutowego**:
+przy dobowym **nie ponawia w ogóle** (podawane przez API `retryDelay: 8s` jest wtedy mylące — pula
+wraca dopiero następnego dnia) i wycisza dostawcę na godzinę; przy minutowym ponawia z opóźnieniem
+z odpowiedzi. Wyłącznik obwodu jest liczony **osobno dla każdej puli i modelu**.
+
+### Crawl: zagłodzenie procesów PHP
+
+Jeżeli pobieranie stron kończy się serią timeoutów, wtyczka wykonuje jedną sondę i mówi wprost,
+czy problem to **za mała liczba procesów PHP** (witryna nie obsługuje żądania do samej siebie),
+czy **strony są nieosiągalne**. Nieudane adresy trafiają na listę „do ponowienia" (do 3 prób,
+nie częściej niż raz na godzinę), a na Dashboardzie jest przycisk „Ponów nieudane strony".
 
 ## Jakość odpowiedzi RAG (Krok 19, v0.22.0)
 

@@ -57,6 +57,16 @@ class RestController {
 	const CAPABILITY = 'manage_options';
 
 	/**
+	 * Uprawnienie wymagane dla tras samego NARZĘDZIA generatora (Krok 20).
+	 *
+	 * `publish_posts` obejmuje Redaktora i Autora, świadomie bez Współpracownika:
+	 * darmowa pula dostawcy to 20 żądań na dobę, więc każda dodatkowa rola to realne
+	 * ryzyko jej wyczerpania. Stała NIE zastępuje {@see self::CAPABILITY} — trasy
+	 * dotykające klucza API, indeksu i dziennika gości zostają na `manage_options`.
+	 */
+	const CAPABILITY_TOOL = 'publish_posts';
+
+	/**
 	 * Podpina rejestrację tras pod `rest_api_init` (wywoływane z Plugin::init_hooks).
 	 *
 	 * Rejestracja musi działać także dla gości — dlatego montowana jest POZA
@@ -182,13 +192,14 @@ class RestController {
 		);
 
 		// Panel: generowanie par FAQ z tematu (narzędzie generatora, Krok 12).
+		// Krok 20: jedna z DWÓCH tras dostępnych także dla Redaktora/Autora.
 		register_rest_route(
 			self::REST_NAMESPACE,
 			'/admin/generate-faq',
 			array(
 				'methods'             => 'POST',
 				'callback'            => array( $this, 'handle_generate_faq' ),
-				'permission_callback' => array( $this, 'require_admin' ),
+				'permission_callback' => array( $this, 'require_tool_user' ),
 				'args'                => array(
 					'topic'       => array(
 						'required'          => true,
@@ -270,13 +281,15 @@ class RestController {
 		);
 
 		// Panel: eksport bieżących par do 5 formatów (Krok 14).
+		// Krok 20: druga z DWÓCH tras narzędzia — `handle_export()` jest czysta
+		// (nie czyta bazy, ustawień ani klucza API), więc poluzowanie jest bezpieczne.
 		register_rest_route(
 			self::REST_NAMESPACE,
 			'/admin/export',
 			array(
 				'methods'             => 'POST',
 				'callback'            => array( $this, 'handle_export' ),
-				'permission_callback' => array( $this, 'require_admin' ),
+				'permission_callback' => array( $this, 'require_tool_user' ),
 			)
 		);
 	}
@@ -291,6 +304,36 @@ class RestController {
 	 */
 	public function require_admin(): bool {
 		return current_user_can( self::CAPABILITY );
+	}
+
+	/**
+	 * Uprawnienie narzędzia generatora — JEDYNE źródło prawdy (KONTRAKT k20-v3 §5.1).
+	 *
+	 * Czyta je zarówno bramka obu tras narzędzia, jak i obie bramki metaboksa
+	 * ({@see \AIFAQ\Admin\PostMetaBox}). Gdyby UI czytał surową stałą,
+	 * a trasa wartość po filtrze, witryna zawężająca cap filtrem pokazywałaby panel roli,
+	 * która przy kliknięciu „Generuj" dostaje 403 — czyli gorzej niż stan sprzed Kroku 20.
+	 *
+	 * @return string
+	 */
+	public static function tool_capability(): string {
+		$cap = self::CAPABILITY_TOOL;
+		if ( function_exists( 'apply_filters' ) ) {
+			$cap = (string) apply_filters( 'aifaq_tool_capability', $cap );
+		}
+		return $cap;
+	}
+
+	/**
+	 * Bramka uprawnień DWÓCH tras narzędzia (`/admin/generate-faq`, `/admin/export`).
+	 *
+	 * Administrator przechodzi zawsze — także wtedy, gdy filtr `aifaq_tool_capability`
+	 * zwróci uprawnienie, którego administrator nie posiada.
+	 *
+	 * @return bool
+	 */
+	public function require_tool_user(): bool {
+		return current_user_can( self::CAPABILITY ) || current_user_can( self::tool_capability() );
 	}
 
 	/**
@@ -1088,16 +1131,78 @@ class RestController {
 	}
 
 	/**
-	 * Identyfikator gościa: sha256(sól | REMOTE_ADDR) — nie przechowujemy IP (GR7).
+	 * Identyfikator gościa: sha256(sól | adres) — nie przechowujemy IP (GR7).
 	 *
-	 * Używa wyłącznie `REMOTE_ADDR` (nagłówki proxy typu X-Forwarded-For są
-	 * podszywalne, więc pominięte).
+	 * DOMYŚLNIE (`rag_trusted_proxy` wyłączone) źródłem jest wyłącznie `REMOTE_ADDR`:
+	 * nagłówki proxy są podszywalne, a bez odwrotnego proxy przed witryną każdy gość
+	 * mógłby sobie sam wystawić świeży kubełek limitera.
+	 *
+	 * Po WŁĄCZENIU przełącznika (witryna naprawdę stoi za Cloudflare/nginx) bierzemy
+	 * pierwszego dostępnego kandydata: `CF-Connecting-IP`, potem OSTATNI element
+	 * `X-Forwarded-For`. Ostatni, nie pierwszy — Cloudflare i typowy
+	 * `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for` DOKLEJAJĄ obserwowany
+	 * adres na koniec łańcucha, więc początek listy pochodzi od klienta i jest dowolny.
+	 *
+	 * Włączenie przełącznika zmienia hash wszystkich gości — bieżące limity resetują się
+	 * jednorazowo (świadoma nieciągłość, opisana w README).
 	 *
 	 * @return string
 	 */
 	private function ip_hash(): string {
-		$ip   = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		$remote = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		$ip     = $remote;
+
+		// `class_exists` w konwencji projektu (por. Deactivator → MenuGuard): w izolowanym
+		// harnessie testowym klasa ustawień bywa nieładowana, a brak przełącznika ma
+		// oznaczać zachowanie DOMYŚLNE (samo REMOTE_ADDR), nigdy błąd krytyczny.
+		$trusted = class_exists( Settings::class )
+			&& '1' === (string) Settings::get_field( 'rag_trusted_proxy', '0' );
+
+		if ( $trusted ) {
+			$candidate = '';
+
+			if ( isset( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) {
+				$candidate = trim( sanitize_text_field( wp_unslash( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) );
+			}
+
+			if ( '' === $candidate && isset( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
+				$chain     = explode( ',', sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) );
+				$candidate = trim( (string) end( $chain ) );
+			}
+
+			// Wartość spoza formatu adresu IP (albo pusta) → cofamy się do REMOTE_ADDR.
+			if ( '' !== $candidate && false !== filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
+				$ip = $candidate;
+			}
+		} else {
+			$this->flag_proxy_seen();
+		}
+
 		$salt = function_exists( 'wp_salt' ) ? wp_salt( 'nonce' ) : 'aifaq';
 		return hash( 'sha256', $salt . '|' . $ip );
+	}
+
+	/**
+	 * Sygnalizacja: witryna dostaje nagłówki proxy, a przełącznik jest WYŁĄCZONY.
+	 *
+	 * Bez tego klient za Cloudflare ma jeden kubełek limitera dla całego świata
+	 * (`REMOTE_ADDR` to adres proxy, identyczny dla wszystkich gości) i nikt mu tego
+	 * nie mówi. Zapisujemy zwykłą opcję bez autoload, jeden raz — komunikat w kokpicie
+	 * czyta ją osobno.
+	 */
+	private function flag_proxy_seen(): void {
+		if ( ! isset( $_SERVER['HTTP_CF_CONNECTING_IP'] ) && ! isset( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
+			return;
+		}
+
+		if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' ) ) {
+			return;
+		}
+
+		if ( '1' === (string) get_option( 'aifaq_proxy_seen', '' ) ) {
+			return;
+		}
+
+		update_option( 'aifaq_proxy_seen', '1', false );
 	}
 }

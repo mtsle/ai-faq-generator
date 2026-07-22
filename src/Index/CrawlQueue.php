@@ -71,6 +71,53 @@ class CrawlQueue {
 	protected const MAX_WARNINGS = 50;
 
 	/**
+	 * Ile prób pobrania dostaje jeden adres, zanim uznamy sprawę za zamkniętą.
+	 *
+	 * Bez tego limitu wymienilibyśmy jedną wadę na gorszą: strona, która wywraca
+	 * PHP, byłaby pobierana w kółko co minutę do końca świata.
+	 */
+	public const MAX_TRIES = 3;
+
+	/**
+	 * Odstęp między próbami tego samego adresu w sekundach (1 h).
+	 *
+	 * Bez odstępu trzy próby poszłyby PO KOLEI w jednym przebiegu — limit
+	 * `MAX_TRIES` wyczerpałby się w kilkadziesiąt sekund i nie dałby witrynie
+	 * żadnej szansy na dojście do siebie.
+	 */
+	public const RETRY_AFTER = 3600;
+
+	/**
+	 * Ile KOLEJNYCH timeoutów zapala diagnozę zagłodzenia workerów.
+	 *
+	 * Licznik MUSI przeżywać tick (trzyma go stan kolejki): przy
+	 * `BATCH_SECONDS = 20` budżet czasu sprawdzany jest dopiero od drugiego
+	 * pobrania, a jedno pobranie to do 15 s — więc do jednego ticka mieszczą się
+	 * DWA pobrania i licznik zamknięty w ticku nigdy nie doszedłby do trzech.
+	 */
+	public const TIMEOUT_STREAK = 3;
+
+	/**
+	 * Ułamek limitu czasu, od którego nieudane żądanie liczymy jako TIMEOUT.
+	 *
+	 * Klasyfikujemy PO CZASIE TRWANIA, nie po treści komunikatu: „cURL error 28"
+	 * zależy od wersji cURL-a i od lokalizacji, a poza 28 są jeszcze 7 (odmowa
+	 * połączenia), 52 (pusta odpowiedź) i 56. Tekst wolno użyć najwyżej
+	 * pomocniczo — nigdy jako jedyny sygnał.
+	 */
+	protected const TIMEOUT_RATIO = 0.9;
+
+	/**
+	 * Werdykt sondy: witryna żyje, ale nie obsługuje dwóch żądań naraz.
+	 */
+	public const VERDICT_CONCURRENCY = 'concurrency';
+
+	/**
+	 * Werdykt sondy: strony witryny są dla wtyczki nieosiągalne.
+	 */
+	public const VERDICT_UNREACHABLE = 'unreachable';
+
+	/**
 	 * Próg alarmu dla listy wykluczeń (ile kandydatów może zjeść).
 	 */
 	protected const EXCLUDE_ALERT_RATIO = 0.8;
@@ -112,15 +159,32 @@ class CrawlQueue {
 		$state       = $this->state();
 		$queue_empty = array() === $state['queue'];
 
-		$known = array();
+		$known  = array();
+		$queued = array();
 		foreach ( $state['done'] as $done_id ) {
 			$known[ (int) $done_id ] = true;
 		}
 		foreach ( $state['queue'] as $item ) {
 			if ( isset( $item['post_id'] ) ) {
-				$known[ (int) $item['post_id'] ] = true;
+				$queued[ (int) $item['post_id'] ] = true;
 			}
 		}
+
+		// KROK 20 §9.2: nieudane pobranie WRACA do kolejki — do `MAX_TRIES` prób
+		// włącznie i nie częściej niż raz na `RETRY_AFTER`. Polityka „done przed
+		// żądaniem" zostaje (chroni przed pętlą na stronie wywracającej PHP);
+		// to jest jej OGRANICZONY wyjątek, a nie odwrócenie.
+		$retry = array();
+		foreach ( $state['failed'] as $failed_id => $row ) {
+			$failed_id = (int) $failed_id;
+			if ( isset( $queued[ $failed_id ] ) || ! $this->may_retry( $row ) ) {
+				continue;
+			}
+			unset( $known[ $failed_id ] );
+			$retry[ $failed_id ] = true;
+		}
+
+		$known += $queued;
 
 		$posts = get_posts(
 			array(
@@ -144,7 +208,8 @@ class CrawlQueue {
 
 		$this->check_exclude_sanity( $state, $candidates );
 
-		$added = 0;
+		$added    = 0;
+		$requeued = array();
 		foreach ( $candidates as $post_id => $post ) {
 			if ( isset( $known[ $post_id ] ) ) {
 				continue;
@@ -171,6 +236,18 @@ class CrawlQueue {
 			);
 			$known[ $post_id ] = true;
 			++$added;
+
+			if ( isset( $retry[ $post_id ] ) ) {
+				$requeued[] = $post_id;
+			}
+		}
+
+		// Adres wrócił do kolejki, więc znika z `done` — inaczej `tick()` dopisałby
+		// go tam po raz DRUGI i licznik „pobrano X z Y" zacząłby kłamać. Kasujemy
+		// dopiero tutaj, bo wpis mógł nie przejść bramki `indexable()` i wtedy
+		// musi zostać w `done`.
+		if ( array() !== $requeued ) {
+			$state['done'] = array_values( array_diff( $state['done'], $requeued ) );
 		}
 
 		if ( $added > 0 && $queue_empty ) {
@@ -218,6 +295,15 @@ class CrawlQueue {
 	 * całego crona.
 	 */
 	public function tick(): void {
+		// KROK 20 §9.3: crawl wstrzymany czeka na decyzję właściciela — wychodzimy
+		// NATYCHMIAST, bez sondy i bez zajmowania zamka. Sonda ma prawo pójść
+		// najwyżej RAZ na epizod, a warunkiem jest właśnie pusty `paused`.
+		$paused_check = $this->state();
+		if ( array() !== $paused_check['paused'] ) {
+			$this->unschedule();
+			return;
+		}
+
 		if ( ! $this->acquire_lock() ) {
 			return; // inny tick już pracuje.
 		}
@@ -259,11 +345,19 @@ class CrawlQueue {
 					continue;
 				}
 
-				$error = '';
-				$text  = $this->fetch_text( $url, $error );
+				$error   = '';
+				$begun   = $this->now_ms();
+				$text    = $this->fetch_text( $url, $error );
+				$elapsed = $this->now_ms() - $begun;
 
 				if ( null === $text ) {
+					// Klasyfikacja PO CZASIE TRWANIA (§9.3): żądanie, które padło
+					// i zajęło niemal cały limit, to timeout. Błąd, który wrócił
+					// od razu (404, odmowa połączenia), timeoutem NIE jest.
+					$timed_out = $elapsed >= ( self::TIMEOUT_RATIO * $this->request_timeout( $url ) );
+
 					$state = $this->state();
+					$this->note_failure( $state, $post_id, $url, $error, $timed_out );
 					$this->add_warning(
 						$state,
 						sprintf(
@@ -274,10 +368,25 @@ class CrawlQueue {
 						)
 					);
 					$this->save_state( $state );
+
+					if ( $timed_out && $state['timeouts_in_row'] >= self::TIMEOUT_STREAK ) {
+						$this->diagnose();
+						break; // crawl pauzuje w TYM przebiegu.
+					}
+
 					continue;
 				}
 
 				$this->store_text( $post_id, $text );
+
+				// Udane pobranie kasuje wpis z `failed` (`tries` liczy próby
+				// Z RZĘDU, nie w całym życiu instalacji) i zeruje licznik
+				// timeoutów — inaczej trzy awarie rozproszone w czasie dałyby
+				// fałszywy alarm.
+				$state = $this->state();
+				if ( $this->note_success( $state, $post_id ) ) {
+					$this->save_state( $state );
+				}
 			}
 
 			$state = $this->state();
@@ -328,6 +437,72 @@ class CrawlQueue {
 	}
 
 	/**
+	 * Diagnoza crawla dla Dashboardu (nieudane strony, pauza, werdykt sondy).
+	 *
+	 * ŚWIADOMIE OSOBNA METODA, nie rozszerzenie {@see progress()}: odpowiedź
+	 * `GET /admin/status` jest przepisywana na pięć zamrożonych kluczy i nowych
+	 * NIE PRZEPUSZCZA, więc diagnoza żyje wyłącznie w kokpicie — a `assets/js/*`
+	 * i test tras REST zostają nietknięte.
+	 *
+	 * @return array{paused:bool,verdict:string,since:int,failed:int,retryable:int,timeouts_in_row:int}
+	 */
+	public function diagnostics(): array {
+		$state = $this->state();
+
+		$retryable = 0;
+		foreach ( $state['failed'] as $row ) {
+			if ( $this->may_retry( $row ) ) {
+				++$retryable;
+			}
+		}
+
+		return array(
+			'paused'          => array() !== $state['paused'],
+			'verdict'         => (string) ( $state['paused']['verdict'] ?? '' ),
+			'since'           => (int) ( $state['paused']['since'] ?? 0 ),
+			'failed'          => count( $state['failed'] ),
+			'retryable'       => $retryable,
+			'timeouts_in_row' => (int) $state['timeouts_in_row'],
+		);
+	}
+
+	/**
+	 * Ponawia nieudane strony: zdejmuje pauzę i zeruje licznik prób.
+	 *
+	 * Ścieżka wznowienia jest OBOWIĄZKOWA (§9.3 pkt 3). Bez niej klient na tanim
+	 * hostingu dostawałby zero treści i kolejkę zamrożoną na zawsze — czyli
+	 * GORZEJ niż dzisiejsze „5 z 11 stron".
+	 *
+	 * Ostrzeżenia z poprzedniego przebiegu też czyścimy: mówią „nie udało się
+	 * pobrać X", a X właśnie wraca do kolejki. Realna powtórka porażki dopisze
+	 * je z powrotem (lista i tak odsiewa duplikaty po pełnej treści).
+	 *
+	 * @return int Liczba adresów odblokowanych do ponowienia.
+	 */
+	public function retry_failed(): int {
+		$state = $this->state();
+
+		$unlocked = 0;
+		foreach ( array_keys( $state['failed'] ) as $failed_id ) {
+			$state['failed'][ $failed_id ]['tries'] = 0;
+			$state['failed'][ $failed_id ]['last']  = 0;
+			++$unlocked;
+		}
+
+		$state['paused']          = array();
+		$state['timeouts_in_row'] = 0;
+		$state['warnings']        = array();
+		$this->save_state( $state );
+
+		if ( $unlocked > 0 ) {
+			$this->seed();
+			$this->schedule();
+		}
+
+		return $unlocked;
+	}
+
+	/**
 	 * Kasuje stan kolejki, całą pobraną treść i harmonogram.
 	 *
 	 * Wołane przy zmianie `crawl_enabled`/`crawl_exclude` (Etap 4) — po takiej
@@ -353,7 +528,12 @@ class CrawlQueue {
 	/**
 	 * Odczytuje stan kolejki, uzupełniając brakujące klucze wartościami domyślnymi.
 	 *
-	 * @return array{queue:array<int,array{post_id:int,url:string}>,done:array<int,int>,total:int,started:int,needs_reindex:bool,warnings:array<int,string>}
+	 * Metoda przepuszcza WYŁĄCZNIE znane klucze, więc każdy nowy klucz stanu musi
+	 * być tutaj wymieniony — inaczej zapisałby się poprawnie i zostałby wycięty
+	 * przy pierwszym odczycie (mechanizm działałby „na papierze”, a stan gubiłby
+	 * się między tickami).
+	 *
+	 * @return array{queue:array<int,array{post_id:int,url:string}>,done:array<int,int>,total:int,started:int,needs_reindex:bool,warnings:array<int,string>,failed:array<int,array{url:string,tries:int,reason:string,last:int}>,timeouts_in_row:int,paused:array{since:int,verdict:string}|array{}}
 	 */
 	protected function state(): array {
 		$stored = function_exists( 'get_option' ) ? get_option( self::OPTION, array() ) : array();
@@ -383,13 +563,49 @@ class CrawlQueue {
 			}
 		}
 
+		// KROK 20 §9.2: mapa nieudanych pobrań kluczowana po POST_ID, nie po URL —
+		// `done` trzyma ID wpisów i `seed()` buduje z nich zbiór znanych adresów,
+		// więc mapa po URL-u wymagałaby odwzorowania `url → post_id`, którego
+		// w kodzie nie ma (ponowienie byłoby fizycznie niewykonalne).
+		$failed = array();
+		foreach ( (array) ( $stored['failed'] ?? array() ) as $failed_id => $row ) {
+			$failed_id = (int) $failed_id;
+			if ( $failed_id <= 0 || ! is_array( $row ) ) {
+				continue;
+			}
+			$failed[ $failed_id ] = array(
+				'url'    => (string) ( $row['url'] ?? '' ),
+				'tries'  => max( 0, (int) ( $row['tries'] ?? 0 ) ),
+				'reason' => (string) ( $row['reason'] ?? '' ),
+				'last'   => max( 0, (int) ( $row['last'] ?? 0 ) ),
+			);
+		}
+
+		// Pauza zapisana tylko w komplecie: sam `since` bez werdyktu zatrzymałby
+		// crawl bez powiedzenia właścicielowi dlaczego.
+		$paused        = array();
+		$stored_paused = $stored['paused'] ?? array();
+		if ( is_array( $stored_paused ) && isset( $stored_paused['since'], $stored_paused['verdict'] ) ) {
+			$since   = (int) $stored_paused['since'];
+			$verdict = (string) $stored_paused['verdict'];
+			if ( $since > 0 && '' !== $verdict ) {
+				$paused = array(
+					'since'   => $since,
+					'verdict' => $verdict,
+				);
+			}
+		}
+
 		return array(
-			'queue'         => $queue,
-			'done'          => $done,
-			'total'         => (int) ( $stored['total'] ?? ( count( $done ) + count( $queue ) ) ),
-			'started'       => (int) ( $stored['started'] ?? 0 ),
-			'needs_reindex' => (bool) ( $stored['needs_reindex'] ?? false ),
-			'warnings'      => $warnings,
+			'queue'           => $queue,
+			'done'            => $done,
+			'total'           => (int) ( $stored['total'] ?? ( count( $done ) + count( $queue ) ) ),
+			'started'         => (int) ( $stored['started'] ?? 0 ),
+			'needs_reindex'   => (bool) ( $stored['needs_reindex'] ?? false ),
+			'warnings'        => $warnings,
+			'failed'          => $failed,
+			'timeouts_in_row' => max( 0, (int) ( $stored['timeouts_in_row'] ?? 0 ) ),
+			'paused'          => $paused,
 		);
 	}
 
@@ -412,6 +628,152 @@ class CrawlQueue {
 		}
 
 		update_option( self::OPTION, $state, false );
+	}
+
+	/**
+	 * Zegar o rozdzielczości poniżej sekundy — JEDYNE źródło czasu klasyfikacji.
+	 *
+	 * Szew testowy: podklasa podmienia tę metodę i steruje „czasem trwania"
+	 * żądania. Bez niego klasyfikacja po czasie byłaby NIETESTOWALNA — limit
+	 * 15 s jest literałem w argumentach żądania, a tego literału zmieniać nie
+	 * wolno (jest pinowany cudzym testem).
+	 *
+	 * @return float Znacznik czasu w sekundach (z częścią ułamkową).
+	 */
+	protected function now_ms(): float {
+		return microtime( true );
+	}
+
+	/**
+	 * Limit czasu pojedynczego żądania — czytany z {@see request_args()}.
+	 *
+	 * Czytamy, a NIE przestrajamy: wartość jest jedna i mieszka w jednym
+	 * miejscu, więc próg klasyfikacji nie może się z nią rozjechać.
+	 *
+	 * @param string $url Adres (dla zgodności z `request_args()`).
+	 * @return float
+	 */
+	protected function request_timeout( string $url ): float {
+		$args = $this->request_args( $url );
+
+		return max( 1.0, (float) ( $args['timeout'] ?? 15 ) );
+	}
+
+	/**
+	 * Odnotowuje nieudane pobranie: wpis w `failed` + licznik kolejnych timeoutów.
+	 *
+	 * @param array<string,mixed> $state     Stan (przez referencję).
+	 * @param int                 $post_id   ID wpisu.
+	 * @param string              $url       Adres strony.
+	 * @param string              $reason    Powód niepowodzenia.
+	 * @param bool                $timed_out Czy żądanie zakwalifikowano jako timeout.
+	 */
+	protected function note_failure( array &$state, int $post_id, string $url, string $reason, bool $timed_out ): void {
+		if ( ! isset( $state['failed'] ) || ! is_array( $state['failed'] ) ) {
+			$state['failed'] = array();
+		}
+
+		if ( $post_id > 0 ) {
+			$tries = (int) ( $state['failed'][ $post_id ]['tries'] ?? 0 );
+
+			$state['failed'][ $post_id ] = array(
+				'url'    => $url,
+				'tries'  => $tries + 1,
+				'reason' => $reason,
+				'last'   => time(),
+			);
+		}
+
+		$streak = (int) ( $state['timeouts_in_row'] ?? 0 );
+		$state['timeouts_in_row'] = $timed_out ? ( $streak + 1 ) : $streak;
+	}
+
+	/**
+	 * Odnotowuje udane pobranie: kasuje wpis z `failed` i zeruje licznik timeoutów.
+	 *
+	 * @param array<string,mixed> $state   Stan (przez referencję).
+	 * @param int                 $post_id ID wpisu.
+	 * @return bool Czy stan faktycznie się zmienił (żeby nie zapisywać po nic).
+	 */
+	protected function note_success( array &$state, int $post_id ): bool {
+		$changed = false;
+
+		if ( isset( $state['failed'][ $post_id ] ) ) {
+			unset( $state['failed'][ $post_id ] );
+			$changed = true;
+		}
+
+		if ( 0 !== (int) ( $state['timeouts_in_row'] ?? 0 ) ) {
+			$state['timeouts_in_row'] = 0;
+			$changed = true;
+		}
+
+		return $changed;
+	}
+
+	/**
+	 * Czy adres wolno jeszcze ponowić (limit prób + odstęp między próbami).
+	 *
+	 * @param array<string,mixed> $row Wpis z mapy `failed`.
+	 * @return bool
+	 */
+	protected function may_retry( array $row ): bool {
+		if ( (int) ( $row['tries'] ?? 0 ) >= self::MAX_TRIES ) {
+			return false; // stan końcowy — wpis zostaje jako informacja, adres nie wraca.
+		}
+
+		return ( time() - (int) ( $row['last'] ?? 0 ) ) >= self::RETRY_AFTER;
+	}
+
+	/**
+	 * Diagnozuje przyczynę serii timeoutów, wstrzymuje crawl i zapisuje werdykt.
+	 *
+	 * Sonda idzie NAJWYŻEJ RAZ NA EPIZOD — po zapisaniu `paused` każdy kolejny
+	 * `tick()` wychodzi bez sondowania. Werdykt ma WŁASNY klucz w stanie kolejki
+	 * i świadomie NIE nadpisuje opcji `aifaq_loopback` (tamta ma jedno miejsce
+	 * zapisu, własny cache 6 h i zasila osobny komunikat Dashboardu).
+	 *
+	 * Rozstrzygnięcie: sonda przeszła → witryna żyje, więc problem jest
+	 * WSPÓŁBIEŻNOŚCIOWY. Sonda padła, ale zajęła niemal cały limit czasu → ta
+	 * sama sygnatura co awaria, którą badamy (witryna naprawdę wyłączona
+	 * odpowiada od razu, nie po piętnastu sekundach). Sonda padła szybko →
+	 * strony są NIEOSIĄGALNE.
+	 */
+	protected function diagnose(): void {
+		$begun = $this->now_ms();
+		$alive = $this->probe_site();
+		$slow  = ( $this->now_ms() - $begun ) >= ( self::TIMEOUT_RATIO * $this->request_timeout( '' ) );
+
+		$state           = $this->state();
+		$state['paused'] = array(
+			'since'   => time(),
+			'verdict' => ( $alive || $slow ) ? self::VERDICT_CONCURRENCY : self::VERDICT_UNREACHABLE,
+		);
+		$this->save_state( $state );
+
+		$this->unschedule();
+	}
+
+	/**
+	 * Pojedyncza sonda „czy witryna w ogóle odpowiada" — BEZ zapisu do opcji.
+	 *
+	 * Brak klasy/metody → `false` (nie udajemy, że witryna żyje).
+	 *
+	 * @return bool
+	 */
+	protected function probe_site(): bool {
+		$rendered = __NAMESPACE__ . '\\RenderedContentSource';
+		if ( ! class_exists( $rendered ) || ! method_exists( $rendered, 'loopback_probe' ) ) {
+			return false;
+		}
+
+		try {
+			$result = RenderedContentSource::loopback_probe();
+			return is_array( $result ) && ! empty( $result['ok'] );
+		} catch ( \Throwable $e ) {
+			unset( $e );
+			return false;
+		}
 	}
 
 	/**

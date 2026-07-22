@@ -62,11 +62,30 @@ class PostMetaBox {
 	const DEFAULT_COUNT = 10;
 
 	/**
+	 * Czy bieżący użytkownik może korzystać z narzędzia (Krok 20).
+	 *
+	 * Jedno źródło prawdy wspólne z bramką trasy REST — patrz
+	 * {@see RestController::tool_capability()}. Administrator przechodzi zawsze,
+	 * także gdy filtr `aifaq_tool_capability` zwróci egzotyczne uprawnienie.
+	 *
+	 * @return bool
+	 */
+	private function user_can_use_tool(): bool {
+		return current_user_can( RestController::CAPABILITY )
+			|| current_user_can( RestController::tool_capability() );
+	}
+
+	/**
 	 * Rejestruje metabox na obsługiwanych typach wpisów.
 	 *
 	 * Hook `add_meta_boxes` — WordPress podaje typ bieżącego wpisu.
-	 * Metabox istnieje tylko dla użytkowników z uprawnieniem `manage_options`,
-	 * bo tego wymagają konsumowane trasy `/admin/*` (KONTRAKT R5).
+	 * Od Kroku 20 metabox widzi każdy z uprawnieniem NARZĘDZIA
+	 * ({@see RestController::tool_capability()}, domyślnie `publish_posts` = Redaktor
+	 * i Autor) — to samo, którego wymagają obie konsumowane trasy. Czytamy je z jednego
+	 * źródła celowo: rozjazd capa UI i capa trasy dałby panel widoczny dla roli, która
+	 * przy kliknięciu „Generuj" dostaje 403. Administrator (`manage_options`) przechodzi
+	 * zawsze. `POST_TYPES` zawiera `page`, ale Autor nie ma `edit_pages`, więc do edytora
+	 * strony i tak nie wejdzie.
 	 *
 	 * @param string $post_type Typ bieżącego wpisu.
 	 */
@@ -75,7 +94,7 @@ class PostMetaBox {
 			return;
 		}
 
-		if ( ! current_user_can( Menu::CAPABILITY ) ) {
+		if ( ! $this->user_can_use_tool() ) {
 			return;
 		}
 
@@ -116,7 +135,7 @@ class PostMetaBox {
 			return;
 		}
 
-		if ( ! current_user_can( Menu::CAPABILITY ) ) {
+		if ( ! $this->user_can_use_tool() ) {
 			return;
 		}
 

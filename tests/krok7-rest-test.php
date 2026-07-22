@@ -124,10 +124,19 @@ check( 'POST' === ( $by_route['/admin/generations/delete']['args']['methods'] ??
 check( 'GET' === ( $by_route['/admin/generations/detail']['args']['methods'] ?? '' ), '/admin/generations/detail metoda GET' );
 check( isset( $by_route['/admin/generate-faq']['args']['args']['topic'] ) && true === $by_route['/admin/generate-faq']['args']['args']['topic']['required'], '/admin/generate-faq wymaga parametru topic' );
 check( isset( $by_route['/admin/generations/detail']['args']['args']['id'] ) && true === $by_route['/admin/generations/detail']['args']['args']['id']['required'], '/admin/generations/detail wymaga parametru id' );
-foreach ( array( '/admin/status', '/admin/reindex', '/admin/clear', '/admin/settings', '/admin/verify', '/admin/history', '/admin/history/clear', '/admin/generate-faq', '/admin/generations', '/admin/generations/detail', '/admin/generations/delete' ) as $ar ) {
+// K20 (§5.2): DOKŁADNIE DWIE trasy schodzą do capa narzędzia (`publish_posts`) —
+// `/admin/generate-faq` i `/admin/export`. Cała reszta `/admin/*` zostaje admin-only.
+// Podział jest asertowany W OBIE STRONY, żeby przeniesienie kolejnej trasy „przy okazji"
+// nie przeszło niezauważone.
+foreach ( array( '/admin/status', '/admin/reindex', '/admin/clear', '/admin/settings', '/admin/verify', '/admin/history', '/admin/history/clear', '/admin/generations', '/admin/generations/detail', '/admin/generations/delete' ) as $ar ) {
 	$pc = $by_route[ $ar ]['args']['permission_callback'] ?? null;
 	$ok = is_array( $pc ) && $pc[0] instanceof RestController && 'require_admin' === $pc[1];
 	check( $ok, "$ar permission_callback = require_admin" );
+}
+foreach ( array( '/admin/generate-faq', '/admin/export' ) as $ar ) {
+	$pc = $by_route[ $ar ]['args']['permission_callback'] ?? null;
+	$ok = is_array( $pc ) && $pc[0] instanceof RestController && 'require_tool_user' === $pc[1];
+	check( $ok, "$ar permission_callback = require_tool_user (K20: cap narzedzia)" );
 }
 
 echo "\n== require_admin (uprawnienia) ==\n";

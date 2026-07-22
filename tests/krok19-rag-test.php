@@ -885,7 +885,10 @@ if ( $has_service && method_exists( 'AIFAQ\Rag\RagService', 'make' ) && class_ex
 
 	list( $out ) = $mk( array( 'rag_threshold' => 0.35, 'rag_threshold_hard' => 0.55 ) );
 	check( approx( 0.70, (float) ( $out['debug']['threshold'] ?? -1 ) ), 'NOWE — B73: rag_threshold=0.35 w opcjach → podłoga ASK_MIN_THRESHOLD podnosi próg do 0.70 (jest: ' . var_export( $out['debug']['threshold'] ?? null, true ) . ')' );
-	check( approx( 0.55, (float) ( $out['debug']['threshold_hard'] ?? -1 ) ), 'NOWE — B75: rag_threshold_hard=0.55 NIEŚCIĘTY, bo soft przyszedł PO podłodze (jest: ' . var_export( $out['debug']['threshold_hard'] ?? null, true ) . ')' );
+	// K20 (H2): zapisane 0.55 podnosi PODŁOGA NA ODCZYCIE do zmierzonego 0.65. Intencja
+	// asercji jest nietknięta — hard NIE jest ścinany do soft (0.70), bo soft przychodzi
+	// PO podłodze; zmienia się wyłącznie wartość, i to na tę skalibrowaną w K19 (M-cal2).
+	check( approx( 0.65, (float) ( $out['debug']['threshold_hard'] ?? -1 ) ), 'NOWE — B75: rag_threshold_hard=0.55 → 0.65 (podłoga H2), NIEŚCIĘTY do soft, bo soft przyszedł PO podłodze (jest: ' . var_export( $out['debug']['threshold_hard'] ?? null, true ) . ')' );
 
 	list( $out ) = $mk( array( 'rag_threshold' => 0.35 ), array( 'aifaq_min_threshold' => static function () { return 0.30; } ) );
 	check( approx( 0.35, (float) ( $out['debug']['threshold'] ?? -1 ) ), 'NOWE — B74: filtr aifaq_min_threshold=0.30 → podłoga WYŁĄCZALNA, próg wraca do 0.35' );

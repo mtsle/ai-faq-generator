@@ -287,6 +287,24 @@ final class Plugin {
 			add_action( 'admin_notices', array( $this, 'render_page_notice' ) );
 			add_action( 'admin_post_aifaq_page_fix', array( $this, 'handle_page_fix' ) );
 			add_action( 'admin_init', array( __CLASS__, 'audit_page' ) );
+
+			// Link do generatora w menu nawigacji (Krok 20). TANIA BRAMKA na
+			// `admin_init` jest tu jedyną ścieżką ratującą klienta, który wtyczkę
+			// AKTUALIZUJE (podmiana plików): `register_activation_hook` wtedy się
+			// NIE odpala — dokładnie ta wada, którą dla bazy zamknęliśmy w K11
+			// przez `maybe_upgrade_db()` (patrz jej docblock wyżej). Bez tego
+			// wiersza taki klient nie dostałby pozycji w menu NIGDY.
+			//
+			// `admin_init`, nie `init`: gość nie ma płacić za diagnozę nawigacji.
+			// Bramki taniości (`wp_doing_ajax`/`wp_doing_cron`/`current_user_can`)
+			// siedzą WEWNĄTRZ `maybe_ensure()` — tam, gdzie ich miejsce, bo
+			// `admin_init` odpala się także w `admin-ajax.php` dla niezalogowanych.
+			if ( class_exists( '\AIFAQ\PublicUi\MenuGuard' ) ) {
+				add_action( 'admin_init', array( '\AIFAQ\PublicUi\MenuGuard', 'maybe_ensure' ) );
+			}
+
+			add_action( 'admin_post_aifaq_menu_fix', array( $this, 'handle_menu_fix' ) );
+			add_action( 'admin_post_aifaq_editor_hint', array( $this, 'handle_editor_hint' ) );
 		}
 	}
 
@@ -328,18 +346,20 @@ final class Plugin {
 	}
 
 	/**
-	 * Wypisuje komunikaty kokpitu: stan podstrony generatora (K18) i stan bazy
-	 * wektorów po migracji przestrzeni embeddingów (K19).
+	 * Wypisuje komunikaty kokpitu: stan podstrony generatora (K18), stan bazy
+	 * wektorów po migracji przestrzeni embeddingów (K19) oraz stan linku w menu
+	 * nawigacji i podpowiedź o panelu w edytorze (K20).
 	 *
-	 * DWA komunikaty na JEDNYM callbacku — celowo. Drugi hook admin notices
+	 * CZTERY komunikaty na JEDNYM callbacku — celowo. Drugi hook admin notices
 	 * (bez apostrofów, żeby nie podbić licznika strażnika K18) zaczerwieniłby
 	 * asercję #62 testu podstrony, która wymaga dokładnie jednego wystąpienia
 	 * tego literału w tym pliku.
 	 *
 	 * Bloki są NIEZALEŻNE (żadnego wczesnego `return`): brak klasy z Kroku 18
-	 * nie ma prawa wyciszyć komunikatu migracji z Kroku 19 i odwrotnie. Klasy
-	 * należą do innych etapów — ich brak pomija wypis i NIGDY nie wywala kokpitu
-	 * klienta (błąd na tym hooku wypisuje się wprost na górze każdego ekranu panelu).
+	 * nie ma prawa wyciszyć komunikatu migracji z Kroku 19 ani komunikatu menu
+	 * z Kroku 20 — i odwrotnie. Klasy należą do innych etapów, więc ich brak
+	 * pomija wypis i NIGDY nie wywala kokpitu klienta (błąd na tym hooku
+	 * wypisuje się wprost na górze każdego ekranu panelu).
 	 */
 	public function render_page_notice(): void {
 		if ( class_exists( '\AIFAQ\Admin\PageNotice' ) ) {
@@ -353,6 +373,22 @@ final class Plugin {
 		if ( class_exists( '\AIFAQ\Admin\IndexNotice' ) ) {
 			try {
 				\AIFAQ\Admin\IndexNotice::render();
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
+		}
+
+		if ( class_exists( '\AIFAQ\Admin\MenuNotice' ) ) {
+			try {
+				\AIFAQ\Admin\MenuNotice::render();
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
+		}
+
+		if ( class_exists( '\AIFAQ\Admin\EditorNotice' ) ) {
+			try {
+				\AIFAQ\Admin\EditorNotice::render();
 			} catch ( \Throwable $e ) {
 				unset( $e );
 			}
@@ -371,6 +407,46 @@ final class Plugin {
 
 		try {
 			\AIFAQ\Admin\PageNotice::handle_fix();
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
+
+	/**
+	 * Obsługuje kliknięcie w akcję naprawczą komunikatu o menu (K20).
+	 *
+	 * Uprawnienie (`manage_options`), nonce i whitelistę wartości sprawdza sama
+	 * klasa komunikatu — dokładnie tak, jak przy podstronie z Kroku 18: blok
+	 * bezpieczeństwa mieszka w `handle_fix()`, tutaj jest wyłącznie routing.
+	 * Trzymanie go w JEDNYM miejscu jest wymogiem, nie stylem — zdublowany cap
+	 * przeżyłby mutację „podmieniony cap w handlerze" (§10 pkt 3) i uczyniłby
+	 * ją niewykrywalną.
+	 */
+	public function handle_menu_fix(): void {
+		if ( ! class_exists( '\AIFAQ\Admin\MenuNotice' ) ) {
+			return;
+		}
+
+		try {
+			\AIFAQ\Admin\MenuNotice::handle_fix();
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
+
+	/**
+	 * Obsługuje zamknięcie podpowiedzi o panelu „AI FAQ" w edytorze (K20).
+	 *
+	 * Cap NARZĘDZIA (nie `manage_options`), nonce i whitelistę sprawdza
+	 * {@see \AIFAQ\Admin\EditorNotice::handle_fix()} — tutaj tylko routing.
+	 */
+	public function handle_editor_hint(): void {
+		if ( ! class_exists( '\AIFAQ\Admin\EditorNotice' ) ) {
+			return;
+		}
+
+		try {
+			\AIFAQ\Admin\EditorNotice::handle_fix();
 		} catch ( \Throwable $e ) {
 			unset( $e );
 		}

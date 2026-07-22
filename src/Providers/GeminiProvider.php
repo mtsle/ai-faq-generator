@@ -84,6 +84,20 @@ class GeminiProvider implements ProviderInterface {
 	private const NO_THINKING_KEY = array( 'gemini-2.0-flash' );
 
 	/**
+	 * Czas życia wyłącznika obwodu przy limicie MINUTOWYM albo nierozpoznanym (sekundy).
+	 */
+	const COOLDOWN_SECONDS = 60;
+
+	/**
+	 * Czas życia wyłącznika obwodu przy limicie DOBOWYM (sekundy).
+	 *
+	 * Stała godzina, nie „do północy": moment resetu kwoty dobowej NIE JEST w tym projekcie
+	 * zmierzony (dokumentacja dostawcy mówi o północy czasu pacyficznego). Precyzja liczona
+	 * lokalnym czasem WordPressa albo blokowałaby po odnowieniu puli, albo puszczała za wcześnie.
+	 */
+	const COOLDOWN_DAY_SECONDS = 3600;
+
+	/**
 	 * Metadane OSTATNIEGO wywołania — kanał boczny, poza `ProviderInterface`.
 	 *
 	 * Inicjalizowane W DEKLARACJI (nie w konstruktorze): typowana właściwość bez wartości
@@ -106,6 +120,7 @@ class GeminiProvider implements ProviderInterface {
 		'thinking_sent'   => -2,
 		'retries'         => 0,
 		'model'           => '',
+		'quota_scope'     => '',
 	);
 
 	/**
@@ -206,12 +221,17 @@ class GeminiProvider implements ProviderInterface {
 	/**
 	 * Metadane OSTATNIEGO wywołania — kanał boczny poza `ProviderInterface`.
 	 *
-	 * Struktura jest DETERMINISTYCZNA: wszystkie 12 kluczy jest obecnych zawsze, także
+	 * Struktura jest DETERMINISTYCZNA: wszystkie 13 kluczy jest obecnych zawsze, także
 	 * przed pierwszym `generate()`. Nigdy nie zawiera klucza API, nagłówków ani promptu.
+	 *
+	 * `quota_scope` (K20 §8.5) rozróżnia rodzaj wyczerpanego limitu: `'day'` | `'minute'` | `''`.
+	 * Kod błędu jest dla obu limitów TEN SAM (`aifaq_gemini_rate`) — rozróżnienie żyje wyłącznie
+	 * tutaj i w zachowaniu (ponowienia, czas wyłącznika obwodu).
 	 *
 	 * @return array{finish_reason:string, truncated:bool, empty_text:bool, prompt_tokens:int,
 	 *               thoughts_tokens:int, output_tokens:int, total_tokens:int, http_status:int,
-	 *               error_code:string, thinking_sent:int, retries:int, model:string}
+	 *               error_code:string, thinking_sent:int, retries:int, model:string,
+	 *               quota_scope:string}
 	 */
 	public function last_meta(): array {
 		return $this->meta;
@@ -461,17 +481,20 @@ class GeminiProvider implements ProviderInterface {
 	 *
 	 * @param string              $url               Docelowy adres endpointu.
 	 * @param array<string,mixed> $payload           Ciało żądania (zostanie zserializowane do JSON).
-	 * @param bool                $record_generation Czy wołającym jest `generate()` (czytelność/diagnostyka).
+	 * @param bool                $record_generation Czy wołającym jest `generate()`. Wyznacza PULĘ
+	 *                                               wyłącznika obwodu (§8.4): `generate` albo `embed`.
 	 *
 	 * @return array<string,mixed>|\WP_Error
 	 *         Zdekodowana odpowiedź API lub `\WP_Error` przy błędzie sieci/HTTP.
 	 */
 	private function request_json( string $url, array $payload, bool $record_generation = false ) {
-		unset( $record_generation );
+		// K20 §8.4 — klucz wyłącznika obwodu liczony RAZ i używany zarówno przy odczycie,
+		// jak i przy zapisie; dwa różne wyrażenia rozjechałyby pule.
+		$cooldown_key = $this->cooldown_key( $record_generation );
 
 		// WYŁĄCZNIK OBWODU — dopóki żyje cooldown, nie ruszamy do API w ogóle.
 		// Ta ścieżka NIE inkrementuje `retries` (żadnej próby nie było).
-		if ( function_exists( 'get_transient' ) && get_transient( 'aifaq_provider_cooldown' ) ) {
+		if ( function_exists( 'get_transient' ) && get_transient( $cooldown_key ) ) {
 			$this->meta['http_status'] = 429;
 			$this->meta['error_code']  = 'aifaq_gemini_rate';
 
@@ -536,6 +559,10 @@ class GeminiProvider implements ProviderInterface {
 			$code = 'aifaq_gemini_http';
 			if ( 429 === $status ) {
 				$code = 'aifaq_gemini_rate';
+
+				// K20 §8.1 — rodzaj wyczerpanej kwoty. Kod błędu zostaje TEN SAM dla obu
+				// limitów; rozróżnienie idzie kanałem bocznym `last_meta()['quota_scope']`.
+				$this->meta['quota_scope'] = $this->quota_scope( is_array( $data ) ? $data : array() );
 			} elseif ( 503 === $status ) {
 				$code = 'aifaq_gemini_busy';
 			}
@@ -552,6 +579,14 @@ class GeminiProvider implements ProviderInterface {
 				return $last_error;
 			}
 
+			// K20 §8.2 — limit DOBOWY: ZERO ponowień. `retryDelay` jest tu mylący (zmierzone `8s`
+			// przy puli, która wraca dopiero następnej doby), więc nawet go nie czytamy.
+			if ( 'day' === $this->meta['quota_scope'] ) {
+				$this->arm_cooldown( $cooldown_key );
+
+				return $last_error;
+			}
+
 			if ( $attempts >= $max_attempts ) {
 				break;
 			}
@@ -560,7 +595,14 @@ class GeminiProvider implements ProviderInterface {
 
 			// REGUŁA „NIE WARTO CZEKAĆ": dłużej niż sufit ścieżki albo niż reszta budżetu
 			// → zero uśpienia, zero kolejnej próby. Gość i tak dostanie przyjazne HTTP 429.
+			//
+			// K20 §8.3 — TU BYŁA WADA K19: wyjście następowało PRZED uzbrojeniem wyłącznika,
+			// a na ścieżce gościa (sufit 5 s) warunek zachodził ZAWSZE, bo każde zmierzone
+			// `retryDelay` (6..52 s) jest większe. Cooldown nie uzbrajał się nigdy, więc przy
+			// wyczerpanej puli KAŻDY gość płacił jedno żądanie do API przez resztę doby.
 			if ( $delay > $this->max_wait_seconds || $delay > $this->remaining_budget() ) {
+				$this->arm_cooldown( $cooldown_key );
+
 				return $last_error;
 			}
 
@@ -568,10 +610,8 @@ class GeminiProvider implements ProviderInterface {
 		}
 
 		if ( null !== $last_error ) {
-			// Ponowienia wyczerpane — wyłącznik obwodu na 60 s.
-			if ( function_exists( 'set_transient' ) ) {
-				set_transient( 'aifaq_provider_cooldown', 1, 60 );
-			}
+			// Ponowienia wyczerpane — wyłącznik obwodu (60 s; przy limicie dobowym godzina).
+			$this->arm_cooldown( $cooldown_key );
 
 			return $last_error;
 		}
@@ -697,7 +737,12 @@ class GeminiProvider implements ProviderInterface {
 			}
 		}
 
-		// 4. backoff dopasowany do okna 5 żądań/min.
+		// 4. backoff własny, gdy API nie podało żadnej wskazówki.
+		//
+		// K20 §8.6: pierwotne uzasadnienie („okno 5 żądań/min") opierało się na przesłance
+		// ZMIERZONEJ JAKO NIEPRAWDZIWA — E0b wysłał 6 żądań bez przerw i dostał 6 × HTTP 200,
+		// więc limit minutowy jest wyższy niż 5. Wartości 5/15 s zostają: nie ma dowodu, że są
+		// złe, a realny limit minutowy dostawcy pozostaje niezmierzony.
 		return ( 1 === $attempts ) ? 5 : 15;
 	}
 
@@ -720,6 +765,99 @@ class GeminiProvider implements ProviderInterface {
 		$seconds = (int) $matches[1];
 
 		return ( $seconds >= 1 && $seconds <= 60 ) ? $seconds : 0;
+	}
+
+	/**
+	 * Rodzaj wyczerpanej kwoty odczytany z ciała odpowiedzi 429 (K20 §8.1).
+	 *
+	 * Ścieżka: `error.details[]` → element o `@type` zawierającym `google.rpc.QuotaFailure`
+	 * → `violations[]` → `quotaId`. Parser NIE zakłada ani liczby naruszeń (zmierzone 1, 3 i 4),
+	 * ani ich kolejności, ani obecności pola `quotaValue` (przy przydziale zerowym go NIE MA).
+	 *
+	 * PIERWSZEŃSTWO MA `PerDay`: w jednym ciele potrafią wystąpić RAZEM `…PerMinute…`
+	 * i `…PerDay…` (zmierzone na `gemini-2.5-pro`, 4 naruszenia), a wtedy czekanie minutowe
+	 * jest bezcelowe — pula wraca dopiero następnej doby.
+	 *
+	 * @param array<string,mixed> $data Zdekodowane ciało odpowiedzi.
+	 *
+	 * @return string `'day'` | `'minute'` | `''` (brak rozpoznania).
+	 */
+	private function quota_scope( array $data ): string {
+		if ( ! isset( $data['error']['details'] ) || ! is_array( $data['error']['details'] ) ) {
+			return '';
+		}
+
+		$scope = '';
+
+		foreach ( $data['error']['details'] as $detail ) {
+			if ( ! is_array( $detail ) || ! isset( $detail['@type'] ) || ! is_scalar( $detail['@type'] ) ) {
+				continue;
+			}
+			if ( false === strpos( (string) $detail['@type'], 'QuotaFailure' ) ) {
+				continue;
+			}
+			if ( ! isset( $detail['violations'] ) || ! is_array( $detail['violations'] ) ) {
+				continue;
+			}
+
+			foreach ( $detail['violations'] as $violation ) {
+				if ( ! is_array( $violation ) || ! isset( $violation['quotaId'] ) || ! is_scalar( $violation['quotaId'] ) ) {
+					continue;
+				}
+
+				$quota_id = (string) $violation['quotaId'];
+
+				// Dobowy wygrywa natychmiast — dalsze naruszenia niczego już nie zmienią.
+				if ( false !== stripos( $quota_id, 'PerDay' ) ) {
+					return 'day';
+				}
+				if ( false !== stripos( $quota_id, 'PerMinute' ) ) {
+					$scope = 'minute';
+				}
+			}
+		}
+
+		return $scope;
+	}
+
+	/**
+	 * Klucz wyłącznika obwodu — ROZDZIELNY dla puli generacji i puli embeddingów (K20 §8.4).
+	 *
+	 * Jawne odchylenie od K19 §4.8 (jeden globalny `aifaq_provider_cooldown`). Powód jest
+	 * zmierzony: E0b dostał 429 z `generateContent` o 17:57:09 i poprawny wektor z `embed()`
+	 * o 17:57:10 — PULE SĄ ODRĘBNE. Jeden wspólny transient wyłączał indeksowanie, które działa.
+	 *
+	 * @param bool $record_generation Czy wołającym jest `generate()`.
+	 *
+	 * @return string Nazwa transientu.
+	 */
+	private function cooldown_key( bool $record_generation ): string {
+		return $record_generation
+			? 'aifaq_cooldown_generate_' . $this->model
+			: 'aifaq_cooldown_embed_' . $this->embed_model;
+	}
+
+	/**
+	 * Uzbraja wyłącznik obwodu dla podanej puli (K20 §8.2, §8.3).
+	 *
+	 * TTL wynika WYŁĄCZNIE z `quota_scope`: limit dobowy → godzina, wszystko inne (w tym
+	 * ciało bez `quotaId` oraz 503) → 60 s. Jedno miejsce decyzji, żeby trzy ścieżki wyjścia
+	 * z `request_json()` nie mogły się rozjechać.
+	 *
+	 * @param string $key Klucz transientu z {@see cooldown_key()}.
+	 *
+	 * @return void
+	 */
+	private function arm_cooldown( string $key ): void {
+		if ( ! function_exists( 'set_transient' ) ) {
+			return;
+		}
+
+		$ttl = ( 'day' === $this->meta['quota_scope'] )
+			? self::COOLDOWN_DAY_SECONDS
+			: self::COOLDOWN_SECONDS;
+
+		set_transient( $key, 1, $ttl );
 	}
 
 	/**
@@ -809,16 +947,21 @@ class GeminiProvider implements ProviderInterface {
 	/**
 	 * Reset pól TRANSPORTOWYCH metadanych (`generate()` i `embed()`, nigdy `request_json()`).
 	 *
+	 * `quota_scope` należy TUTAJ, a nie do pól generacyjnych: wyczerpana kwota dotyczy
+	 * embeddingów dokładnie tak samo jak generacji, a §13.14 wymaga zerowania go na starcie
+	 * KAŻDEGO żądania.
+	 *
 	 * @return void
 	 */
 	private function reset_meta_transport(): void {
 		$this->meta['http_status'] = 0;
 		$this->meta['error_code']  = '';
 		$this->meta['retries']     = 0;
+		$this->meta['quota_scope'] = '';
 	}
 
 	/**
-	 * Reset kompletu 12 pól metadanych — wyłącznie `generate()`.
+	 * Reset kompletu 13 pól metadanych — wyłącznie `generate()`.
 	 *
 	 * @return void
 	 */

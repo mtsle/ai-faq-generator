@@ -642,7 +642,7 @@ if ( file_exists( $uninstall ) ) {
 	include $uninstall;
 	$deleted = $GLOBALS['__optc']->deleted;
 	check( array() === array_diff( array( 'aifaq_index_signature', 'aifaq_cache_flushed_for' ), $deleted ), 'NOWE — C24: obie nowe opcje faktycznie SKASOWANE przez uninstall.php (nie substr_count na źródle)' );
-	check( 16 === $GLOBALS['__optc']->deletes, 'NOWE — C24: DOKŁADNIE 16 wywołań delete_option (14 + 2 nowe; jest: ' . $GLOBALS['__optc']->deletes . ')' );
+	check( 25 === $GLOBALS['__optc']->deletes, 'NOWE — C24: DOKŁADNIE 25 wywołań delete_option (16 + 9 nowych opcji K20; jest: ' . $GLOBALS['__optc']->deletes . ')' );
 } else {
 	check( false, 'NOWE — C24 pominięta: brak pliku uninstall.php' );
 }

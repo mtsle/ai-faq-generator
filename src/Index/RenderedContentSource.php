@@ -256,6 +256,27 @@ class RenderedContentSource implements ContentSource {
 	}
 
 	/**
+	 * Ta sama sonda co {@see loopback_ok()}, ale BEZ cache'u i BEZ ZAPISU opcji.
+	 *
+	 * Dla diagnozy zagłodzenia workerów (Krok 20 §9.3) potrzebny jest ŚWIEŻY
+	 * pomiar, a jednocześnie werdykt tej diagnozy ma własny klucz w stanie crawla
+	 * i nie ma prawa nadpisać {@see OPTION_LOOPBACK}: tamta opcja ma dokładnie
+	 * jedno miejsce zapisu, cache 6 h i zasila osobny komunikat Dashboardu.
+	 * `loopback_ok( true )` omija cache, ale opcję ZAPISUJE — dlatego to osobne
+	 * wejście, a nie flaga.
+	 *
+	 * {@see loopback_ok()} zostaje nietknięty jako sonda „czy w ogóle osiągalna".
+	 *
+	 * @return array{ok:bool,message:string,checked:int}
+	 */
+	public static function loopback_probe(): array {
+		$result            = self::probe_loopback();
+		$result['checked'] = time();
+
+		return $result;
+	}
+
+	/**
 	 * Czy adres wskazuje na środowisko lokalne/prywatne (certyfikat samopodpisany).
 	 *
 	 * Na `*.local` (Local by Flywheel) weryfikacja SSL zawsze zawodzi, więc crawl

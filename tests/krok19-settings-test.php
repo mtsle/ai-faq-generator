@@ -111,7 +111,8 @@ function k19_base_input( array $over = array() ) {
 			'api_key' => 'K', 'model' => 'gemini-2.5-flash', 'embed_model' => 'gemini-embedding-001',
 			'language' => 'pl', 'page_slug' => 'faqgenerator',
 			'rag_threshold' => 0.7, 'rag_top_k' => 5, 'rag_max_tokens' => 500, 'rag_temperature' => 0.2,
-			'rag_rate_limit' => 30, 'rag_threshold_hard' => 0.55, 'rag_thinking_budget' => 0,
+			// K20: domyślny limit 30 -> 10, próg twardy podłogowany na ZMIERZONE 0.65.
+			'rag_rate_limit' => 10, 'rag_threshold_hard' => 0.65, 'rag_thinking_budget' => 0,
 			'rag_contact_hint' => '',
 		),
 		$over
@@ -146,11 +147,15 @@ if ( $has_settings && method_exists( 'AIFAQ\Core\Settings', 'sanitize' ) ) {
 	$o = k19_sanitize( k19_base_input( array( 'rag_threshold' => 1.0, 'rag_threshold_hard' => 5.0 ) ) );
 	check( approx( 1.0, (float) $o['rag_threshold_hard'] ), 'NOWE — D4: hard = 5.0 → 1.0 (clamp górny; jest: ' . var_export( $o['rag_threshold_hard'], true ) . ')' );
 
+	// K20 (H2): clamp dolny progu twardego to już nie 0.05, tylko ZMIERZONA podłoga 0.65
+	// (M-cal2: max_off 0.6184 + 0.03). Intencja asercji — „zero nie otwiera bramki" — bez zmian.
 	$o = k19_sanitize( k19_base_input( array( 'rag_threshold_hard' => 0.0 ) ) );
-	check( approx( 0.05, (float) $o['rag_threshold_hard'] ), 'NOWE — D4: hard = 0.0 → 0.05 (clamp dolny; jest: ' . var_export( $o['rag_threshold_hard'], true ) . ')' );
+	check( approx( 0.65, (float) $o['rag_threshold_hard'] ), 'NOWE — D4: hard = 0.0 → 0.65 (clamp dolny = podłoga H2; jest: ' . var_export( $o['rag_threshold_hard'], true ) . ')' );
 
-	$o = k19_sanitize( k19_base_input( array( 'rag_threshold_hard' => 0.567 ) ) );
-	check( approx( 0.57, (float) $o['rag_threshold_hard'] ), 'NOWE — D5: hard = 0.567 → 0.57 (round WEWNĄTRZ min/max, jak u sąsiada)' );
+	// Wartość testowa 0.567 → 0.677: zaokrąglenie jest obserwowalne WYŁĄCZNIE powyżej
+	// podłogi 0.65, inaczej asercja mierzyłaby podłogę, a nie round() wewnątrz min/max.
+	$o = k19_sanitize( k19_base_input( array( 'rag_threshold_hard' => 0.677 ) ) );
+	check( approx( 0.68, (float) $o['rag_threshold_hard'] ), 'NOWE — D5: hard = 0.677 → 0.68 (round WEWNĄTRZ min/max, jak u sąsiada)' );
 
 	// D8 / D9 — walidacja krzyżowa: hard > soft schodzi CICHO do granicy.
 	$GLOBALS['__settings_err'] = 0;
@@ -159,11 +164,15 @@ if ( $has_settings && method_exists( 'AIFAQ\Core\Settings', 'sanitize' ) ) {
 	check( 0 === $GLOBALS['__settings_err'], 'NOWE — D9: zejście do granicy jest CICHE — zero add_settings_error (jest: ' . $GLOBALS['__settings_err'] . ')' );
 
 	// D10 — brak pola w $input nie kasuje wartości ($out = $current).
-	$GLOBALS['__opt']['aifaq_settings'] = array_merge( (array) \AIFAQ\Core\Settings::defaults(), array( 'rag_threshold_hard' => 0.45 ) );
+	// Poprzednia wartość 0.45 → 0.68. Musi leżeć w OKNIE między podłogą H2 (0.65)
+	// a progiem miękkim z fixture'u (0.70): poniżej podłogi asercja mierzyłaby podłogę,
+	// powyżej progu miękkiego — walidację krzyżową. W oknie mierzy to, co ma: że brak
+	// pola w $input nie kasuje zapisanej wartości.
+	$GLOBALS['__opt']['aifaq_settings'] = array_merge( (array) \AIFAQ\Core\Settings::defaults(), array( 'rag_threshold_hard' => 0.68 ) );
 	$in = k19_base_input();
 	unset( $in['rag_threshold_hard'] );
 	$o = k19_sanitize( $in );
-	check( array_key_exists( 'rag_threshold_hard', $o ) && approx( 0.45, (float) $o['rag_threshold_hard'] ), 'NOWE — D10: brak pola w $input → klucz obecny i równy poprzedniej wartości (0.45)' );
+	check( array_key_exists( 'rag_threshold_hard', $o ) && approx( 0.68, (float) $o['rag_threshold_hard'] ), 'NOWE — D10: brak pola w $input → klucz obecny i równy poprzedniej wartości (0.68)' );
 } else {
 	check( false, 'NOWE — sekcja B pominięta: brak metody Settings::sanitize()' );
 }
@@ -196,13 +205,15 @@ if ( $has_settings && method_exists( 'AIFAQ\Core\Settings', 'get' ) ) {
 	// Instalacja SPRZED K19: zapisane ustawienia bez trzech nowych kluczy.
 	$GLOBALS['__opt']['aifaq_settings'] = array(
 		'api_key' => 'STARY', 'model' => 'gemini-2.5-flash', 'language' => 'pl',
-		'rag_threshold' => 0.35, 'rag_top_k' => 5, 'rag_max_tokens' => 500,
+		// 0.35 → 0.85. Po K20 (H2) zapisane 0.35 JEST celowo podnoszone przez podłogę
+		// na odczycie, więc na tej wartości asercja mierzyłaby podłogę zamiast array_merge().
+		'rag_threshold' => 0.85, 'rag_top_k' => 5, 'rag_max_tokens' => 500,
 	);
 	$g = (array) \AIFAQ\Core\Settings::get();
 	check( array_key_exists( 'rag_threshold_hard', $g ) && approx( 0.65, (float) $g['rag_threshold_hard'] ), 'NOWE — D11: rag_threshold_hard wstrzyknięty z defaults() BEZ migracji (0.65 — zmierzone M-cal2)' );
 	check( array_key_exists( 'rag_thinking_budget', $g ) && 0 === $g['rag_thinking_budget'], 'NOWE — D11: rag_thinking_budget wstrzyknięty z defaults()' );
 	check( array_key_exists( 'rag_contact_hint', $g ) && '' === $g['rag_contact_hint'], 'NOWE — D11: rag_contact_hint wstrzyknięty z defaults()' );
-	check( approx( 0.35, (float) $g['rag_threshold'] ), 'REGRESJA — D11: zapisana wartość rag_threshold=0.35 NIE jest nadpisywana domyślną' );
+	check( approx( 0.85, (float) $g['rag_threshold'] ), 'REGRESJA — D11: zapisana wartość rag_threshold=0.85 NIE jest nadpisywana domyślną' );
 } else {
 	check( false, 'NOWE — D11 pominięta: brak metody Settings::get()' );
 }

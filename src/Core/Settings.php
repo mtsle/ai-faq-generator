@@ -73,7 +73,24 @@ class Settings {
 			'rag_threshold'          => 0.7,   // Próg cosinusa bramki tematu (0.0–1.0).
 			'rag_threshold_hard'     => 0.65,  // Próg twardy: fragmenty poniżej nie wchodzą do kontekstu (0.05–1.0). ZMIERZONA w K19 (M-cal2): max( 0.55 ; max_off 0.6184 + 0.03 ) = 0.6484, zaokrąglone w górę. Źródło: zasoby/bench/bench-058-mcal2.tsv, 2026-07-20.
 			'rag_top_k'              => 5,     // Ile najlepszych fragmentów bierze Answerer (1–10).
-			'rag_rate_limit'         => 30,    // Pytań/godz. na gościa (0 = wyłączony; 0–200).
+			// Pytań na gościa w OKNIE `rag_rate_window` (0 = wyłączony; 0–200).
+			// Krok 20: 30 → 10. Sufit dostawcy to 20 żądań/dobę/model (ZMIERZONE,
+			// `quotaValue: "20"`), a KAŻDE pytanie gościa kosztuje 1 embed + 1 generate.
+			// Limit 30/godz. pozwalał jednemu gościowi wyczerpać dobową pulę w kilka minut.
+			'rag_rate_limit'         => 10,
+			// Okno limitu gościa. 'godzina' jest domyślne ŚWIADOMIE (§2.1): sanitize()
+			// startuje od defaults+stored i zapisuje całą tablicę, więc każda instalacja,
+			// która choć raz kliknęła „Zapisz", ma zapisane rag_rate_limit = 30. Domyślne
+			// 'doba' znaczyłoby dla nich po aktualizacji 30/dobę = 24-krotne zaostrzenie
+			// bez jednego komunikatu. Ochronę puli realizuje sufit witryny niżej.
+			'rag_rate_window'        => 'godzina',
+			// Dobowy sufit CAŁEJ witryny (0 = wyłączony; 0–10000). 12, a nie 20, bo pytanie
+			// to 1 embed + 1 generate, a pule embed/generate są ODRĘBNE (E0b) — zostawiamy
+			// ~8 jednostek na reindeks i testy właściciela (właściciel jest z sufitu wyłączony).
+			'rag_daily_budget'       => 12,
+			// Czy ufać nagłówkom proxy przy ustalaniu tożsamości gościa. WYŁĄCZONY domyślnie:
+			// włączony na witrynie BEZ proxy pozwala każdemu ominąć limiter dowolnym nagłówkiem.
+			'rag_trusted_proxy'      => '0',
 			'rag_temperature'        => 0.2,   // Temperatura odpowiedzi RAG (osobna od `temperature`).
 			'rag_max_tokens'         => 500,   // Limit długości odpowiedzi (64–2048).
 			'rag_thinking_budget'    => 0,     // Budżet myślenia modelu: 0 = wyłączone, -1 = dynamiczne, 128–24576 = jawny budżet tokenów rozumowania.
@@ -90,20 +107,44 @@ class Settings {
 			'crawl_exclude'   => '',         // Slugi po przecinku — wykluczenie z WSZYSTKICH źródeł.
 			'meta_keys'       => '',         // Dodatkowe klucze postmeta (dokładane do listy domyślnej).
 			'meta_post_types' => 'post,page', // Typy wpisów przeszukiwane przez źródło postmeta.
+
+			// --- Link w menu nawigacji (Krok 20) — TU są tylko pokrętła. ---
+			// Całą logikę (diagnoza, tworzenie, usuwanie pozycji) czyta MenuGuard;
+			// ten plik nigdy nie sięga do nawigacji witryny.
+			'menu_link_enabled' => '1',             // '1'/'0' — czy dokładać pozycję do menu.
+			'menu_location'     => '',              // Klucz lokalizacji motywu; '' = wybór wg listy preferencji.
+			'menu_label'        => 'Generator FAQ', // Etykieta pozycji (maks. 60 znaków).
+
+			// --- Retencja historii generowań (Krok 20) — OPT-IN, oba 0 = NIE KASUJ NIC. ---
+			// Wartości dodatnie kasują wiersze NIEODWRACALNIE, a to jedyna kopia tych danych,
+			// więc domyślnie retencja jest wyłączona. Rekomendacja (200 / 90) siedzi w opisie
+			// pola, nie w wartości domyślnej: podmiana plików nie ma prawa skasować historii
+			// klienta bez jego zgody.
+			'generations_keep_rows' => 0,   // Ile najnowszych wierszy trzymać (0 = bez ograniczeń; 0–5000).
+			'generations_keep_days' => 0,   // Ile dni trzymać (0 = bez ograniczeń; 0–3650).
 		);
 	}
 
 	/**
 	 * Dostępne modele (whitelista + etykiety).
 	 *
+	 * Krok 20 (H1): etykiety mówią wprost, które modele mają na kluczu DARMOWYM
+	 * przydział ZERO. To pomiar, nie domysł — na darmowym kluczu `gemini-2.5-pro`
+	 * i `gemini-2.0-flash` zwracają 429 z `limit: 0` przy kwocie DZIENNEJ (czyli
+	 * przydział zerowy, nie wyczerpana pula).
+	 *
+	 * ŻADNEGO modelu NIE USUWAMY z whitelisty: ProviderFactory po cichu podmienia
+	 * model spoza listy na domyślny, więc usunięcie zabrałoby klientowi z kluczem
+	 * PŁATNYM działający 2.5-pro — bez słowa wyjaśnienia.
+	 *
 	 * @return array<string,string>
 	 */
 	public static function models(): array {
 		return array(
-			'gemini-2.5-flash'    => __( 'Gemini 2.5 Flash (szybki, zalecany)', 'ai-faq-generator' ),
-			'gemini-2.5-pro'      => __( 'Gemini 2.5 Pro (jakość)', 'ai-faq-generator' ),
-			'gemini-2.0-flash'    => __( 'Gemini 2.0 Flash', 'ai-faq-generator' ),
-			'gemini-flash-latest' => __( 'Gemini Flash (najnowszy)', 'ai-faq-generator' ),
+			'gemini-2.5-flash'    => __( 'Gemini 2.5 Flash (zalecany, darmowy przydział)', 'ai-faq-generator' ),
+			'gemini-flash-latest' => __( 'Gemini Flash (najnowszy, darmowy przydział)', 'ai-faq-generator' ),
+			'gemini-2.5-pro'      => __( 'Gemini 2.5 Pro (jakość — WYMAGA KLUCZA PŁATNEGO)', 'ai-faq-generator' ),
+			'gemini-2.0-flash'    => __( 'Gemini 2.0 Flash (WYMAGA KLUCZA PŁATNEGO)', 'ai-faq-generator' ),
 		);
 	}
 
@@ -143,7 +184,35 @@ class Settings {
 		if ( ! is_array( $stored ) ) {
 			$stored = array();
 		}
-		return array_merge( self::defaults(), $stored );
+		$all = array_merge( self::defaults(), $stored );
+
+		// PODŁOGA NA ODCZYCIE (Krok 20, H2) — obie wartości są WYNIKIEM POMIARU z Kroku 19
+		// (`max_off 0,6184 + 0,03`, zasoby/bench/bench-058-mcal2.tsv), a nie preferencją.
+		// Sama podłoga w sanitize() nie wystarcza: instalacje, które mają już zapisane
+		// np. 0,50 (dokładnie ten scenariusz, dla którego to powstało), zostałyby z nim
+		// NA ZAWSZE — sanitize() woła się dopiero przy zapisie ustawień. Obniżenie progu
+		// twardego wpuszcza z powrotem off-topic o zmierzonym score 0,6184, czyli jednym
+		// polem cofa wynik K19 (off_refused = 5/5) i pali dobową pulę dostawcy.
+		// Precedens w projekcie: RagService podłoguje próg miękki po stronie odczytu.
+		//
+		// Podłoga progu MIĘKKIEGO przechodzi przez filtr `aifaq_min_threshold` — ten sam,
+		// którym K19 uczynił swoją podłogę `RagService::ASK_MIN_THRESHOLD` (też 0,70)
+		// wyłączalną dla kogoś, kto świadomie chce niżej. Bez tego K20 postawiłby obok
+		// istniejącego mechanizmu jego gorszą, nieodwracalną kopię: filtr dalej by się
+		// wołał, tylko nie miałby już czego obniżyć. Pole w ustawieniach nadal NIE
+		// przebija podłogi — obniżyć ją może wyłącznie kod (§0.11 zamknięte).
+		// Próg TWARDY podłogi filtrowanej nie ma i nie potrzebuje: `RagService::make()`
+		// nakłada na niego filtr `aifaq_threshold_hard` PO odczycie, więc jego wartość
+		// pozostaje w pełni nadpisywalna z kodu.
+		$min_soft = 0.70;
+		if ( function_exists( 'apply_filters' ) ) {
+			$min_soft = (float) apply_filters( 'aifaq_min_threshold', $min_soft );
+		}
+
+		$all['rag_threshold']      = max( $min_soft, (float) $all['rag_threshold'] );
+		$all['rag_threshold_hard'] = max( 0.65, (float) $all['rag_threshold_hard'] );
+
+		return $all;
 	}
 
 	/**
@@ -280,16 +349,23 @@ class Settings {
 		// --- RAG (Krok 6) — każdy knob z twardym zakresem i bezpiecznym clampem (GC2). ---
 		// Fail-safe: wejście spoza zakresu → granica przedziału, nigdy fail-open (np. próg 0).
 
-		// Próg podobieństwa bramki tematu — 0.05–1.0. Dolna podłoga jest DODATNIA
-		// świadomie: próg 0.0 przepuszczałby wszystko (TopicGuard: best≥0 zawsze),
-		// czyli fail-open wyłączający bramkę tematu. Nie pozwalamy go ustawić.
-		if ( isset( $input['rag_threshold'] ) ) {
-			$out['rag_threshold'] = max( 0.05, min( 1.0, round( (float) $input['rag_threshold'], 2 ) ) );
-		}
+		// Próg podobieństwa bramki tematu — podłoga 0.70, sufit 1.0. Dolna podłoga
+		// jest DODATNIA świadomie: próg 0.0 przepuszczałby wszystko (TopicGuard:
+		// best≥0 zawsze), czyli fail-open wyłączający bramkę tematu.
+		//
+		// Krok 20 (H2): podłoga podniesiona z 0.05 do ZMIERZONEJ wartości 0.70 i blok
+		// PRZESTAJE zależeć od `isset()`. Kolejność jest tu częścią naprawy, nie stylem:
+		// przy zapisie, który tego pola nie przysyła (czyli KAŻDYM zapisie z frontu przez
+		// `RestController::handle_settings_save()`), stara wersja zostawiała zapisane np.
+		// 0,50, a walidacja krzyżowa niżej NATYCHMIAST ściągała do niego świeżo nałożoną
+		// podłogę progu twardego — czyli podłoga kasowała samą siebie.
+		$out['rag_threshold'] = max( 0.70, max( 0.05, min( 1.0, round( (float) ( $input['rag_threshold'] ?? $out['rag_threshold'] ), 2 ) ) ) );
 
-		// Próg twardy — 0.05–1.0, ale NIGDY powyżej progu miękkiego. To jedyna
-		// walidacja krzyżowa w tym pliku: blok stoi PO bloku `rag_threshold`,
-		// żeby czytać już zsanityzowaną wartość sąsiada, a nie surowe wejście.
+		// Próg twardy — podłoga 0.65 (POMIAR z K19: max( 0.55 ; max_off 0.6184 + 0.03 )),
+		// sufit 1.0, ale NIGDY powyżej progu miękkiego. To jedyna walidacja krzyżowa
+		// w tym pliku: blok stoi PO bloku `rag_threshold`, żeby czytać już zsanityzowaną
+		// wartość sąsiada, a nie surowe wejście. Sprzężenie `min( hard, soft )` ZOSTAJE —
+		// podłogi są nakładane PRZED nim (przy soft = 0.90 twardy wynosi max( 0.65, min( hard, 0.90 ) )).
 		//
 		// Brak `isset()` jest CELOWY — blok wykonuje się przy KAŻDYM zapisie, także
 		// gdy pola nie przysłano (`RestController::handle_settings_save()` przysyła
@@ -298,7 +374,7 @@ class Settings {
 		// Zejście do granicy jest CICHE — idiom „poza zakresem → GRANICA" obowiązuje
 		// dla wszystkich pól liczbowych; głośny wariant z komunikatem jest
 		// zarezerwowany dla `page_slug`, gdzie ciche cofnięcie tworzyło pętlę bez wyjścia.
-		$hard = max( 0.05, min( 1.0, round( (float) ( $input['rag_threshold_hard'] ?? $out['rag_threshold_hard'] ), 2 ) ) );
+		$hard = max( 0.65, max( 0.05, min( 1.0, round( (float) ( $input['rag_threshold_hard'] ?? $out['rag_threshold_hard'] ), 2 ) ) ) );
 		if ( $hard > $out['rag_threshold'] ) {
 			$hard = $out['rag_threshold'];   // cicho do granicy, BEZ add_settings_error()
 		}
@@ -309,9 +385,31 @@ class Settings {
 			$out['rag_top_k'] = max( 1, min( 10, (int) $input['rag_top_k'] ) );
 		}
 
-		// Limit zapytań/godz. na gościa — 0–200 (0 = wyłączony).
+		// Limit zapytań na gościa w wybranym oknie — 0–200 (0 = wyłączony).
 		if ( isset( $input['rag_rate_limit'] ) ) {
 			$out['rag_rate_limit'] = max( 0, min( 200, (int) $input['rag_rate_limit'] ) );
+		}
+
+		// Okno limitu — whitelista; wartość spoza listy wraca do 'godzina' (nigdy do 'doba':
+		// zaostrzenie okna bez wiedzy właściciela byłoby cichą zmianą znaczenia liczby wyżej).
+		if ( isset( $input['rag_rate_window'] ) ) {
+			$win = (string) $input['rag_rate_window'];
+			$out['rag_rate_window'] = in_array( $win, array( 'godzina', 'doba' ), true ) ? $win : 'godzina';
+		}
+
+		// Dobowy sufit CAŁEJ witryny — 0–10000 (0 = wyłączony, wariant dla klucza płatnego).
+		if ( isset( $input['rag_daily_budget'] ) ) {
+			$out['rag_daily_budget'] = max( 0, min( 10000, (int) $input['rag_daily_budget'] ) );
+		}
+
+		// Zaufany proxy — wartość LOGICZNA '1'/'0' przetwarzana WYŁĄCZNIE pod `isset()`.
+		//
+		// PUŁAPKA (ta sama co przy `crawl_enabled` niżej): idiom bez `isset()` gasiłby
+		// przełącznik przy każdym zapisie z frontu (cztery pola), a wtedy za Cloudflare
+		// wszyscy goście wracają do JEDNEGO kubełka limitera. Formularz dokłada ukryty
+		// input `value="0"` przed checkboxem, więc odznaczenie i tak jest przesyłane.
+		if ( isset( $input['rag_trusted_proxy'] ) ) {
+			$out['rag_trusted_proxy'] = ( '1' === (string) $input['rag_trusted_proxy'] ) ? '1' : '0';
 		}
 
 		// Temperatura odpowiedzi RAG — 0.0–1.0 (osobna od `temperature` FAQ).
@@ -404,6 +502,50 @@ class Settings {
 			$out['meta_post_types'] = ( '' !== $types ) ? $types : 'post,page';
 		}
 
+		// --- Link w menu nawigacji (Krok 20). ---
+
+		// Przełącznik — wartość LOGICZNA '1'/'0' przetwarzana WYŁĄCZNIE pod `isset()`.
+		// Idiom bez `isset()` ustawiałby '0' przy każdym zapisie z frontu, a stan
+		// „wyłączone" jest TERMINALNY dla bramki MenuGuarda — link zgasłby NA TRWAŁE.
+		// Formularz dokłada ukryty input `value="0"` przed checkboxem.
+		if ( isset( $input['menu_link_enabled'] ) ) {
+			$out['menu_link_enabled'] = ( '1' === (string) $input['menu_link_enabled'] ) ? '1' : '0';
+		}
+
+		// Lokalizacja menu — whitelista z motywu; nieznana → '' (= wybór automatyczny).
+		//
+		// `function_exists()` jest OBOWIĄZKOWE: sanitize() bywa wołane w czystym PHP CLI
+		// (testy jednostkowe) i z WP-CLI, gdzie API nawigacji nie jest załadowane —
+		// bez osłony byłby Fatal zamiast FAIL. Brak funkcji → wartość przechodzi
+		// bez walidacji (i tak zweryfikuje ją MenuGuard przed użyciem).
+		if ( isset( $input['menu_location'] ) ) {
+			$loc = sanitize_text_field( wp_unslash( $input['menu_location'] ) );
+			if ( '' !== $loc && function_exists( 'get_registered_nav_menus' ) ) {
+				if ( ! in_array( $loc, array_keys( (array) get_registered_nav_menus() ), true ) ) {
+					$loc = '';
+				}
+			}
+			$out['menu_location'] = $loc;
+		}
+
+		// Etykieta pozycji — obcięta do 60 znaków (dłuższa rozwala nawigację motywu).
+		// Pusta wraca do domyślnej: pozycja menu BEZ tytułu jest w kokpicie nieklikalna,
+		// a gość widziałby pusty odstęp w nawigacji.
+		if ( isset( $input['menu_label'] ) ) {
+			$label = mb_substr( sanitize_text_field( wp_unslash( $input['menu_label'] ) ), 0, 60 );
+			$out['menu_label'] = ( '' !== trim( $label ) ) ? $label : (string) self::defaults()['menu_label'];
+		}
+
+		// --- Retencja historii generowań (Krok 20) — OPT-IN. ---
+		// Oba wymiary działają niezależnie; 0 wyłącza wymiar. Kasowanie wykonuje
+		// GenerationRepository::prune() — tutaj są wyłącznie pokrętła.
+		if ( isset( $input['generations_keep_rows'] ) ) {
+			$out['generations_keep_rows'] = max( 0, min( 5000, (int) $input['generations_keep_rows'] ) );
+		}
+		if ( isset( $input['generations_keep_days'] ) ) {
+			$out['generations_keep_days'] = max( 0, min( 3650, (int) $input['generations_keep_days'] ) );
+		}
+
 		return $out;
 	}
 
@@ -428,6 +570,21 @@ class Settings {
 
 		if ( $old_slug !== $new_slug ) {
 			update_option( self::FLUSH_FLAG, '1' );
+		}
+
+		// Krok 20: zmiana ustawień linku w menu UNIEWAŻNIA bramkę MenuGuarda.
+		// Bramka `aifaq_menu_ok = '0'` jest TERMINALNA (stany `disabled`,
+		// `removed_by_user`, `failed` po trzech próbach) — bez tego zerowania klient,
+		// który po komunikacie utworzy menu i przestawi przełącznik albo wskaże
+		// lokalizację, NIGDY nie dostałby pozycji. Zerujemy jednym `update_option`,
+		// bez sięgania do MenuGuarda (klasa należy do innego etapu).
+		$old_menu_on  = is_array( $old_value ) ? (string) ( $old_value['menu_link_enabled'] ?? '1' ) : '1';
+		$new_menu_on  = is_array( $new_value ) ? (string) ( $new_value['menu_link_enabled'] ?? '1' ) : '1';
+		$old_menu_loc = is_array( $old_value ) ? (string) ( $old_value['menu_location'] ?? '' ) : '';
+		$new_menu_loc = is_array( $new_value ) ? (string) ( $new_value['menu_location'] ?? '' ) : '';
+
+		if ( $old_menu_on !== $new_menu_on || $old_menu_loc !== $new_menu_loc ) {
+			update_option( 'aifaq_menu_ok', '' );
 		}
 
 		$old_crawl = is_array( $old_value ) ? (string) ( $old_value['crawl_enabled'] ?? '1' ) : '1';

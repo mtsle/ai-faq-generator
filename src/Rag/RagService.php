@@ -2,10 +2,11 @@
 /**
  * RagService — publiczna fasada rdzenia RAG.
  *
- * Spina cały potok pytania gościa: sanityzacja → cache → rate-limit → embedding
- * pytania → retrieval → bramka tematu → generacja odpowiedzi → zapis cache i
- * dziennika. Kolejność egzekwuje koszt (GR5): cache PRZED generacją, rate-limit
- * PRZED API. Zwraca ustrukturyzowany wynik; zero wyjątków (GR7).
+ * Spina cały potok pytania gościa: sanityzacja → cache → limiter gościa → dobowy
+ * sufit witryny → embedding pytania → retrieval → bramka tematu → generacja
+ * odpowiedzi → zapis cache i dziennika. Kolejność egzekwuje koszt (GR5): cache
+ * PRZED generacją, obie bramki limitów PRZED API. Zwraca ustrukturyzowany wynik;
+ * zero wyjątków (GR7).
  *
  * To jest de-facto kontrakt konsumowany przez Krok 7 (REST `/ask`).
  *
@@ -16,6 +17,12 @@
  *    bez `ORDER BY` — dawne `array_values()` gubiło ranking w jednej linii;
  *  - dwa progi (twardy = podłoga dopuszczalności, miękki = pełne pokrycie);
  *  - 429 dostawcy przestaje udawać awarię, a blokada bezpieczeństwa — odmowę techniczną.
+ *
+ * Krok 20 (obszar C):
+ *  - dobowy sufit CAŁEJ witryny (`rag_daily_budget`) — jedna jednostka na pytanie
+ *    gościa, nie na wywołanie dostawcy; właściciel z sufitu wyłączony;
+ *  - nieudane żądanie nie kradnie jednostki: gość i witryna dostają zwrot, ale
+ *    WYŁĄCZNIE gdy żądanie realnie opuściło proces (`http_status !== 0`).
  *
  * @package AI_FAQ_Generator
  */
@@ -147,6 +154,12 @@ class RagService {
 			$hard = (float) apply_filters( 'aifaq_threshold_hard', $hard );
 		}
 
+		// Okno limitera gościa: 'godzina' (domyślnie) albo 'doba'. Domyślną zostawiamy
+		// godzinę świadomie — instalacje sprzed K20 mają zapisane `rag_rate_limit = 30`,
+		// które przy oknie dobowym oznaczałoby 24-krotne zaostrzenie bez jednego słowa
+		// ostrzeżenia. Pulę u dostawcy chroni dobowy sufit witryny, nie to okno.
+		$window = ( 'doba' === (string) Settings::get_field( 'rag_rate_window', 'godzina' ) ) ? 86400 : 3600;
+
 		$config = array(
 			'threshold'       => self::soft_threshold( (float) Settings::get_field( 'rag_threshold', 0.7 ) ),
 			'threshold_hard'  => $hard,
@@ -155,6 +168,10 @@ class RagService {
 			'max_tokens'      => (int) Settings::get_field( 'rag_max_tokens', 500 ),
 			'thinking_budget' => (int) Settings::get_field( 'rag_thinking_budget', 0 ),
 			'language'        => (string) Settings::get_field( 'language', 'pl' ),
+			// Dobowy sufit witryny. Czytany TUTAJ, jak każde inne ustawienie RAG —
+			// `ask()` nie sięga do Settings, więc serwis zbudowany wprost (harnessy,
+			// integracje) ma sufit wyłączony i nie może paść na braku shimów.
+			'daily_budget'    => (int) Settings::get_field( 'rag_daily_budget', 12 ),
 			'refusals'        => array(
 				'pl' => (string) Settings::get_field( 'rag_refusal_message_pl', '' ),
 				'en' => (string) Settings::get_field( 'rag_refusal_message_en', '' ),
@@ -166,7 +183,7 @@ class RagService {
 			$provider,
 			new Retriever( $knowledge ),
 			new TopicGuard(),
-			new RateLimiter( (int) Settings::get_field( 'rag_rate_limit', 30 ) ),
+			new RateLimiter( (int) Settings::get_field( 'rag_rate_limit', 10 ), null, $window ),
 			new Answerer( $provider ),
 			$knowledge,
 			new CacheRepository(),
@@ -230,21 +247,37 @@ class RagService {
 			return $this->finish( 'answered', $answer, 1.0, 'cache', $debug );
 		}
 
-		// 2) Rate-limit PRZED API (GR5) — ochrona kosztu/klucza.
+		// 2) Limiter gościa PRZED API (GR5) — ochrona kosztu/klucza.
 		if ( ! $this->limiter->allow( $ip_hash ) ) {
 			$debug['stage'] = 'rate_limit';
 			$this->log( $q, '', 'error', 'rate_limit', 0.0, $ip_hash );
 			return $this->finish( 'error', '', 0.0, 'rate_limit', $debug );
 		}
-		$this->limiter->hit( $ip_hash );
 
-		// 3) Embedding pytania — ten sam provider, model i wymiar co dokumenty (GR3).
+		// 3) Dobowy sufit CAŁEJ witryny — po limicie gościa, PRZED inkrementacją
+		//    czegokolwiek: odbicie na sufcie nie ma prawa zjeść jednostki gościa.
+		//    Przekroczenie mapuje się na ISTNIEJĄCY `rate_limit` (→ HTTP 429);
+		//    nowa wartość `source` rozjechałaby REST i front, które w tym Kroku
+		//    nie zmieniają się o ani jeden bajt.
+		if ( ! $this->budget_allows() ) {
+			$debug['stage'] = 'rate_limit';
+			$this->log( $q, '', 'error', 'rate_limit', 0.0, $ip_hash );
+			return $this->finish( 'error', '', 0.0, 'rate_limit', $debug );
+		}
+
+		// Obie jednostki (gościa i witryny) pobieramy w JEDNYM miejscu — dopiero za
+		// obiema bramkami i wciąż przed pierwszym wyjściem do dostawcy.
+		$this->limiter->hit( $ip_hash );
+		$this->budget_hit();
+
+		// 4) Embedding pytania — ten sam provider, model i wymiar co dokumenty (GR3).
 		//    Od Kroku 19 różnić się może wyłącznie ZADANIE embeddingu (taskType), i tylko
 		//    wtedy, gdy podpis indeksu potwierdza, że baza policzona jest tą samą metodą.
 		$embed = $this->provider->embed( array( $q ) );
 		if ( is_wp_error( $embed ) || ! isset( $embed[0] ) || ! is_array( $embed[0] ) ) {
 			$debug['stage']    = 'embed';
 			$debug['provider'] = $this->provider_meta();
+			$this->refund_unit( $ip_hash );
 
 			// Embedding idzie PIERWSZY w każdym żądaniu, więc to najczęstsze miejsce
 			// trafienia w limit dostawcy. Kod błędu jest tu WYŁĄCZNIE z WP_Error.
@@ -259,7 +292,7 @@ class RagService {
 		}
 		$vector = $embed[0];
 
-		// 4) Retrieval + bramka tematu (dwa progi, filtr balastu per fragment).
+		// 5) Retrieval + bramka tematu (dwa progi, filtr balastu per fragment).
 		$results = $this->retriever->retrieve( $vector, (int) $this->config['top_k'] );
 
 		$filter_ids = true;
@@ -281,7 +314,7 @@ class RagService {
 			return $this->finish( 'refused', $msg, $score, 'ai', $debug );
 		}
 
-		// 5) Kolejność trafności odtworzona TUTAJ — contents_for() zwraca mapę id => treść
+		// 6) Kolejność trafności odtworzona TUTAJ — contents_for() zwraca mapę id => treść
 		//    bez ORDER BY, więc bez tej pętli najtrafniejszy fragment lądował w środku
 		//    kontekstu. Ta sama pętla buduje nagłówki źródeł, tym samym licznikiem.
 		$order_on = true;
@@ -370,13 +403,173 @@ class RagService {
 		}
 
 		if ( in_array( $gen_err, array( 'aifaq_gemini_rate', 'aifaq_gemini_busy' ), true ) ) {
+			$this->refund_unit( $ip_hash );
 			$this->log( $q, '', 'error', 'provider_rate_limit', $score, $ip_hash );
 			return $this->finish( 'error', '', $score, 'provider_rate_limit', $debug );
 		}
 
 		// Błąd generacji — nie zmyślamy (GR4).
+		$this->refund_unit( $ip_hash );
 		$this->log( $q, '', 'error', 'ai', $score, $ip_hash );
 		return $this->finish( 'error', '', $score, 'ai', $debug );
+	}
+
+	/**
+	 * Zwraca jednostkę gościa i witryny po nieudanym żądaniu.
+	 *
+	 * WARUNEK JEST ZAMKNIĘTY: zwracamy wyłącznie wtedy, gdy żądanie realnie
+	 * opuściło proces. Po naprawie wyłącznika obwodu (K20, obszar F) dostawca
+	 * oddaje `WP_Error` bez wyjścia do sieci przez cały cooldown — przy limicie
+	 * dobowym nawet 3600 s. Reguła „zwracaj przy każdym błędzie" oznaczałaby, że
+	 * przez ten czas żaden licznik nie rośnie, a każde żądanie i tak robi SELECT
+	 * cache'u i INSERT do `qa_log`: bot dostałby nielimitowany endpoint piszący
+	 * do bazy klienta. Brak `last_meta()` → NIE zwracamy (bezpieczna strona).
+	 *
+	 * @param string $ip_hash Identyfikator gościa.
+	 */
+	private function refund_unit( string $ip_hash ): void {
+		if ( ! method_exists( $this->provider, 'last_meta' ) ) {
+			return;
+		}
+		$meta = $this->provider->last_meta();
+		if ( ! is_array( $meta ) || 0 === (int) ( $meta['http_status'] ?? 0 ) ) {
+			return;
+		}
+		$this->limiter->refund( $ip_hash );
+		$this->budget_refund();
+	}
+
+	/**
+	 * Czy MECHANIZM dobowego sufitu jest w ogóle włączony w tym żądaniu.
+	 *
+	 * Kolejność warunków jest istotna: przy `rag_daily_budget = 0` (sufit
+	 * wyłączony, np. klucz płatny) NIE wykonuje się ani jeden odczyt opcji.
+	 * Brak którejkolwiek funkcji WordPressa oznacza „sufit nieaktywny", nigdy
+	 * błąd krytyczny — `ask()` bywa wykonywane w czystym PHP CLI.
+	 *
+	 * ROZDZIELENIE OD BRAMKI jest celowe (§13.12). Licznik zużycia ma widzieć
+	 * KAŻDE pytanie, które realnie zjada pulę u dostawcy — także pytanie
+	 * właściciela zadane z kokpitu. Licznik, który tych pytań nie widzi, kłamie:
+	 * sufit dla gości zamyka się za późno, a ślad `aifaq_budget_hit` zapala się
+	 * po czasie. Wyłączenie właściciela dotyczy WYŁĄCZNIE decyzji o odbiciu
+	 * i mieszka w {@see budget_active()}.
+	 *
+	 * @return bool
+	 */
+	private function budget_enabled(): bool {
+		$budget = (int) ( $this->config['daily_budget'] ?? 0 );
+		if ( $budget <= 0 ) {
+			return false;
+		}
+		if ( defined( 'AIFAQ_TESTING' ) ) {
+			return false;
+		}
+		if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' )
+			|| ! function_exists( 'current_time' ) ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * Czy BRAMKA sufitu obowiązuje tego pytającego.
+	 *
+	 * Właściciel jest z odbijania JAWNIE wyłączony — inaczej klient, który po
+	 * wyczerpaniu puli testuje własną wtyczkę, zgłosi to jako awarię. Jednostkę
+	 * mimo to płaci: patrz {@see budget_enabled()} i §13.12.
+	 *
+	 * @return bool
+	 */
+	private function budget_active(): bool {
+		if ( ! $this->budget_enabled() ) {
+			return false;
+		}
+		return ! ( function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) );
+	}
+
+	/**
+	 * Zużycie doby (kształt `array( 'd' => 'RRRR-MM-DD', 'n' => int )`).
+	 * Inna data w opcji → licznik startuje od zera.
+	 *
+	 * @return array{d:string,n:int}
+	 */
+	private function budget_usage(): array {
+		$today = (string) current_time( 'Y-m-d' );
+		$raw   = get_option( 'aifaq_daily_usage', array() );
+
+		if ( ! is_array( $raw ) || (string) ( $raw['d'] ?? '' ) !== $today ) {
+			return array(
+				'd' => $today,
+				'n' => 0,
+			);
+		}
+		return array(
+			'd' => $today,
+			'n' => max( 0, (int) ( $raw['n'] ?? 0 ) ),
+		);
+	}
+
+	/**
+	 * Bramka sufitu. Przy przekroczeniu zostawia właścicielowi ślad `aifaq_budget_hit`
+	 * (data `RRRR-MM-DD`, ten sam zegar co licznik) — bez niego sufit byłby
+	 * niewidzialną awarią: gość widzi 429, a klient nie wie dlaczego.
+	 *
+	 * @return bool
+	 */
+	private function budget_allows(): bool {
+		if ( ! $this->budget_active() ) {
+			return true;
+		}
+		$usage = $this->budget_usage();
+		if ( $usage['n'] < (int) $this->config['daily_budget'] ) {
+			return true;
+		}
+		update_option( 'aifaq_budget_hit', (string) current_time( 'Y-m-d' ), false );
+		return false;
+	}
+
+	/**
+	 * Pobiera jednostkę witryny (jedno pytanie gościa = jedna jednostka,
+	 * niezależnie od tego, ile wywołań dostawcy się za nim kryje).
+	 */
+	private function budget_hit(): void {
+		// `budget_enabled()`, nie `budget_active()` — pytanie właściciela też zjada
+		// pulę dostawcy, więc też musi zwiększyć licznik (§13.12, znalezisko O-92).
+		if ( ! $this->budget_enabled() ) {
+			return;
+		}
+		$usage = $this->budget_usage();
+		update_option(
+			'aifaq_daily_usage',
+			array(
+				'd' => $usage['d'],
+				'n' => $usage['n'] + 1,
+			),
+			false
+		);
+	}
+
+	/**
+	 * Oddaje jednostkę witryny. Nigdy poniżej zera; przy zerze — no-op.
+	 */
+	private function budget_refund(): void {
+		// Symetrycznie do `budget_hit()`: skoro jednostkę pobrano także właścicielowi,
+		// to przy błędzie dostawcy trzeba mu ją oddać.
+		if ( ! $this->budget_enabled() ) {
+			return;
+		}
+		$usage = $this->budget_usage();
+		if ( $usage['n'] <= 0 ) {
+			return;
+		}
+		update_option(
+			'aifaq_daily_usage',
+			array(
+				'd' => $usage['d'],
+				'n' => $usage['n'] - 1,
+			),
+			false
+		);
 	}
 
 	/**

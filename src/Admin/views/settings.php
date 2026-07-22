@@ -20,6 +20,17 @@ $aifaq_langs   = Settings::languages();
 $aifaq_test    = wp_create_nonce( Settings::NONCE_TEST );
 $aifaq_has_key = '' !== (string) ( $aifaq['api_key'] ?? '' );
 
+// Lokalizacje menu zarejestrowane przez motyw (Krok 20). Pusta lista = motyw blokowy
+// albo motyw bez klasycznych menu — wtedy zamiast pustego <select> pokazujemy jawny
+// komunikat, bo cicho pusta lista wygląda jak awaria wtyczki.
+$aifaq_nav_locations = function_exists( 'get_registered_nav_menus' ) ? (array) get_registered_nav_menus() : array();
+
+// Okna limitu gościa — whitelista spójna z Settings::sanitize().
+$aifaq_rate_windows = array(
+	'godzina' => __( 'godzina', 'ai-faq-generator' ),
+	'doba'    => __( 'doba', 'ai-faq-generator' ),
+);
+
 // Etykiety języków dla komunikatów odmowy (RAG) — spójne z whitelistą języków.
 $aifaq_refusal_langs = array(
 	'pl' => __( 'polski', 'ai-faq-generator' ),
@@ -104,6 +115,7 @@ $aifaq_refusal_langs = array(
 								</option>
 							<?php endforeach; ?>
 						</select>
+						<p class="description"><?php esc_html_e( 'Modele oznaczone „WYMAGA KLUCZA PŁATNEGO" mają na kluczu darmowym przydział ZERO — pierwsze pytanie skończy się błędem. Uwaga: „Test połączenia" sprawdza sam klucz, a nie przydział wybranego modelu (realna próba kosztowałaby jedno z 20 dobowych żądań przy każdym kliknięciu).', 'ai-faq-generator' ); ?></p>
 					</td>
 				</tr>
 
@@ -193,11 +205,11 @@ $aifaq_refusal_langs = array(
 							type="number"
 							id="aifaq-rag-threshold"
 							name="aifaq_settings[rag_threshold]"
-							min="0" max="1" step="0.05"
+							min="0.7" max="1" step="0.05"
 							value="<?php echo esc_attr( $aifaq['rag_threshold'] ); ?>"
 							class="small-text"
 						>
-						<p class="description"><?php esc_html_e( 'Minimalne podobieństwo pytania do treści strony (0–1). Poniżej progu → grzeczna odmowa. Wyżej = ostrzej.', 'ai-faq-generator' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Minimalne podobieństwo pytania do treści strony. Poniżej progu → grzeczna odmowa. Wyżej = ostrzej. Wartość 0,70 jest SKALIBROWANA POMIAREM na realnych pytaniach i stanowi dolną granicę — niższą wpisaną wartość wtyczka podniesie z powrotem do 0,70, bo obniżenie wpuszcza pytania spoza tematu strony (i płaci za nie z Twojego limitu).', 'ai-faq-generator' ); ?></p>
 					</td>
 				</tr>
 
@@ -210,11 +222,11 @@ $aifaq_refusal_langs = array(
 							type="number"
 							id="aifaq-rag-threshold-hard"
 							name="aifaq_settings[rag_threshold_hard]"
-							min="0.05" max="1" step="0.05"
+							min="0.65" max="1" step="0.05"
 							value="<?php echo esc_attr( $aifaq['rag_threshold_hard'] ); ?>"
 							class="small-text"
 						>
-						<p class="description"><?php esc_html_e( 'Fragmenty o dopasowaniu poniżej tej wartości w ogóle nie trafiają do odpowiedzi. Musi być mniejszy lub równy progowi dopasowania tematu — wyższa wartość zostanie po cichu obniżona do niego.', 'ai-faq-generator' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Fragmenty o dopasowaniu poniżej tej wartości w ogóle nie trafiają do odpowiedzi. Wartość 0,65 jest SKALIBROWANA POMIAREM (najwyższe dopasowanie pytania spoza tematu wyniosło 0,62) i stanowi dolną granicę — niższą wpisaną wartość wtyczka podniesie z powrotem do 0,65, bo obniżenie wpuszcza pytania spoza tematu strony. Musi być mniejszy lub równy progowi dopasowania tematu — wyższa wartość zostanie po cichu obniżona do niego.', 'ai-faq-generator' ); ?></p>
 					</td>
 				</tr>
 
@@ -237,7 +249,7 @@ $aifaq_refusal_langs = array(
 
 				<tr>
 					<th scope="row">
-						<label for="aifaq-rag-rate-limit"><?php esc_html_e( 'Limit pytań na godzinę', 'ai-faq-generator' ); ?></label>
+						<label for="aifaq-rag-rate-limit"><?php esc_html_e( 'Limit pytań na gościa', 'ai-faq-generator' ); ?></label>
 					</th>
 					<td>
 						<input
@@ -248,7 +260,7 @@ $aifaq_refusal_langs = array(
 							value="<?php echo esc_attr( $aifaq['rag_rate_limit'] ); ?>"
 							class="small-text"
 						>
-						<p class="description"><?php esc_html_e( 'Maks. pytań od jednego gościa w ciągu godziny. 0 = bez limitu.', 'ai-faq-generator' ); ?></p>
+						<p class="description"><?php esc_html_e( 'Maks. pytań od jednego gościa w jednym oknie czasu. Długość okna ustawiasz niżej, w sekcji „Limity” (domyślnie godzina). 0 = bez limitu. Każde pytanie kosztuje dwa żądania do dostawcy AI, więc to pierwsza linia obrony Twojej dobowej puli.', 'ai-faq-generator' ); ?></p>
 					</td>
 				</tr>
 
@@ -437,6 +449,193 @@ $aifaq_refusal_langs = array(
 						<p class="description">
 							<strong><?php esc_html_e( 'Uwaga o koszcie:', 'ai-faq-generator' ); ?></strong>
 							<?php esc_html_e( 'Zmiana dwóch pierwszych ustawień kasuje to, co już pobrano, i wymaga ponownego zaindeksowania treści — a to ponowne, płatne liczenie embeddingów u dostawcy AI.', 'ai-faq-generator' ); ?>
+						</p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row" colspan="2" class="aifaq-section-head">
+						<h2 style="margin:1.5em 0 .2em;"><?php esc_html_e( 'Link w menu nawigacji', 'ai-faq-generator' ); ?></h2>
+						<p class="description" style="font-weight:normal;"><?php esc_html_e( 'Bez linku gość nie ma jak trafić do publicznego generatora — podstrona istnieje, ale nie prowadzi do niej żadne łącze. Wtyczka dokłada pozycję wyłącznie do menu, które motyw JUŻ wyświetla; sama nigdy nie tworzy nowego menu ani nie przypina go do lokalizacji, bo mogłaby tym zastąpić całą nawigację Twojej strony.', 'ai-faq-generator' ); ?></p>
+					</th>
+				</tr>
+
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Pozycja w menu', 'ai-faq-generator' ); ?></th>
+					<td>
+						<?php
+						/*
+						 * UKRYTY INPUT MUSI STAĆ PRZED CHECKBOXEM (jak przy `crawl_enabled`).
+						 * Odznaczony checkbox nie wysyła NICZEGO, a Settings::sanitize()
+						 * przetwarza to pole wyłącznie pod isset() — inaczej zapis czterech
+						 * pól z panelu na froncie gasiłby link NA TRWAŁE (stan „wyłączone"
+						 * jest dla bramki terminalny).
+						 */
+						?>
+						<input type="hidden" name="aifaq_settings[menu_link_enabled]" value="0">
+						<label for="aifaq-menu-link-enabled">
+							<input
+								type="checkbox"
+								id="aifaq-menu-link-enabled"
+								name="aifaq_settings[menu_link_enabled]"
+								value="1"
+								<?php checked( '1', (string) ( $aifaq['menu_link_enabled'] ?? '1' ) ); ?>
+							>
+							<?php esc_html_e( 'Dodaj link do generatora w menu nawigacji (zalecane)', 'ai-faq-generator' ); ?>
+						</label>
+						<p class="description"><?php esc_html_e( 'Wyłączenie dotyczy przyszłych instalacji — istniejącej pozycji wtyczka sama nie usunie. Żeby zdjąć link już teraz, skasuj go ręcznie w Wygląd → Menu albo wyłącz wtyczkę (deaktywacja usuwa pozycję, którą wtyczka utworzyła).', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-menu-location"><?php esc_html_e( 'Lokalizacja menu', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<?php if ( empty( $aifaq_nav_locations ) ) : ?>
+							<p class="description">
+								<strong><?php esc_html_e( 'Ten motyw nie udostępnia klasycznych menu.', 'ai-faq-generator' ); ?></strong>
+								<?php esc_html_e( 'Nie zarejestrował żadnej lokalizacji menu (typowe dla motywów blokowych, gdzie nawigację składa się w Wygląd → Edytor). Wtyczka nie ma gdzie dołożyć pozycji — link do generatora dodaj ręcznie w edytorze nawigacji.', 'ai-faq-generator' ); ?>
+							</p>
+						<?php else : ?>
+							<select id="aifaq-menu-location" name="aifaq_settings[menu_location]">
+								<option value="" <?php selected( '', (string) ( $aifaq['menu_location'] ?? '' ) ); ?>>
+									<?php esc_html_e( 'Automatycznie (pierwsze z: primary, main, header, menu-1, top)', 'ai-faq-generator' ); ?>
+								</option>
+								<?php foreach ( $aifaq_nav_locations as $aifaq_loc => $aifaq_loc_label ) : ?>
+									<option value="<?php echo esc_attr( $aifaq_loc ); ?>" <?php selected( (string) $aifaq_loc, (string) ( $aifaq['menu_location'] ?? '' ) ); ?>>
+										<?php echo esc_html( $aifaq_loc_label . ' (' . $aifaq_loc . ')' ); ?>
+									</option>
+								<?php endforeach; ?>
+							</select>
+							<p class="description"><?php esc_html_e( 'Gdzie ma trafić link. Przy wyborze automatycznym wtyczka bierze pierwszą lokalizację o typowej nazwie głównego menu — a gdy żadna nie pasuje, NIE zgaduje (link w menu ikon społecznościowych albo w stopce psułby wygląd strony) i prosi tutaj o wskazanie ręczne. Jeśli do wybranej lokalizacji nie jest przypięte żadne menu, dostaniesz komunikat w kokpicie.', 'ai-faq-generator' ); ?></p>
+						<?php endif; ?>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-menu-label"><?php esc_html_e( 'Etykieta pozycji', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="text"
+							id="aifaq-menu-label"
+							name="aifaq_settings[menu_label]"
+							value="<?php echo esc_attr( (string) ( $aifaq['menu_label'] ?? 'Generator FAQ' ) ); ?>"
+							class="regular-text"
+							maxlength="60"
+						>
+						<p class="description"><?php esc_html_e( 'Tekst widoczny w menu (maks. 60 znaków). Puste pole wraca do „Generator FAQ". Zmiana etykiety nie przenosi pozycji — nazwę istniejącej możesz też poprawić w Wygląd → Menu.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row" colspan="2" class="aifaq-section-head">
+						<h2 style="margin:1.5em 0 .2em;"><?php esc_html_e( 'Historia generowań', 'ai-faq-generator' ); ?></h2>
+						<p class="description" style="font-weight:normal;"><?php esc_html_e( 'Ile zapisanych generacji FAQ trzymać w bazie. Domyślnie wtyczka NIE KASUJE NICZEGO — sprzątanie włączasz świadomie, bo to jedyna kopia tych danych.', 'ai-faq-generator' ); ?></p>
+					</th>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-generations-keep-rows"><?php esc_html_e( 'Trzymaj ostatnich generacji', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-generations-keep-rows"
+							name="aifaq_settings[generations_keep_rows]"
+							min="0" max="5000"
+							value="<?php echo esc_attr( (string) ( $aifaq['generations_keep_rows'] ?? 0 ) ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( '0 = bez ograniczeń (nic nie jest kasowane). Wartość dodatnia zostawia tylko tyle najnowszych wpisów — starsze zostaną trwale usunięte przy najbliższym generowaniu. Rozsądna wartość na start: 200.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-generations-keep-days"><?php esc_html_e( 'Trzymaj generacje przez (dni)', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-generations-keep-days"
+							name="aifaq_settings[generations_keep_days]"
+							min="0" max="3650"
+							value="<?php echo esc_attr( (string) ( $aifaq['generations_keep_days'] ?? 0 ) ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( '0 = bez ograniczeń. Wartość dodatnia oznacza, że wpisy starsze niż podana liczba dni zostaną trwale usunięte przy najbliższym generowaniu. Oba warunki działają niezależnie: wpis ginie, gdy jest za stary ALBO wypada poza ustawioną liczbę najnowszych. Rozsądna wartość na start: 90.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row" colspan="2" class="aifaq-section-head">
+						<h2 style="margin:1.5em 0 .2em;"><?php esc_html_e( 'Limity', 'ai-faq-generator' ); ?></h2>
+						<p class="description" style="font-weight:normal;"><?php esc_html_e( 'Ochrona Twojego klucza przed wyczerpaniem. Darmowy klucz Gemini ma 20 żądań na dobę na model, a każde pytanie gościa to dwa żądania (wyszukanie treści + odpowiedź).', 'ai-faq-generator' ); ?></p>
+					</th>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-rag-rate-window"><?php esc_html_e( 'Okno limitu gościa', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<select id="aifaq-rag-rate-window" name="aifaq_settings[rag_rate_window]">
+							<?php foreach ( $aifaq_rate_windows as $aifaq_win => $aifaq_win_label ) : ?>
+								<option value="<?php echo esc_attr( $aifaq_win ); ?>" <?php selected( (string) $aifaq_win, (string) ( $aifaq['rag_rate_window'] ?? 'godzina' ) ); ?>>
+									<?php echo esc_html( $aifaq_win_label ); ?>
+								</option>
+							<?php endforeach; ?>
+						</select>
+						<p class="description"><?php esc_html_e( 'Okres, w którym liczony jest „Limit pytań na gościa" ustawiony wyżej. Okno jest kotwiczone kalendarzowo (bieżąca godzina albo bieżąca doba), a nie liczone od pierwszego pytania.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-rag-daily-budget"><?php esc_html_e( 'Dobowy sufit całej witryny', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-rag-daily-budget"
+							name="aifaq_settings[rag_daily_budget]"
+							min="0" max="10000"
+							value="<?php echo esc_attr( (string) ( $aifaq['rag_daily_budget'] ?? 12 ) ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( 'Łączna liczba pytań gości na dobę, licząc wszystkich razem. Po jej przekroczeniu generator odmawia do końca doby. Domyślne 12 (a nie 20) zostawia zapas na ponowne indeksowanie treści i na Twoje własne testy — jako administrator jesteś z tego sufitu wyłączony, choć Twoje pytania też zjadają pulę u dostawcy. 0 = sufit wyłączony; ustaw tak tylko przy kluczu PŁATNYM. Uwaga: pule „wyszukiwanie" i „odpowiedzi" są u dostawcy odrębne — wyczerpanie jednej nie blokuje drugiej.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row"><?php esc_html_e( 'Adres gościa zza proxy', 'ai-faq-generator' ); ?></th>
+					<td>
+						<?php
+						/*
+						 * UKRYTY INPUT MUSI STAĆ PRZED CHECKBOXEM — patrz komentarz przy
+						 * `menu_link_enabled` i `crawl_enabled`. Bez niego zapis czterech pól
+						 * z panelu na froncie wyłączałby zaufany proxy, a za Cloudflare
+						 * wszyscy goście wracaliby do jednego wspólnego kubełka limitera.
+						 */
+						?>
+						<input type="hidden" name="aifaq_settings[rag_trusted_proxy]" value="0">
+						<label for="aifaq-rag-trusted-proxy">
+							<input
+								type="checkbox"
+								id="aifaq-rag-trusted-proxy"
+								name="aifaq_settings[rag_trusted_proxy]"
+								value="1"
+								<?php checked( '1', (string) ( $aifaq['rag_trusted_proxy'] ?? '0' ) ); ?>
+							>
+							<?php esc_html_e( 'Ufaj nagłówkom proxy (Cloudflare, load balancer) przy rozpoznawaniu gościa', 'ai-faq-generator' ); ?>
+						</label>
+						<p class="description">
+							<strong><?php esc_html_e( 'Włącz TYLKO, jeśli witryna naprawdę stoi za proxy.', 'ai-faq-generator' ); ?></strong>
+							<?php esc_html_e( 'Na witrynie bez proxy ta opcja pozwala KAŻDEMU gościowi ominąć limit pytań — wystarczy, że sam dopisze do żądania odpowiedni nagłówek. Gdy jest wyłączona, a witryna stoi za proxy, wszyscy goście trafiają do jednego wspólnego licznika (limit działa wtedy jak jeden na całą stronę). Włączenie zmienia sposób rozpoznawania gości, więc jednorazowo zeruje ich bieżące liczniki.', 'ai-faq-generator' ); ?>
 						</p>
 					</td>
 				</tr>

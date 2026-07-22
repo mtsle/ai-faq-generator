@@ -107,12 +107,16 @@ $s = Settings::get();
 check( 'KEY-AAA' === $s['api_key'], 'save: pusty api_key NIE kasuje zapisanego' );
 check( 'gemini-2.0-flash' === $s['model'], 'save: inne pole i tak zapisane' );
 
-echo "\n== FIX audytu: podłoga clampu rag_threshold = 0.05 ==\n";
+// K20 (H2): podłoga clampu podniesiona z 0.05 (fail-open z audytu K9) do ZMIERZONEJ
+// wartości 0.70. Intencja sekcji bez zmian: fail-open jest domknięty, a wartość
+// „w zakresie" zostaje. Wartość testowa 0.5 → 0.85, bo 0.5 leży już pod podłogą
+// i asercja przestałaby cokolwiek rozróżniać.
+echo "\n== FIX audytu + K20 H2: podłoga clampu rag_threshold = 0.70 ==\n";
 $GLOBALS['__opt'] = array();
-check( 0.05 === Settings::sanitize( array( 'rag_threshold' => 0.0 ) )['rag_threshold'], 'threshold 0.0 → 0.05 (fail-open domknięty)' );
-check( 0.05 === Settings::sanitize( array( 'rag_threshold' => -1 ) )['rag_threshold'], 'threshold ujemny → 0.05' );
-check( 0.05 === Settings::sanitize( array( 'rag_threshold' => 0.02 ) )['rag_threshold'], 'threshold 0.02 → 0.05' );
-check( 0.5 === Settings::sanitize( array( 'rag_threshold' => 0.5 ) )['rag_threshold'], 'threshold 0.5 zachowany' );
+check( 0.70 === Settings::sanitize( array( 'rag_threshold' => 0.0 ) )['rag_threshold'], 'threshold 0.0 → 0.70 (fail-open domknięty)' );
+check( 0.70 === Settings::sanitize( array( 'rag_threshold' => -1 ) )['rag_threshold'], 'threshold ujemny → 0.70' );
+check( 0.70 === Settings::sanitize( array( 'rag_threshold' => 0.02 ) )['rag_threshold'], 'threshold 0.02 → 0.70' );
+check( 0.85 === Settings::sanitize( array( 'rag_threshold' => 0.85 ) )['rag_threshold'], 'threshold 0.85 zachowany (> podłoga 0.70)' );
 
 echo "\n== Settings::verify_key ==\n";
 $GLOBALS['__opt'] = array();
