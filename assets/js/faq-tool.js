@@ -556,6 +556,103 @@
 	}
 
 	// -----------------------------------------------------------------------
+	// Publikacja par na podstronie generatora.
+	// Wysyłamy pary Z EKRANU (po ewentualnych poprawkach właściciela), nie z bazy —
+	// publikuje się to, co widać. Sekcja jest ADDYTYWNA: bez swojego DOM-u całość
+	// jest no-opem, więc starszy widok działa bez zmian.
+	// -----------------------------------------------------------------------
+	var pubBtn    = document.getElementById( 'aifaq-ft-pub' );
+	var unpubBtn  = document.getElementById( 'aifaq-ft-unpub' );
+	var pubStatus = document.getElementById( 'aifaq-ft-pub-status' );
+	var pubBusy   = false;
+
+	function setPubStatus( msg, state ) {
+		if ( ! pubStatus ) {
+			return;
+		}
+		pubStatus.textContent = msg || '';
+		pubStatus.classList.remove( 'is-loading', 'is-error', 'is-ok' );
+		if ( state ) {
+			pubStatus.classList.add( 'is-' + state );
+		}
+	}
+
+	function pubPost( url, body ) {
+		var headers = {
+			'Content-Type': 'application/json',
+			'Accept': 'application/json'
+		};
+		if ( cfg.nonce ) {
+			headers['X-WP-Nonce'] = cfg.nonce;
+		}
+		return fetch( url, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: headers,
+			body: JSON.stringify( body || {} )
+		} )
+			.then( function ( res ) {
+				return res.json()
+					.catch( function () { return {}; } )
+					.then( function ( data ) { return { status: res.status, data: data || {} }; } );
+			} );
+	}
+
+	if ( pubBtn ) {
+		pubBtn.addEventListener( 'click', function () {
+			if ( pubBusy ) {
+				return;
+			}
+			if ( ! pairs.length ) {
+				setPubStatus( t.pubEmpty || '', 'error' );
+				return;
+			}
+			pubBusy = true;
+			setPubStatus( t.pubWorking || '', 'loading' );
+			pubPost( cfg.publishEndpoint, {
+				pairs: pairs.map( function ( p ) {
+					return { question: p.q, answer: p.a };
+				} )
+			} )
+				.then( function ( r ) {
+					pubBusy = false;
+					if ( 200 === r.status && 'ok' === r.data.status ) {
+						setPubStatus( t.pubDone || '', 'ok' );
+					} else {
+						setPubStatus( t.pubErr || '', 'error' );
+					}
+				} )
+				.catch( function () {
+					pubBusy = false;
+					setPubStatus( t.pubErr || '', 'error' );
+				} );
+		} );
+	}
+
+	if ( unpubBtn ) {
+		unpubBtn.addEventListener( 'click', function () {
+			if ( pubBusy ) {
+				return;
+			}
+			pubBusy = true;
+			setPubStatus( t.pubWorking || '', 'loading' );
+			pubPost( cfg.unpublishEndpoint, {} )
+				.then( function ( r ) {
+					pubBusy = false;
+					if ( 200 === r.status && 'ok' === r.data.status ) {
+						setPubStatus( t.pubRemoved || '', 'ok' );
+					} else {
+						setPubStatus( t.pubErr || '', 'error' );
+					}
+				} )
+				.catch( function () {
+					pubBusy = false;
+					setPubStatus( t.pubErr || '', 'error' );
+				} );
+		} );
+	}
+
+	// -----------------------------------------------------------------------
 	// Odpowiedź z REST
 	// -----------------------------------------------------------------------
 	function handleResponse( httpStatus, data ) {

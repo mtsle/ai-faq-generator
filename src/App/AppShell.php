@@ -214,11 +214,19 @@ class AppShell {
 	 *
 	 * Gość → sam generator. Właściciel → zakładki + panele.
 	 *
+	 * @param string $heading Poziom nagłówka widgetu — patrz {@see GeneratorPage::widget()}.
+	 *                        Ścieżka shortcode'owa podaje `none`, bo motyw wydrukował
+	 *                        już `<h1>` z tytułu strony.
 	 * @return string
 	 */
-	public static function render_body(): string {
+	public static function render_body( string $heading = 'h1' ): string {
+		// Opublikowane pary doklejamy POD generatorem — to jedyna treść tej strony
+		// renderowana serwerowo, więc jedyna, którą zobaczy wyszukiwarka. Pusty
+		// łańcuch, gdy właściciel niczego nie opublikował.
+		$faq = class_exists( '\AIFAQ\Faq\PublicFaq' ) ? \AIFAQ\Faq\PublicFaq::widget() : '';
+
 		if ( ! self::is_owner() ) {
-			return GeneratorPage::widget();
+			return GeneratorPage::widget( $heading ) . $faq;
 		}
 
 		$lang = self::lang();
@@ -262,7 +270,8 @@ class AppShell {
 			</div>
 
 			<div class="aifaq-app__panel is-active" id="aifaq-panel-generator" role="tabpanel" aria-labelledby="aifaq-tab-generator">
-				<?php echo GeneratorPage::widget(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup z esc_* w widget(). ?>
+				<?php echo GeneratorPage::widget( $heading ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup z esc_* w widget(). ?>
+					<?php echo $faq; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — markup z esc_html w PublicFaq::widget(). ?>
 			</div>
 
 			<div class="aifaq-app__panel" id="aifaq-panel-index" role="tabpanel" aria-labelledby="aifaq-tab-index" hidden>

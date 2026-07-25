@@ -48,6 +48,17 @@ class GeneratorPage {
 				'errEmpty'    => __( 'Najpierw wpisz pytanie.', 'ai-faq-generator' ),
 				'cached'      => __( 'odpowiedź z pamięci', 'ai-faq-generator' ),
 				'back'        => __( 'Strona główna', 'ai-faq-generator' ),
+				// Treść wstępna automatycznie tworzonej podstrony. Bez niej strona
+				// niesie sam shortcode: zero tekstu do zaindeksowania, a wtyczki SEO
+				// nie mają z czego zbudować opisu (`strip_shortcodes()` zostawia pustkę).
+				'pageIntro'   => __( 'Najczęstsze pytania i odpowiedzi o tej stronie — w jednym miejscu.', 'ai-faq-generator' ),
+				// Warianty „z tematem" — używane, gdy {@see \AIFAQ\Seo\SiteProfile} zna
+				// temat witryny. Bez niego zostają wersje ogólne wyżej.
+				'pageTitle'      => __( 'Pytania i odpowiedzi', 'ai-faq-generator' ),
+				/* translators: %s: temat witryny, np. „przedszkole językowo-muzyczne na Woli". */
+				'pageTitleTopic' => __( 'Pytania i odpowiedzi — %s', 'ai-faq-generator' ),
+				/* translators: %s: temat witryny. */
+				'pageIntroTopic' => __( '%s — najczęstsze pytania i odpowiedzi w jednym miejscu.', 'ai-faq-generator' ),
 			),
 			'en' => array(
 				'title'       => __( 'FAQ Generator', 'ai-faq-generator' ),
@@ -61,6 +72,12 @@ class GeneratorPage {
 				'errEmpty'    => __( 'Please type a question first.', 'ai-faq-generator' ),
 				'cached'      => __( 'answer from cache', 'ai-faq-generator' ),
 				'back'        => __( 'Home', 'ai-faq-generator' ),
+				'pageIntro'   => __( 'Frequently asked questions about this site — all in one place.', 'ai-faq-generator' ),
+				'pageTitle'      => __( 'Questions and answers', 'ai-faq-generator' ),
+				/* translators: %s: site topic. */
+				'pageTitleTopic' => __( 'Questions and answers — %s', 'ai-faq-generator' ),
+				/* translators: %s: site topic. */
+				'pageIntroTopic' => __( '%s — frequently asked questions in one place.', 'ai-faq-generator' ),
 			),
 			'de' => array(
 				'title'       => __( 'FAQ-Generator', 'ai-faq-generator' ),
@@ -74,6 +91,12 @@ class GeneratorPage {
 				'errEmpty'    => __( 'Bitte geben Sie zuerst eine Frage ein.', 'ai-faq-generator' ),
 				'cached'      => __( 'Antwort aus dem Cache', 'ai-faq-generator' ),
 				'back'        => __( 'Startseite', 'ai-faq-generator' ),
+				'pageIntro'   => __( 'Häufige Fragen und Antworten zu dieser Website — an einem Ort.', 'ai-faq-generator' ),
+				'pageTitle'      => __( 'Fragen und Antworten', 'ai-faq-generator' ),
+				/* translators: %s: Thema der Website. */
+				'pageTitleTopic' => __( 'Fragen und Antworten — %s', 'ai-faq-generator' ),
+				/* translators: %s: Thema der Website. */
+				'pageIntroTopic' => __( '%s — häufige Fragen und Antworten an einem Ort.', 'ai-faq-generator' ),
 			),
 		);
 
@@ -99,20 +122,104 @@ class GeneratorPage {
 	}
 
 	/**
-	 * Tytuł generatora w języku UI — nazwa automatycznie tworzonej podstrony.
+	 * Tytuł automatycznie tworzonej podstrony — dostrojony do TEMATU witryny.
+	 *
+	 * Nie jest to już nazwa narzędzia („Generator FAQ"): tytuł strony trafia do
+	 * `<title>` i do wyników wyszukiwania, więc ma brzmieć jak to, czego szuka
+	 * użytkownik, a nie jak nazwa wtyczki. Etykieta w menu jest osobna
+	 * ({@see \AIFAQ\PublicUi\MenuGuard} czyta `menu_label`) i pozostaje bez zmian.
+	 *
+	 * Długi temat celowo NIE trafia do tytułu — `<title>` z doklejoną nazwą
+	 * witryny zostałby ucięty w wynikach w połowie zdania.
 	 *
 	 * @return string
 	 */
 	public static function page_title(): string {
-		return self::strings( self::lang() )['title'];
+		$t     = self::strings( self::lang() );
+		$topic = self::topic();
+
+		if ( '' !== $topic && self::fits( $topic, 45 ) ) {
+			return sprintf( (string) ( $t['pageTitleTopic'] ?? '%s' ), $topic );
+		}
+
+		return (string) ( $t['pageTitle'] ?? $t['title'] );
+	}
+
+	/**
+	 * Akapit wstępu tworzonej podstrony — również dostrojony do tematu witryny.
+	 *
+	 * @return string
+	 */
+	public static function page_intro(): string {
+		$t     = self::strings( self::lang() );
+		$topic = self::topic();
+
+		if ( '' !== $topic ) {
+			return sprintf( (string) ( $t['pageIntroTopic'] ?? '%s' ), $topic );
+		}
+
+		return (string) ( $t['pageIntro'] ?? '' );
+	}
+
+	/**
+	 * Temat witryny z {@see \AIFAQ\Seo\SiteProfile} — '' , gdy nieznany.
+	 *
+	 * Osłonięte `class_exists`, bo widget musi się renderować także wtedy,
+	 * gdy warstwa profilu jest niedostępna (testy jednostkowe, częściowy ładunek).
+	 *
+	 * @return string
+	 */
+	private static function topic(): string {
+		if ( ! class_exists( '\AIFAQ\Seo\SiteProfile' ) ) {
+			return '';
+		}
+
+		try {
+			return trim( (string) \AIFAQ\Seo\SiteProfile::topic() );
+		} catch ( \Throwable $e ) {
+			unset( $e );
+			return '';
+		}
+	}
+
+	/**
+	 * Czy tekst mieści się w limicie znaków.
+	 *
+	 * @param string $text  Tekst.
+	 * @param int    $limit Limit znaków.
+	 * @return bool
+	 */
+	private static function fits( string $text, int $limit ): bool {
+		$len = function_exists( 'mb_strlen' ) ? (int) mb_strlen( $text ) : strlen( $text );
+
+		return $len <= $limit;
 	}
 
 	/**
 	 * Markup samego widgetu (reużywalny — Krok 9 montuje go w kokpicie).
 	 *
+	 * Nagłówek jest sterowalny, bo widget żyje w dwóch różnych kontekstach:
+	 * na trasie standalone jest JEDYNYM nagłówkiem strony (`h1`), a wpięty
+	 * shortcode'em w motyw trafia pod hero, które wydrukowało już `<h1>`
+	 * z tytułu strony — drugi `h1` o tej samej treści jest duplikatem
+	 * i dla czytelnika (widać go na ekranie dwa razy), i dla wyszukiwarki.
+	 *
+	 * @param string $heading `h1`, `h2` albo `none` (bez nagłówka i eyebrow).
 	 * @return string
 	 */
-	public static function widget(): string {
+	public static function widget( string $heading = 'h1' ): string {
+		if ( function_exists( 'apply_filters' ) ) {
+			/**
+			 * Poziom nagłówka widgetu.
+			 *
+			 * @param string $heading `h1`, `h2` albo `none`.
+			 */
+			$heading = (string) apply_filters( 'aifaq_widget_heading', $heading );
+		}
+
+		// Whitelist, nie sanityzacja — wartość trafia wprost do znacznika HTML.
+		$heading = in_array( $heading, array( 'h1', 'h2', 'none' ), true ) ? $heading : 'h1';
+
 		$lang = self::lang();
 		$t    = self::strings( $lang );
 		$site = (string) get_bloginfo( 'name' );
@@ -121,10 +228,12 @@ class GeneratorPage {
 		?>
 		<div class="aifaq" data-state="idle">
 			<header class="aifaq__head">
-				<?php if ( '' !== $site ) : ?>
-					<p class="aifaq__eyebrow"><?php echo esc_html( $site ); ?></p>
+				<?php if ( 'none' !== $heading ) : ?>
+					<?php if ( '' !== $site ) : ?>
+						<p class="aifaq__eyebrow"><?php echo esc_html( $site ); ?></p>
+					<?php endif; ?>
+					<<?php echo $heading; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — whitelist h1/h2 wyżej. ?> class="aifaq__title"><?php echo esc_html( $t['title'] ); ?></<?php echo $heading; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — whitelist h1/h2 wyżej. ?>>
 				<?php endif; ?>
-				<h1 class="aifaq__title"><?php echo esc_html( $t['title'] ); ?></h1>
 				<p class="aifaq__subtitle"><?php echo esc_html( $t['subtitle'] ); ?></p>
 			</header>
 

@@ -375,6 +375,56 @@ class MenuGuard {
 	 *
 	 * @return array{state:string,item_id:int,owned:string,location:string,menu_id:int,label:string,tries:int,last:int,error:string}
 	 */
+	/**
+	 * Dopisuje etykietę pozycji menu, gdy ta jest PUSTA.
+	 *
+	 * WordPress dla pozycji typu `post_type` z pustym `post_title` pokazuje w menu
+	 * TYTUŁ STRONY. Odkąd tytuł podstrony jest dostrojony do tematu witryny (a więc
+	 * dłuższy i pisany pod wyszukiwarkę, nie pod nawigację), taka pozycja rozpycha
+	 * klientowi menu — zmierzone: „Pytania i odpowiedzi — Przedszkole z kompleksową
+	 * terapią" w pasku nawigacji łamało sąsiednie pozycje na dwie linie.
+	 *
+	 * Naprawiamy WYŁĄCZNIE pozycje własne (`owned === '1'`) i WYŁĄCZNIE puste:
+	 * etykieta wpisana ręcznie przez klienta jest jego decyzją i automat jej nie
+	 * dotyka — ta sama zasada, na której stoi cała ta klasa.
+	 *
+	 * @param array<string,mixed> $s Stan menu.
+	 */
+	private static function maybe_fix_label( array $s ): void {
+		$item_id = (int) ( $s['item_id'] ?? 0 );
+
+		if ( $item_id < 1 || self::STATE_OK !== ( $s['state'] ?? '' ) ) {
+			return;
+		}
+
+		if ( '1' !== (string) ( $s['owned'] ?? '' ) ) {
+			return; // Pozycja klienta — nie nasza sprawa.
+		}
+
+		if ( ! function_exists( 'get_post_field' ) || ! function_exists( 'wp_update_post' ) ) {
+			return;
+		}
+
+		$current = get_post_field( 'post_title', $item_id );
+
+		if ( is_string( $current ) && '' !== trim( $current ) ) {
+			return; // Etykieta jest — nie ruszamy.
+		}
+
+		$label = (string) ( $s['label'] ?? '' );
+
+		if ( '' === trim( $label ) ) {
+			return;
+		}
+
+		wp_update_post(
+			array(
+				'ID'         => $item_id,
+				'post_title' => $label,
+			)
+		);
+	}
+
 	public static function ensure(): array {
 		if ( ! function_exists( 'get_option' ) ) {
 			return self::empty_state(); // Bez WordPressa nie tworzymy niczego.
@@ -397,6 +447,7 @@ class MenuGuard {
 		// Cokolwiek poza listą „da się utworzyć" znaczy, że albo pozycja jest, albo
 		// nie mamy dokąd jej wstawić. W obu razach to sprawa dla właściciela, nie dla automatu.
 		if ( ! self::is_creatable( $s['state'] ) ) {
+			self::maybe_fix_label( $s );
 			static::save_state( $s );
 			return $s;
 		}

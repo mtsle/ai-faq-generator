@@ -207,20 +207,24 @@ $has_shortcode = class_exists( 'AIFAQ\PublicUi\Shortcode' );
 $has_genpage   = class_exists( 'AIFAQ\PublicUi\GeneratorPage' );
 $has_ftpage    = class_exists( 'AIFAQ\Admin\FaqToolPage' );
 
-// Lista 34 kluczy i18n (§2.3) — kolejność zamrożona.
+// Lista 43 kluczy i18n (§2.3) — kolejność zamrożona.
+// K18 zamroził 34; dziewięć kluczy `pub*` dołożyła publikacja par na podstronie
+// (zakres późniejszy) i siedzą przy grupie „co zrobić z parami", czyli po `expHint`.
 $aifaq_i18n_keys = array(
 	'title', 'lead', 'labelTopic', 'phTopic', 'labelDesc', 'phDesc', 'labelCount', 'generate',
 	'generating', 'needTopic', 'emptyMsg', 'errMsg', 'doneFmt', 'colQ', 'colA', 'colActions',
 	'edit', 'save', 'cancel', 'del', 'copy', 'copyAll', 'copied', 'confirmDel', 'export', 'expHint',
+	'pubH', 'pubHint', 'pubDo', 'pubUndo', 'pubWorking', 'pubDone', 'pubRemoved', 'pubErr', 'pubEmpty',
 	'expCopy', 'expDownload', 'expCopied', 'expDownloaded', 'expEmpty', 'regenLoading',
 	'regenLoaded', 'regenErr',
 );
-// 15 identyfikatorów (§2.1) — kolejność zamrożona.
+// 19 identyfikatorów (§2.1) — kolejność zamrożona (K18 miał 15, publikacja dołożyła 4).
 $aifaq_ids = array(
 	'aifaq-ft-panel', 'aifaq-ft-form', 'aifaq-ft-topic', 'aifaq-ft-desc', 'aifaq-ft-count',
 	'aifaq-ft-generate', 'aifaq-ft-status', 'aifaq-ft-results', 'aifaq-ft-copyall',
 	'aifaq-ft-tbody', 'aifaq-ft-export', 'aifaq-ft-exp-copy', 'aifaq-ft-exp-download',
 	'aifaq-ft-exp-status', 'aifaq-ft-exp-output',
+	'aifaq-ft-publish', 'aifaq-ft-pub', 'aifaq-ft-unpub', 'aifaq-ft-pub-status',
 );
 
 // ===========================================================================
@@ -356,8 +360,8 @@ if ( $has_shortcode && method_exists( 'AIFAQ\PublicUi\Shortcode', 'enqueue_asset
 	$ftcfg   = json_decode( $payload, true );
 	check( true === is_array( $ftcfg ), '#33 WŁAŚCICIEL: inline dekoduje się do tablicy (po rtrim średnika) [NOWE]' );
 	$ftcfg_a = is_array( $ftcfg ) ? $ftcfg : array();
-	check( 7 === count( $ftcfg_a ), '#33 WŁAŚCICIEL: config w inline ma 7 kluczy [NOWE]' );
-	check( array_keys( $ftcfg_a ) === array( 'endpoint', 'exportEndpoint', 'detailEndpoint', 'regenParam', 'nonce', 'defaults', 'i18n' ), '#33 WŁAŚCICIEL: zamrożona kolejność kluczy configu w inline [NOWE]' );
+	check( 9 === count( $ftcfg_a ), '#33 WŁAŚCICIEL: config w inline ma 9 kluczy [NOWE]' );
+	check( array_keys( $ftcfg_a ) === array( 'endpoint', 'exportEndpoint', 'publishEndpoint', 'unpublishEndpoint', 'detailEndpoint', 'regenParam', 'nonce', 'defaults', 'i18n' ), '#33 WŁAŚCICIEL: zamrożona kolejność kluczy configu w inline [NOWE]' );
 	check( true === is_int( $ftcfg_a['defaults']['count'] ?? null ), '#33 WŁAŚCICIEL: defaults.count jest INTEM (dowód, że NIE użyto wp_localize_script) [NOWE]' );
 	unset( $payload, $ftcfg, $ftcfg_a, $inline, $prefix );
 } else {
@@ -395,7 +399,7 @@ if ( $has_panel ) {
 	$html = (string) AIFAQ\App\FaqToolPanel::widget( $t );
 
 	// #1
-	check( 15 === substr_count( $html, 'id="' ), '#1 markup ma dokładnie 15 atrybutów id=" [NOWE]' );
+	check( 19 === substr_count( $html, 'id="' ), '#1 markup ma dokładnie 19 atrybutów id=" [NOWE]' );
 
 	// #2 — 15 identyfikatorów imiennie. Surowe substr_count($html,$id) ZABRONIONE:
 	// dla topic/desc/count dałoby 2 (raz id=, raz for=) i zaczerwieniło poprawny markup.
@@ -419,8 +423,8 @@ if ( $has_panel ) {
 	check( $ok4, '#4 preset is-active leży na przycisku data-format="html" [NOWE]' );
 
 	// #5, #6 — bilans przycisków.
-	check( 9 === substr_count( $html, '<button' ), '#5 dokładnie 9 elementów <button [NOWE]' );
-	check( 8 === substr_count( $html, 'type="button"' ), '#6 dokładnie 8 × type="button" [NOWE]' );
+	check( 11 === substr_count( $html, '<button' ), '#5 dokładnie 11 elementów <button [NOWE]' );
+	check( 10 === substr_count( $html, 'type="button"' ), '#6 dokładnie 10 × type="button" [NOWE]' );
 	check( 1 === substr_count( $html, 'type="submit"' ), '#6 dokładnie 1 × type="submit" [NOWE]' );
 
 	// #7 — type badany WEWNĄTRZ dopasowanego znacznika, nigdy na całym $html.
@@ -452,8 +456,8 @@ if ( $has_panel ) {
 	}
 
 	// #11 — ARIA i semantyka.
-	check( 2 === substr_count( $html, 'role="status"' ), '#11 role="status" === 2 [NOWE]' );
-	check( 2 === substr_count( $html, 'aria-live="polite"' ), '#11 aria-live="polite" === 2 [NOWE]' );
+	check( 3 === substr_count( $html, 'role="status"' ), '#11 role="status" === 3 [NOWE]' );
+	check( 3 === substr_count( $html, 'aria-live="polite"' ), '#11 aria-live="polite" === 3 [NOWE]' );
 	check( 1 === substr_count( $html, 'role="tablist"' ), '#11 role="tablist" === 1 [NOWE]' );
 	check( 3 === substr_count( $html, 'scope="col"' ), '#11 scope="col" === 3 [NOWE]' );
 	check( 3 === substr_count( $html, '<label' ), '#11 <label === 3 [NOWE]' );
@@ -487,8 +491,8 @@ if ( $has_panel ) {
 echo "\n== I. FaqToolPanel::config() i ::strings() ==\n";
 if ( $has_panel ) {
 	$cfg = AIFAQ\App\FaqToolPanel::config();
-	check( 7 === count( $cfg ), '#15 config() ma 7 kluczy [NOWE]' );
-	check( array_keys( $cfg ) === array( 'endpoint', 'exportEndpoint', 'detailEndpoint', 'regenParam', 'nonce', 'defaults', 'i18n' ), '#15 config() — zamrożony zestaw i kolejność kluczy (§2.2) [NOWE]' );
+	check( 9 === count( $cfg ), '#15 config() ma 9 kluczy [NOWE]' );
+	check( array_keys( $cfg ) === array( 'endpoint', 'exportEndpoint', 'publishEndpoint', 'unpublishEndpoint', 'detailEndpoint', 'regenParam', 'nonce', 'defaults', 'i18n' ), '#15 config() — zamrożony zestaw i kolejność kluczy (§2.2) [NOWE]' );
 
 	$def = isset( $cfg['defaults'] ) && is_array( $cfg['defaults'] ) ? $cfg['defaults'] : array();
 	check( 4 === count( $def ), '#16 config()[defaults] ma 4 klucze [NOWE]' );
@@ -498,12 +502,12 @@ if ( $has_panel ) {
 	check( 20 === ( $def['max'] ?? null ), '#16 defaults.max === 20 [NOWE]' );
 
 	$i18n = isset( $cfg['i18n'] ) && is_array( $cfg['i18n'] ) ? $cfg['i18n'] : array();
-	check( 34 === count( $i18n ), '#17 config()[i18n] ma 34 klucze [NOWE]' );
+	check( 43 === count( $i18n ), '#17 config()[i18n] ma 43 klucze [NOWE]' );
 
 	$pl = AIFAQ\App\FaqToolPanel::strings( 'pl' );
 	$en = AIFAQ\App\FaqToolPanel::strings( 'en' );
 	$de = AIFAQ\App\FaqToolPanel::strings( 'de' );
-	check( array_keys( $pl ) === $aifaq_i18n_keys, '#17 strings(pl) — 34 klucze w zamrożonej kolejności (§2.3) [NOWE]' );
+	check( array_keys( $pl ) === $aifaq_i18n_keys, '#17 strings(pl) — 43 klucze w zamrożonej kolejności (§2.3) [NOWE]' );
 	check( array_keys( $en ) === array_keys( $pl ), '#18 array_keys(strings(en)) === array_keys(strings(pl)) [NOWE]' );
 	check( array_keys( $de ) === array_keys( $pl ), '#18 array_keys(strings(de)) === array_keys(strings(pl)) [NOWE]' );
 	check( AIFAQ\App\FaqToolPanel::strings( 'xx' ) === $pl, '#19 fallback: strings("xx") === strings("pl") [NOWE]' );

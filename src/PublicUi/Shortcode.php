@@ -110,7 +110,10 @@ class Shortcode {
 		// gdzie `maybe_enqueue()` nie zdążyło go wykryć w treści wpisu.
 		self::enqueue_assets();
 
-		return AppShell::render_body();
+		// `none`: strona motywu wydrukowała już `<h1>` z tytułu, a nasz nagłówek
+		// niósł tę samą treść — na ekranie widać ją było dwa razy, a wyszukiwarka
+		// dostawała dwa `h1`. Podtytuł widgetu zostaje jako jego lead.
+		return AppShell::render_body( 'none' );
 	}
 
 	/**

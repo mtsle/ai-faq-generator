@@ -246,7 +246,7 @@ check( false === current_user_can( 'publish_posts' ), 'ATRAPA: [manage_options] 
 // ===========================================================================
 echo "\n=== B/C. Rejestracja tras + MACIERZ TOŻSAMOŚĆ × TRASA (§5.2) ===\n";
 // ===========================================================================
-$TOOL_ROUTES  = array( '/admin/generate-faq', '/admin/export' );
+$TOOL_ROUTES  = array( '/admin/generate-faq', '/admin/export', '/admin/faq/publish', '/admin/faq/unpublish' );
 $ADMIN_ROUTES = array(
 	'/admin/status', '/admin/reindex', '/admin/clear', '/admin/settings', '/admin/verify',
 	'/admin/history', '/admin/history/clear', '/admin/generations', '/admin/generations/detail',
@@ -263,9 +263,12 @@ if ( $has_rest ) {
 	foreach ( $routes as $r ) { $by_route[ $r['route'] ] = $r; }
 
 	// Sekcja C — liczba tras.
-	check( 13 === count( $routes ), 'C: register_rest_route wywołane DOKŁADNIE 13 razy (jest: ' . count( $routes ) . ') — §5.2 „ZERO nowych tras REST”' );
-	check( 13 === count( $by_route ), 'C: 13 RÓŻNYCH ścieżek (żadna nie zarejestrowana dwa razy)' );
-	check( 2 === count( array_intersect( $TOOL_ROUTES, array_keys( $by_route ) ) ), 'C: obie trasy narzędzia obecne: /admin/generate-faq, /admin/export' );
+	// K20 wymagał 13 tras („ZERO nowych tras REST”, §5.2). Publikacja par na
+	// podstronie to zakres PÓŹNIEJSZY i świadomie dokłada dwie — obie pod capem
+	// NARZĘDZIA, nie administratora, więc macierz niżej pilnuje ich tak samo.
+	check( 15 === count( $routes ), 'C: register_rest_route wywołane DOKŁADNIE 15 razy (jest: ' . count( $routes ) . ')' );
+	check( 15 === count( $by_route ), 'C: 15 RÓŻNYCH ścieżek (żadna nie zarejestrowana dwa razy)' );
+	check( 4 === count( array_intersect( $TOOL_ROUTES, array_keys( $by_route ) ) ), 'C: cztery trasy narzędzia obecne (generate-faq, export, faq/publish, faq/unpublish)' );
 	check( 10 === count( array_intersect( $ADMIN_ROUTES, array_keys( $by_route ) ) ), 'C: dziesięć tras wyłącznie administracyjnych obecnych' );
 	check( isset( $by_route['/ask'] ), 'C: trasa publiczna /ask obecna' );
 
@@ -288,7 +291,7 @@ if ( $has_rest ) {
 	foreach ( array_merge( $TOOL_ROUTES, $ADMIN_ROUTES ) as $r ) {
 		if ( true === $verdict( $r ) ) { ++$adm_pass; }
 	}
-	check( 12 === $adm_pass, 'B: administrator (manage_options) → 12 z 12 tras /admin/* PRZEPUSZCZA (jest: ' . $adm_pass . ')' );
+	check( 14 === $adm_pass, 'B: administrator (manage_options) → 14 z 14 tras /admin/* PRZEPUSZCZA (jest: ' . $adm_pass . ')' );
 
 	// --- Redaktor/Autor: 2 x true (narzędzie), 10 x false (reszta) ---
 	k20_identity( $REDAKTOR );
@@ -324,7 +327,7 @@ if ( $has_rest ) {
 	foreach ( array_merge( $TOOL_ROUTES, $ADMIN_ROUTES ) as $r ) {
 		if ( false === $verdict( $r ) ) { ++$guest_block; }
 	}
-	check( 12 === $guest_block, 'B: gość (zero capów) → 12 z 12 tras /admin/* ODRZUCA (jest: ' . $guest_block . ')' );
+	check( 14 === $guest_block, 'B: gość (zero capów) → 14 z 14 tras /admin/* ODRZUCA (jest: ' . $guest_block . ')' );
 
 	// --- Stałe i metoda źródłowa (§5.1) ---
 	k20_identity( $ADMIN );

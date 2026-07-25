@@ -244,6 +244,10 @@ final class Plugin {
 		$this->shortcode = new Shortcode();
 		$this->shortcode->register();
 
+		// Dane strukturalne podstrony generatora — POZA gałęzią `is_admin()`,
+		// bo SEO dotyczy wyłącznie żądań gościa i bota.
+		( new \AIFAQ\PublicUi\PageSchema() )->register();
+
 		// Crawl własnej witryny (Krok 17) — POZA gałęzią `is_admin()`, bo cron
 		// nie jest kontekstem admina (`wp-cron.php` to zwykłe żądanie frontowe).
 		//

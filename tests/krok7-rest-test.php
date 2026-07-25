@@ -92,12 +92,19 @@ $routes = $GLOBALS['__aifaq_routes'];
 $by_route = array();
 foreach ( $routes as $r ) { $by_route[ $r['route'] ] = $r; }
 
-check( count( $routes ) === 13, 'zarejestrowano dokładnie 13 tras' );
+check( count( $routes ) === 15, 'zarejestrowano dokładnie 15 tras' );
 check( isset( $by_route['/ask'], $by_route['/admin/status'], $by_route['/admin/reindex'], $by_route['/admin/clear'], $by_route['/admin/settings'], $by_route['/admin/verify'], $by_route['/admin/history'], $by_route['/admin/history/clear'] ), 'komplet ścieżek /ask + /admin/{status,reindex,clear,settings,verify,history,history/clear}' );
 check( isset( $by_route['/admin/generate-faq'], $by_route['/admin/generations'], $by_route['/admin/generations/delete'] ), 'trasy generatora (K12): /admin/generate-faq, /admin/generations, /admin/generations/delete' );
 check( isset( $by_route['/admin/export'] ), 'trasa eksportu (K14): /admin/export' );
 check( 'POST' === ( $by_route['/admin/export']['args']['methods'] ?? '' ), '/admin/export metoda POST' );
 check( isset( $by_route['/admin/generations/detail'] ), 'trasa szczegółu historii (K15): /admin/generations/detail' );
+check( isset( $by_route['/admin/faq/publish'], $by_route['/admin/faq/unpublish'] ), 'trasy publikacji FAQ: /admin/faq/{publish,unpublish}' );
+check( 'POST' === ( $by_route['/admin/faq/publish']['args']['methods'] ?? '' ), '/admin/faq/publish metoda POST' );
+// Cap narzędzia, nie admina — kto generuje i eksportuje pary, ten może je opublikować.
+check(
+	( $by_route['/admin/faq/publish']['args']['permission_callback'] ?? null ) === ( $by_route['/admin/export']['args']['permission_callback'] ?? false ),
+	'/admin/faq/publish ma tę samą bramkę co /admin/export (cap narzędzia)'
+);
 
 $all_ns = array_unique( array_map( static function ( $r ) { return $r['ns']; }, $routes ) );
 check( array( 'aifaq/v1' ) === array_values( $all_ns ), 'wszystkie trasy w namespace aifaq/v1' );

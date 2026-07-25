@@ -241,6 +241,19 @@ class IndexController {
 			// przebiegu PEŁNYM (§6.4 pkt 1): czyszczenie po przebiegu przerwanym zabierałoby
 			// nawet dobre odpowiedzi i pogarszało bota dokładnie wtedy, gdy właściciel go naprawia.
 			( new CacheRepository() )->clear_all();
+
+			// Treść się zmieniła → przelicz TEMAT witryny (SEO podstrony ma się
+			// dostrajać do strony, na której wtyczka siedzi). Jedno wywołanie API,
+			// tylko tutaj — nigdy przy wyświetlaniu strony. Porażka zostawia
+			// poprzedni temat i nie może wywrócić indeksowania, bo właściciel
+			// czeka na raport z reindeksu, a nie na SEO.
+			if ( class_exists( '\AIFAQ\Seo\SiteProfile' ) ) {
+				try {
+					\AIFAQ\Seo\SiteProfile::refresh();
+				} catch ( \Throwable $e ) {
+					unset( $e );
+				}
+			}
 		} else {
 			self::save_index_signature( 'partial:' . self::partial_reason( $report ) . ':' . $sig );
 		}
@@ -282,6 +295,12 @@ class IndexController {
 		// włączała tryb asymetryczny przy PUSTEJ bazie.
 		if ( function_exists( 'delete_option' ) ) {
 			delete_option( 'aifaq_index_signature' );
+		}
+
+		// Temat witryny był wyprowadzony z treści, której już nie ma — zapomnienie go
+		// jest uczciwsze niż podawanie tematu bez pokrycia w bazie wiedzy.
+		if ( class_exists( '\AIFAQ\Seo\SiteProfile' ) ) {
+			\AIFAQ\Seo\SiteProfile::forget();
 		}
 
 		return array(

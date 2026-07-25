@@ -292,6 +292,111 @@ class RestController {
 				'permission_callback' => array( $this, 'require_tool_user' ),
 			)
 		);
+
+		// Publikacja par na podstronie generatora — jedyna treść tej strony, którą
+		// widzi wyszukiwarka. Cap narzędzia (nie admina): kto może wygenerować pary
+		// i je wyeksportować, ten może je też pokazać na stronie.
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/faq/publish',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'handle_faq_publish' ),
+				'permission_callback' => array( $this, 'require_tool_user' ),
+			)
+		);
+
+		register_rest_route(
+			self::REST_NAMESPACE,
+			'/admin/faq/unpublish',
+			array(
+				'methods'             => 'POST',
+				'callback'            => array( $this, 'handle_faq_unpublish' ),
+				'permission_callback' => array( $this, 'require_tool_user' ),
+			)
+		);
+	}
+
+	/**
+	 * `POST /admin/faq/publish` — pokazuje pary na podstronie generatora.
+	 *
+	 * Przyjmuje `pairs` (bieżąca tabela w narzędziu, także po ręcznych poprawkach
+	 * właściciela) albo `id` zapisanej generacji. Pierwszeństwo ma `pairs`: to,
+	 * co właściciel widzi na ekranie, jest tym, co publikuje.
+	 *
+	 * @param \WP_REST_Request $request Żądanie.
+	 * @return \WP_REST_Response
+	 */
+	public function handle_faq_publish( $request ) {
+		$pairs = $this->normalize_pairs( $request->get_param( 'pairs' ) );
+		$id    = (int) $request->get_param( 'id' );
+
+		if ( array() === $pairs && $id > 0 ) {
+			$row = ( new GenerationRepository() )->find( $id );
+
+			if ( null === $row ) {
+				return new \WP_REST_Response(
+					array(
+						'status'  => 'error',
+						'message' => __( 'Nie znaleziono generacji.', 'ai-faq-generator' ),
+					),
+					404
+				);
+			}
+
+			$pairs = $this->normalize_pairs( $row['pairs'] ?? array() );
+		}
+
+		if ( array() === $pairs ) {
+			return new \WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Brak par do opublikowania.', 'ai-faq-generator' ),
+				),
+				400
+			);
+		}
+
+		$count = \AIFAQ\Faq\PublicFaq::publish( $pairs, $id );
+
+		if ( $count < 1 ) {
+			return new \WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Nie udało się zapisać par.', 'ai-faq-generator' ),
+				),
+				500
+			);
+		}
+
+		return new \WP_REST_Response(
+			array(
+				'status' => 'ok',
+				'count'  => $count,
+				'url'    => esc_url_raw( \AIFAQ\PublicUi\PageGuard::page_url() ),
+			),
+			200
+		);
+	}
+
+	/**
+	 * `POST /admin/faq/unpublish` — zdejmuje pary z podstrony.
+	 *
+	 * @param \WP_REST_Request $request Żądanie (bez parametrów).
+	 * @return \WP_REST_Response
+	 */
+	public function handle_faq_unpublish( $request ) {
+		unset( $request );
+
+		\AIFAQ\Faq\PublicFaq::unpublish();
+
+		return new \WP_REST_Response(
+			array(
+				'status' => 'ok',
+				'count'  => 0,
+			),
+			200
+		);
 	}
 
 	/**

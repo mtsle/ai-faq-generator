@@ -737,10 +737,27 @@ class PageGuard {
 	 * @return array<string,mixed>
 	 */
 	private static function insert_args(): array {
+		// Akapit wstępu i wyciąg NIE są ozdobą. Bez nich strona niesie sam
+		// shortcode, czyli: zero tekstu do zaindeksowania (Google widzi ~15 słów),
+		// a każda wtyczka SEO buduje opis z treści po `strip_shortcodes()` — czyli
+		// z pustki, więc spada na ogólny opis witryny, ten sam na wszystkich
+		// podstronach. Jawny `post_excerpt` zamyka obie dziury naraz. Klient może
+		// jedno i drugie zmienić w edytorze — to zwykła treść strony.
+		$intro = self::page_intro();
+
+		$content = '';
+
+		if ( '' !== $intro ) {
+			$content .= '<!-- wp:paragraph --><p>' . self::escape_html( $intro ) . '</p><!-- /wp:paragraph -->' . "\n\n";
+		}
+
+		$content .= '<!-- wp:shortcode -->[' . self::shortcode_tag() . ']<!-- /wp:shortcode -->';
+
 		$args = array(
 			'post_title'     => self::page_title(),
 			'post_name'      => self::page_slug(),
-			'post_content'   => '<!-- wp:shortcode -->[' . self::shortcode_tag() . ']<!-- /wp:shortcode -->',
+			'post_content'   => $content,
+			'post_excerpt'   => $intro,
 			'post_status'    => 'publish',
 			'post_type'      => 'page',
 			'comment_status' => 'closed',
@@ -934,6 +951,42 @@ class PageGuard {
 		}
 
 		return 'Generator FAQ';
+	}
+
+	/**
+	 * Akapit wstępu tworzonej podstrony (w języku interfejsu).
+	 *
+	 * Osłonięty tak samo jak {@see page_title()} — klasa musi działać w czystym
+	 * PHP CLI, bez WordPressa i bez pozostałych klas wtyczki.
+	 *
+	 * @return string
+	 */
+	private static function page_intro(): string {
+		if ( class_exists( '\AIFAQ\PublicUi\GeneratorPage' ) && method_exists( '\AIFAQ\PublicUi\GeneratorPage', 'page_intro' ) ) {
+			try {
+				// Język ORAZ temat witryny rozstrzyga GeneratorPage — tutaj tylko
+				// odbieramy gotowy tekst (jedno miejsce składania, jak przy tytule).
+				return trim( (string) GeneratorPage::page_intro() );
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
+		}
+
+		return '';
+	}
+
+	/**
+	 * `esc_html()` z bezpiecznikiem na brak WordPressa.
+	 *
+	 * @param string $text Tekst do osadzenia w HTML.
+	 * @return string
+	 */
+	private static function escape_html( string $text ): string {
+		if ( function_exists( 'esc_html' ) ) {
+			return esc_html( $text );
+		}
+
+		return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' );
 	}
 
 	/**

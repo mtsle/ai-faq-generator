@@ -73,6 +73,9 @@ class FaqToolPanel {
 		return array(
 			'endpoint'       => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/generate-faq' ) ),
 			'exportEndpoint' => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/export' ) ),
+			// Publikacja par na podstronie generatora.
+			'publishEndpoint'   => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/faq/publish' ) ),
+			'unpublishEndpoint' => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/faq/unpublish' ) ),
 			// Krok 15 — prefill formularza z historii („Ponownie wygeneruj").
 			'detailEndpoint' => esc_url_raw( rest_url( RestController::REST_NAMESPACE . '/admin/generations/detail' ) ),
 			// Nazwa parametru URL pochodzi ZE STAŁEJ, nie z literału: ten sam
@@ -131,6 +134,15 @@ class FaqToolPanel {
 				// Krok 14 — sekcja eksportu.
 				'export'        => __( 'Eksport', 'ai-faq-generator' ),
 				'expHint'       => __( 'Wybierz format, a potem skopiuj lub pobierz gotowy kod.', 'ai-faq-generator' ),
+				'pubH'          => __( 'Publikacja na podstronie', 'ai-faq-generator' ),
+				'pubHint'       => __( 'Pokaż te pary na publicznej podstronie generatora. To jedyna treść, którą zobaczy wyszukiwarka — razem z nią wtyczka wystawi dane strukturalne FAQPage.', 'ai-faq-generator' ),
+				'pubDo'         => __( 'Opublikuj na podstronie', 'ai-faq-generator' ),
+				'pubUndo'       => __( 'Zdejmij ze strony', 'ai-faq-generator' ),
+				'pubWorking'    => __( 'Publikuję…', 'ai-faq-generator' ),
+				'pubDone'       => __( 'Opublikowano.', 'ai-faq-generator' ),
+				'pubRemoved'    => __( 'Zdjęto ze strony.', 'ai-faq-generator' ),
+				'pubErr'        => __( 'Nie udało się opublikować. Spróbuj ponownie.', 'ai-faq-generator' ),
+				'pubEmpty'      => __( 'Najpierw wygeneruj pary.', 'ai-faq-generator' ),
 				'expCopy'       => __( 'Kopiuj', 'ai-faq-generator' ),
 				'expDownload'   => __( 'Pobierz', 'ai-faq-generator' ),
 				'expCopied'     => __( 'Skopiowano.', 'ai-faq-generator' ),
@@ -169,6 +181,15 @@ class FaqToolPanel {
 				// Krok 14 — sekcja eksportu.
 				'export'        => __( 'Export', 'ai-faq-generator' ),
 				'expHint'       => __( 'Pick a format, then copy or download the ready-made code.', 'ai-faq-generator' ),
+				'pubH'          => __( 'Publish on the subpage', 'ai-faq-generator' ),
+				'pubHint'       => __( 'Show these pairs on the public generator subpage. This is the only content a search engine can see — the plugin will also output FAQPage structured data for it.', 'ai-faq-generator' ),
+				'pubDo'         => __( 'Publish on the subpage', 'ai-faq-generator' ),
+				'pubUndo'       => __( 'Remove from the page', 'ai-faq-generator' ),
+				'pubWorking'    => __( 'Publishing…', 'ai-faq-generator' ),
+				'pubDone'       => __( 'Published.', 'ai-faq-generator' ),
+				'pubRemoved'    => __( 'Removed from the page.', 'ai-faq-generator' ),
+				'pubErr'        => __( 'Could not publish. Please try again.', 'ai-faq-generator' ),
+				'pubEmpty'      => __( 'Generate the pairs first.', 'ai-faq-generator' ),
 				'expCopy'       => __( 'Copy', 'ai-faq-generator' ),
 				'expDownload'   => __( 'Download', 'ai-faq-generator' ),
 				'expCopied'     => __( 'Copied.', 'ai-faq-generator' ),
@@ -207,6 +228,15 @@ class FaqToolPanel {
 				// Krok 14 — sekcja eksportu.
 				'export'        => __( 'Export', 'ai-faq-generator' ),
 				'expHint'       => __( 'Format wählen, dann den fertigen Code kopieren oder herunterladen.', 'ai-faq-generator' ),
+				'pubH'          => __( 'Auf der Unterseite veröffentlichen', 'ai-faq-generator' ),
+				'pubHint'       => __( 'Zeigen Sie diese Paare auf der öffentlichen Unterseite. Das ist der einzige Inhalt, den eine Suchmaschine sieht — dazu gibt das Plugin FAQPage-Daten aus.', 'ai-faq-generator' ),
+				'pubDo'         => __( 'Auf der Unterseite veröffentlichen', 'ai-faq-generator' ),
+				'pubUndo'       => __( 'Von der Seite entfernen', 'ai-faq-generator' ),
+				'pubWorking'    => __( 'Wird veröffentlicht…', 'ai-faq-generator' ),
+				'pubDone'       => __( 'Veröffentlicht.', 'ai-faq-generator' ),
+				'pubRemoved'    => __( 'Von der Seite entfernt.', 'ai-faq-generator' ),
+				'pubErr'        => __( 'Veröffentlichen fehlgeschlagen. Bitte erneut versuchen.', 'ai-faq-generator' ),
+				'pubEmpty'      => __( 'Erzeugen Sie zuerst die Paare.', 'ai-faq-generator' ),
 				'expCopy'       => __( 'Kopieren', 'ai-faq-generator' ),
 				'expDownload'   => __( 'Herunterladen', 'ai-faq-generator' ),
 				'expCopied'     => __( 'Kopiert.', 'ai-faq-generator' ),
@@ -331,6 +361,17 @@ class FaqToolPanel {
 						<span id="aifaq-ft-exp-status" class="aifaq-ft__status" role="status" aria-live="polite"></span>
 					</div>
 					<pre id="aifaq-ft-exp-output" class="aifaq-ft__exp-output" tabindex="0"></pre>
+				</div>
+
+				<?php // Publikacja na podstronie — jedyna droga, żeby te pary zobaczyła wyszukiwarka. ?>
+				<div id="aifaq-ft-publish" class="aifaq-ft__export">
+					<h3 class="aifaq-ft__exp-h"><?php echo esc_html( $t['pubH'] ); ?></h3>
+					<p class="aifaq-ft__exp-hint"><?php echo esc_html( $t['pubHint'] ); ?></p>
+					<div class="aifaq-ft__exp-bar">
+						<button type="button" id="aifaq-ft-pub" class="aifaq-ft__btn"><?php echo esc_html( $t['pubDo'] ); ?></button>
+						<button type="button" id="aifaq-ft-unpub" class="aifaq-ft__btn"><?php echo esc_html( $t['pubUndo'] ); ?></button>
+						<span id="aifaq-ft-pub-status" class="aifaq-ft__status" role="status" aria-live="polite"></span>
+					</div>
 				</div>
 			</div>
 		</div>

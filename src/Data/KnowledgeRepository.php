@@ -330,6 +330,70 @@ class KnowledgeRepository extends Repository {
 		);
 	}
 
+	/**
+	 * Próbka treści witryny — materiał do wyprowadzenia jej TEMATU.
+	 *
+	 * Świadomie bierze `chunk_index = 0`, czyli POCZĄTKI najobszerniejszych stron:
+	 * tam mieszka opis „czym to jest", a nie szczegóły z głębi tekstu. Tytuły do
+	 * tego NIE nadają się — zmierzone na realnej witrynie są etykietami nawigacji
+	 * („Program", „Kontakt", „O nas"), z których temat wychodzi bez sensu.
+	 *
+	 * @param int $posts     Ile stron wziąć pod uwagę (najwięcej fragmentów = najwięcej treści).
+	 * @param int $max_chars Twardy sufit długości próbki.
+	 * @return string Sklejona próbka albo pusty łańcuch.
+	 */
+	public function sample_for_profile( int $posts = 6, int $max_chars = 4000 ): string {
+		global $wpdb;
+
+		$table = static::table();
+		$posts = max( 1, min( 30, $posts ) );
+
+		$ids = $wpdb->get_col( // phpcs:ignore WordPress.DB
+			$wpdb->prepare(
+				"SELECT post_id FROM {$table} GROUP BY post_id ORDER BY COUNT(*) DESC, post_id ASC LIMIT %d", // phpcs:ignore WordPress.DB.PreparedSQL
+				$posts
+			)
+		);
+
+		if ( ! is_array( $ids ) || array() === $ids ) {
+			return '';
+		}
+
+		$ids = array_map( 'intval', $ids );
+		$in  = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+
+		$rows = $wpdb->get_col( // phpcs:ignore WordPress.DB
+			$wpdb->prepare(
+				"SELECT content FROM {$table} WHERE chunk_index = 0 AND post_id IN ({$in}) ORDER BY post_id ASC", // phpcs:ignore WordPress.DB.PreparedSQL
+				...$ids
+			)
+		);
+
+		if ( ! is_array( $rows ) || array() === $rows ) {
+			return '';
+		}
+
+		$out = '';
+
+		foreach ( $rows as $chunk ) {
+			$chunk = trim( (string) $chunk );
+
+			if ( '' === $chunk ) {
+				continue;
+			}
+
+			$out .= $chunk . "\n\n";
+
+			if ( strlen( $out ) >= $max_chars ) {
+				break;
+			}
+		}
+
+		$out = trim( $out );
+
+		return ( strlen( $out ) > $max_chars ) ? substr( $out, 0, $max_chars ) : $out;
+	}
+
 	// -----------------------------------------------------------------------
 	// Kodowanie wektora i hash treści (czyste, testowalne bez bazy)
 	// -----------------------------------------------------------------------
