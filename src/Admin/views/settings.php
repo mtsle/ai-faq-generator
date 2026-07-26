@@ -573,6 +573,47 @@ $aifaq_refusal_langs = array(
 
 				<tr>
 					<th scope="row" colspan="2" class="aifaq-section-head">
+						<h2 style="margin:1.5em 0 .2em;"><?php esc_html_e( 'Dziennik pytań gości', 'ai-faq-generator' ); ?></h2>
+						<p class="description" style="font-weight:normal;"><?php esc_html_e( 'Ile pytań odwiedzających (z podstrony i widgetu) trzymać w bazie. Domyślnie wtyczka NIE KASUJE NICZEGO — sprzątanie włączasz świadomie.', 'ai-faq-generator' ); ?></p>
+					</th>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-qa-log-keep-rows"><?php esc_html_e( 'Trzymaj ostatnich pytań', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-qa-log-keep-rows"
+							name="aifaq_settings[qa_log_keep_rows]"
+							min="0" max="20000"
+							value="<?php echo esc_attr( (string) ( $aifaq['qa_log_keep_rows'] ?? 0 ) ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( '0 = bez ograniczeń (nic nie jest kasowane). Wartość dodatnia zostawia tylko tyle najnowszych wpisów dziennika — starsze zostaną trwale usunięte przy najbliższym pytaniu gościa. Rozsądna wartość na start: 5000.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row">
+						<label for="aifaq-qa-log-keep-days"><?php esc_html_e( 'Trzymaj pytania przez (dni)', 'ai-faq-generator' ); ?></label>
+					</th>
+					<td>
+						<input
+							type="number"
+							id="aifaq-qa-log-keep-days"
+							name="aifaq_settings[qa_log_keep_days]"
+							min="0" max="3650"
+							value="<?php echo esc_attr( (string) ( $aifaq['qa_log_keep_days'] ?? 0 ) ); ?>"
+							class="small-text"
+						>
+						<p class="description"><?php esc_html_e( '0 = bez ograniczeń. Wartość dodatnia oznacza, że wpisy starsze niż podana liczba dni zostaną trwale usunięte przy najbliższym pytaniu gościa. Oba warunki działają niezależnie. Rozsądna wartość na start: 90.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row" colspan="2" class="aifaq-section-head">
 						<h2 style="margin:1.5em 0 .2em;"><?php esc_html_e( 'Limity', 'ai-faq-generator' ); ?></h2>
 						<p class="description" style="font-weight:normal;"><?php esc_html_e( 'Ochrona Twojego klucza przed wyczerpaniem. Darmowy klucz Gemini ma 20 żądań na dobę na model, a każde pytanie gościa to dwa żądania (wyszukanie treści + odpowiedź).', 'ai-faq-generator' ); ?></p>
 					</th>

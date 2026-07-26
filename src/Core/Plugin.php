@@ -42,6 +42,11 @@ final class Plugin {
 	const CRAWL_SCHEDULE = 'aifaq_minute';
 
 	/**
+	 * Flaga „jednorazowe utwardzenie opcji wykonane" ({@see maybe_harden_options()}).
+	 */
+	const HARDEN_FLAG = 'aifaq_autoload_hardened';
+
+	/**
 	 * Jedyna instancja (singleton).
 	 */
 	private static ?Plugin $instance = null;
@@ -98,6 +103,7 @@ final class Plugin {
 		$this->guard_crawl_request();
 		$this->maybe_upgrade_db();
 		self::maybe_flush_cache();
+		self::maybe_harden_options();
 		$this->init_hooks();
 	}
 
@@ -120,10 +126,39 @@ final class Plugin {
 			return;
 		}
 
-		$flag = sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_AIFAQ_CRAWL'] ) );
-		if ( '1' === $flag ) {
+		// Wartością nagłówka jest TOKEN witryny, nie stałe „1". Nagłówek przychodzi
+		// z zewnątrz i nikt go nie uwierzytelnia, a wyłącza rdzenny mechanizm
+		// WordPressa: przy stałej „1" dowolny odwiedzający (albo bot dobijający się
+		// do witryny w kółko) gasił spawn crona na swoim żądaniu, a na witrynie
+		// o małym ruchu cron to jedyne źródło zadań w tle — łącznie z publikacją
+		// zaplanowanych wpisów klienta. Porównanie stałoczasowe, bo token jest sekretem.
+		$flag  = sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_AIFAQ_CRAWL'] ) );
+		$token = self::crawl_token();
+
+		if ( '' !== $token && hash_equals( $token, $flag ) ) {
 			define( 'DISABLE_WP_CRON', true );
 		}
+	}
+
+	/**
+	 * Token nagłówka `X-AIFAQ-Crawl` — jedno źródło prawdy dla obu stron.
+	 *
+	 * Wysyła go crawl ({@see \AIFAQ\Index\CrawlQueue::request_args()} oraz
+	 * {@see \AIFAQ\Index\RenderedContentSource::request_args()}), a czyta
+	 * {@see guard_crawl_request()}. Wyprowadzany z soli witryny, więc nie
+	 * wymaga własnego magazynu i jest inny na każdej instalacji.
+	 *
+	 * Bez `wp_salt()` (czyste PHP CLI w testach) zwracamy `''` — a wtedy bramka
+	 * NIE wyłącza crona. To bezpieczny kierunek: tracimy optymalizację, nigdy ochronę.
+	 *
+	 * @return string Token albo `''`, gdy nie da się go wyprowadzić.
+	 */
+	public static function crawl_token(): string {
+		if ( ! function_exists( 'wp_salt' ) ) {
+			return '';
+		}
+
+		return substr( hash_hmac( 'sha256', 'aifaq-crawl', (string) wp_salt( 'nonce' ) ), 0, 32 );
 	}
 
 	/**
@@ -222,6 +257,76 @@ final class Plugin {
 		}
 		if ( function_exists( 'update_option' ) ) {
 			update_option( 'aifaq_cache_flushed_for', AIFAQ_VERSION, true );
+		}
+	}
+
+	/**
+	 * Jednorazowo zdejmuje autoload z opcji niosącej KLUCZ API.
+	 *
+	 * `aifaq_settings` powstawała przez `update_option()` bez trzeciego argumentu,
+	 * a WordPress tworzy tak opcję z `autoload = yes` — czyli klucz API lądował
+	 * w `alloptions` przy KAŻDYM żądaniu witryny, także żądaniu gościa. Sam zapis
+	 * jest już naprawiony ({@see Settings::save()}), ale instalacje, które opcję
+	 * mają, zostałyby z autoloadem na zawsze: `update_option()` przestawia flagę
+	 * tylko wtedy, gdy zmienia się WARTOŚĆ.
+	 *
+	 * Zmieniamy WYŁĄCZNIE kolumnę `autoload` — wartość opcji nie jest ani kasowana,
+	 * ani przepisywana, więc nie ma tu ścieżki utraty ustawień klienta. Wariant
+	 * `delete_option()` + `add_option()` byłby prostszy, ale przerwanie procesu
+	 * między nimi kasowałoby klucz API.
+	 */
+	public static function maybe_harden_options(): void {
+		if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' ) ) {
+			return;
+		}
+
+		if ( '1' === (string) get_option( self::HARDEN_FLAG, '' ) ) {
+			return;
+		}
+
+		self::set_option_autoload_no( Settings::OPTION );
+
+		// Flaga autoładowana świadomie (jak `aifaq_cache_flushed_for`): czyta ją
+		// każde żądanie, a wartość „już zrobione" nie ma prawa kosztować SELECT-a.
+		if ( function_exists( 'add_option' ) ) {
+			add_option( self::HARDEN_FLAG, '', '', 'yes' );
+		}
+		update_option( self::HARDEN_FLAG, '1', true );
+	}
+
+	/**
+	 * Przestawia flagę autoload opcji na `no` (bez ruszania jej wartości).
+	 *
+	 * `wp_set_option_autoload()` istnieje dopiero od WordPressa 6.7, a wtyczka
+	 * deklaruje 6.4 — dlatego jest fallback wprost na kolumnę. Po zmianie trzeba
+	 * zrzucić cache `alloptions`, inaczej bieżące żądanie (i kolejne, przy trwałym
+	 * cache obiektowym) dalej widziałoby opcję jako autoładowaną.
+	 *
+	 * @param string $name Nazwa opcji.
+	 */
+	private static function set_option_autoload_no( string $name ): void {
+		if ( function_exists( 'wp_set_option_autoload' ) ) {
+			wp_set_option_autoload( $name, false );
+			return;
+		}
+
+		global $wpdb;
+
+		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'update' ) ) {
+			return;
+		}
+
+		$wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$wpdb->options,
+			array( 'autoload' => 'no' ),
+			array( 'option_name' => $name ),
+			array( '%s' ),
+			array( '%s' )
+		);
+
+		if ( function_exists( 'wp_cache_delete' ) ) {
+			wp_cache_delete( 'alloptions', 'options' );
+			wp_cache_delete( $name, 'options' );
 		}
 	}
 

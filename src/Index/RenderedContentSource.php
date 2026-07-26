@@ -425,8 +425,23 @@ class RenderedContentSource implements ContentSource {
 			'sslverify'           => ! self::is_local_url( $url ),
 			'limit_response_size' => 2097152,
 			'user-agent'          => 'AIFAQ-Indexer/' . ( defined( 'AIFAQ_VERSION' ) ? AIFAQ_VERSION : 'dev' ),
-			'headers'             => array( 'X-AIFAQ-Crawl' => '1' ),
+			// Wartość to TOKEN witryny, nie „1" — patrz
+			// {@see \AIFAQ\Core\Plugin::guard_crawl_request()}.
+			'headers'             => array( 'X-AIFAQ-Crawl' => self::crawl_header() ),
 		);
+	}
+
+	/**
+	 * Token nagłówka anty-rekurencyjnego — z jednego źródła prawdy.
+	 *
+	 * @return string
+	 */
+	protected static function crawl_header(): string {
+		if ( class_exists( '\AIFAQ\Core\Plugin' ) && method_exists( '\AIFAQ\Core\Plugin', 'crawl_token' ) ) {
+			return (string) \AIFAQ\Core\Plugin::crawl_token();
+		}
+
+		return '';
 	}
 
 	/**

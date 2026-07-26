@@ -78,6 +78,10 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 		delete_option( 'aifaq_index_signature' );   // Podpis bazy wektorów (pełny albo znacznik partial:).
 		delete_option( 'aifaq_cache_flushed_for' ); // Wersja, dla której wyczyszczono cache odpowiedzi.
 
+		// Utwardzenie opcji (audyt bezpieczeństwa): znacznik jednorazowego zdjęcia
+		// autoloadu z `aifaq_settings` (Plugin::HARDEN_FLAG).
+		delete_option( 'aifaq_autoload_hardened' );
+
 		// SEO podstrony (Krok 21 / v0.24.0).
 		delete_option( 'aifaq_site_profile' ); // Temat witryny wyprowadzony z bazy wiedzy (SiteProfile).
 		delete_option( 'aifaq_public_faq' );   // Pary Q&A opublikowane na podstronie (PublicFaq).

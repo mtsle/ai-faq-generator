@@ -331,7 +331,15 @@ class RestController {
 		$pairs = $this->normalize_pairs( $request->get_param( 'pairs' ) );
 		$id    = (int) $request->get_param( 'id' );
 
-		if ( array() === $pairs && $id > 0 ) {
+		// Sięgnięcie po ZAPISANĄ generację jest zawężone do administratora.
+		// Trasa stoi na capie NARZĘDZIA (Redaktor/Autor), a cała historia generowań
+		// — `/admin/generations`, `/admin/generations/detail` — jest świadomie
+		// admin-only. Bez tego warunku Autor odczytywał cudze pary przez samo `id`
+		// (kolejne liczby całkowite), publikując je sobie na podstronie: obejście
+		// bramki historii i jednocześnie podmiana publicznej treści i `FAQPage`.
+		// UI ZAWSZE wysyła `pairs` (assets/js/faq-tool.js), więc dla produktu
+		// to zawężenie jest niewidoczne.
+		if ( array() === $pairs && $id > 0 && current_user_can( self::CAPABILITY ) ) {
 			$row = ( new GenerationRepository() )->find( $id );
 
 			if ( null === $row ) {

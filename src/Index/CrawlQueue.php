@@ -987,8 +987,28 @@ class CrawlQueue {
 			'sslverify'           => ! $this->is_local_url( $url ),
 			'limit_response_size' => 2097152,
 			'user-agent'          => 'AIFAQ-Indexer/' . ( defined( 'AIFAQ_VERSION' ) ? AIFAQ_VERSION : 'dev' ),
-			'headers'             => array( 'X-AIFAQ-Crawl' => '1' ),
+			// Wartość to TOKEN witryny, nie „1" — nagłówek wyłącza spawn crona po
+			// drugiej stronie, więc musi być nieodgadywalny dla gościa (patrz
+			// {@see \AIFAQ\Core\Plugin::guard_crawl_request()}).
+			'headers'             => array( 'X-AIFAQ-Crawl' => self::crawl_header() ),
 		);
+	}
+
+	/**
+	 * Token nagłówka anty-rekurencyjnego — z jednego źródła prawdy.
+	 *
+	 * Klasa loadera należy do innego pakietu, więc sięgamy po nią defensywnie:
+	 * jej brak oznacza pusty nagłówek, czyli po prostu brak optymalizacji
+	 * (bramka po drugiej stronie i tak odrzuca wartość, której nie zna).
+	 *
+	 * @return string
+	 */
+	protected function crawl_header(): string {
+		if ( class_exists( '\AIFAQ\Core\Plugin' ) && method_exists( '\AIFAQ\Core\Plugin', 'crawl_token' ) ) {
+			return (string) \AIFAQ\Core\Plugin::crawl_token();
+		}
+
+		return '';
 	}
 
 	/**

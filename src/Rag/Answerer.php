@@ -361,6 +361,14 @@ class Answerer {
 	 * @return string
 	 */
 	private function build_prompt( string $question, string $context, string $language, bool $rules_inline = false ): string {
+		// Pytanie gościa jest DANYMI dokładnie tak samo jak kontekst — i tak samo
+		// przechodzi neutralizację granic sekcji. Bez niej niezalogowany gość mógł
+		// wpisać w pytanie własny nagłówek `### KONTEKST …` albo `### ODPOWIEDŹ:`
+		// i sfabrykować strukturę promptu, którą model czyta jako granicę roli.
+		// To ta sama obrona, którą {@see \AIFAQ\Faq\FaqGenerator::harden()} nakłada
+		// na temat i opis od Kroku 20 — brakowało jej wyłącznie na ścieżce gościa.
+		$question = $this->harden_question( $question );
+
 		if ( $this->is_prompt_legacy() ) {
 			$lang_name = $this->language_name( $language );
 
@@ -397,6 +405,34 @@ class Answerer {
 		$lines[] = '### ODPOWIEDŹ:';
 
 		return implode( "\n", $lines );
+	}
+
+	/**
+	 * Neutralizuje w pytaniu gościa to, co mogłoby udawać strukturę promptu.
+	 *
+	 * Dwie rzeczy, obie wyłącznie w danych gościa:
+	 *  1. ciągi trzech i więcej `#` — granice sekcji `### KONTEKST/PYTANIE/ODPOWIEDŹ`;
+	 *  2. wewnętrzny znacznik odmowy {@see NO_ANSWER} — gość nie ma prawa wstawiać
+	 *     do promptu sentinela, którym sterowana jest decyzja o odmowie.
+	 * Zamiennik `# # #` jest widzialny (zero znaków niewidzialnych — taki poszedłby
+	 * do modelu), a dla zwykłego pytania obie podmiany są bezczynne, więc zachowanie
+	 * bramki tematu i treść odpowiedzi pozostają bez zmian.
+	 *
+	 * @param string $question Pytanie gościa (już zsanityzowane w RagService).
+	 * @return string
+	 */
+	private function harden_question( string $question ): string {
+		$out = preg_replace( '/#{3,}/u', '# # #', $question );
+
+		// Niepoprawne UTF-8 wywraca tryb /u na null — powtarzamy bajtowo, zamiast
+		// skasować pytanie rzutowaniem null → '' (ta sama zasada co w FaqGenerator).
+		if ( null === $out ) {
+			$out = preg_replace( '/#{3,}/', '# # #', $question );
+		}
+
+		$clean = is_string( $out ) ? $out : $question;
+
+		return str_replace( self::NO_ANSWER, '', $clean );
 	}
 
 	/**

@@ -166,10 +166,15 @@ class Exporter {
 	private function to_elementor( array $pairs ): string {
 		$tabs = array();
 		foreach ( $pairs as $i => $pair ) {
+			// `esc_html()` tak samo jak w HTML i Gutenbergu. Elementor renderuje
+			// `tab_title`/`tab_content` JAKO HTML, więc samo kodowanie JSON tu NIE
+			// wystarcza: znacznik z odpowiedzi modelu (a ta jest niezaufana — pary
+			// bywają układane z treści wpisu pisanej przez Współpracownika) ożywałby
+			// po zaimportowaniu szablonu na stronie klienta.
 			$tabs[] = array(
 				'_id'         => $this->el_id( 'tab', $i ),
-				'tab_title'   => $pair['question'],
-				'tab_content' => $pair['answer'],
+				'tab_title'   => esc_html( $pair['question'] ),
+				'tab_content' => esc_html( $pair['answer'] ),
 			);
 		}
 

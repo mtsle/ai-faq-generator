@@ -122,6 +122,14 @@ class Settings {
 			// klienta bez jego zgody.
 			'generations_keep_rows' => 0,   // Ile najnowszych wierszy trzymać (0 = bez ograniczeń; 0–5000).
 			'generations_keep_days' => 0,   // Ile dni trzymać (0 = bez ograniczeń; 0–3650).
+
+			// --- Retencja dziennika pytań gości (audyt bezpieczeństwa K21) — OPT-IN,
+			// oba 0 = NIE KASUJ NIC. Ten sam wzorzec co retencja historii generowań
+			// wyżej: `wp_aifaq_qa_log` rośnie z KAŻDYM pytaniem gościa (nie tylko
+			// działaniem właściciela), więc na ruchliwej witrynie bez sprzątania rośnie
+			// szybciej niż historia generowań i nic jej dotąd nie przycinało.
+			'qa_log_keep_rows'      => 0,   // Ile najnowszych wpisów dziennika trzymać (0 = bez ograniczeń; 0–20000).
+			'qa_log_keep_days'      => 0,   // Ile dni trzymać (0 = bez ograniczeń; 0–3650).
 		);
 	}
 
@@ -546,6 +554,16 @@ class Settings {
 			$out['generations_keep_days'] = max( 0, min( 3650, (int) $input['generations_keep_days'] ) );
 		}
 
+		// --- Retencja dziennika pytań gości (K21) — OPT-IN, jak wyżej. Sufit wierszy
+		// wyższy niż przy generacjach (20000 vs 5000): to dziennik ruchu gości, rośnie
+		// szybciej niż ręcznie wywoływane generacje właściciela.
+		if ( isset( $input['qa_log_keep_rows'] ) ) {
+			$out['qa_log_keep_rows'] = max( 0, min( 20000, (int) $input['qa_log_keep_rows'] ) );
+		}
+		if ( isset( $input['qa_log_keep_days'] ) ) {
+			$out['qa_log_keep_days'] = max( 0, min( 3650, (int) $input['qa_log_keep_days'] ) );
+		}
+
 		return $out;
 	}
 
@@ -627,7 +645,16 @@ class Settings {
 	 */
 	public static function save( array $input ): array {
 		$clean = self::sanitize( $input );
-		update_option( self::OPTION, $clean );
+
+		// Autoload `no` — TA opcja niesie KLUCZ API. Autoładowana siedziałaby
+		// w `alloptions` przy każdym żądaniu witryny, także gościa, więc każdy
+		// zrzut opcji (wtyczka diagnostyczna, eksport, wyciek `wp_load_alloptions()`)
+		// wynosiłby sekret razem z resztą. Czytamy ją tylko tam, gdzie jest potrzebna,
+		// a `get_option()` i tak trzyma wynik w cache obiektowym na czas żądania.
+		// Istniejącym instalacjom flagę przestawia jednorazowo
+		// {@see \AIFAQ\Core\Plugin::maybe_harden_options()}.
+		update_option( self::OPTION, $clean, false );
+
 		return $clean;
 	}
 

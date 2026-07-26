@@ -42,7 +42,88 @@ class QaLogRepository extends Repository {
 			'user_id'    => (int) ( $entry['user_id'] ?? 0 ),
 			'ip_hash'    => (string) ( $entry['ip_hash'] ?? '' ),
 		);
-		return $this->insert( $row );
+		$id = $this->insert( $row );
+
+		// Retencja opt-in przy zapisie (audyt bezpieczeństwa K21) — ten sam wzorzec co
+		// `GenerationRepository::log()`: wyzwalacz TUTAJ, bo `log()` ma jednego
+		// wywołującego (`RagService`), więc sprzątanie jest deterministyczne (zero crona).
+		// Bramki obowiązkowe: istniejące testy tej klasy nie ładują Settings ani nie
+		// dają $wpdb metody query() — bez nich byłby PHP Fatal w cudzym pliku zamiast
+		// jednego FAIL-a. Porażka retencji NIE MA PRAWA wywrócić log() ani zmienić wyniku.
+		if ( $id > 0 ) {
+			try {
+				global $wpdb;
+				if ( class_exists( '\AIFAQ\Core\Settings' ) && is_object( $wpdb ) && method_exists( $wpdb, 'query' ) ) {
+					$rows = (int) \AIFAQ\Core\Settings::get_field( 'qa_log_keep_rows', 0 );
+					$days = (int) \AIFAQ\Core\Settings::get_field( 'qa_log_keep_days', 0 );
+					if ( $rows > 0 || $days > 0 ) {
+						$this->prune( $rows, $days );
+					}
+				}
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
+		}
+
+		return $id;
+	}
+
+	/**
+	 * Kasuje stare/nadmiarowe wpisy dziennika. Zwraca liczbę usuniętych.
+	 *
+	 * Dwa wymiary działają NIEZALEŻNIE (OR): wpis ginie, gdy jest starszy niż
+	 * `$keep_days` ALBO wypada poza `$keep_rows` najnowszych. `0` w danym wymiarze
+	 * wyłącza ten wymiar; oba `0` → ZERO zapytań (retencja jest opt-in — domyślnie
+	 * nic nie kasujemy, to jedyna kopia tych danych i skasowanie jest nieodwracalne).
+	 *
+	 * Granicę wieku liczymy od `current_time( 'mysql' )`, nie od `time()`/UTC —
+	 * `created_at` zapisywane jest tym samym zegarem ({@see log()}).
+	 *
+	 * @param int $keep_rows Ile najnowszych wpisów zachować (0 = bez limitu).
+	 * @param int $keep_days Ile dni historii zachować (0 = bez limitu).
+	 */
+	public function prune( int $keep_rows, int $keep_days ): int {
+		$keep_rows = max( 0, $keep_rows );
+		$keep_days = max( 0, $keep_days );
+
+		if ( 0 === $keep_rows && 0 === $keep_days ) {
+			return 0;
+		}
+
+		global $wpdb;
+		$table   = static::table();
+		$deleted = 0;
+
+		// 1) Wiek — po indeksowanej kolumnie created_at (KEY created_at w Schema).
+		if ( $keep_days > 0 ) {
+			$now = strtotime( (string) current_time( 'mysql' ) );
+			if ( $now > 0 ) {
+				$cutoff = date( 'Y-m-d H:i:s', $now - ( $keep_days * 86400 ) ); // phpcs:ignore WordPress.DateTime.RestrictedFunctions
+
+				$n = $wpdb->query(
+					$wpdb->prepare( "DELETE FROM {$table} WHERE created_at < %s", $cutoff ) // phpcs:ignore WordPress.DB
+				);
+				$deleted += max( 0, (int) $n );
+			}
+		}
+
+		// 2) Liczba wierszy — „trzymaj N najnowszych" po kluczu głównym. Dwa zapytania
+		//    (granica → DELETE), bo MySQL nie pozwala na DELETE z podzapytaniem do tej
+		//    samej tabeli.
+		if ( $keep_rows > 0 ) {
+			$boundary = (int) $wpdb->get_var(
+				$wpdb->prepare( "SELECT id FROM {$table} ORDER BY id DESC LIMIT 1 OFFSET %d", $keep_rows ) // phpcs:ignore WordPress.DB
+			);
+
+			if ( $boundary > 0 ) {
+				$n = $wpdb->query(
+					$wpdb->prepare( "DELETE FROM {$table} WHERE id <= %d", $boundary ) // phpcs:ignore WordPress.DB
+				);
+				$deleted += max( 0, (int) $n );
+			}
+		}
+
+		return $deleted;
 	}
 
 	/**

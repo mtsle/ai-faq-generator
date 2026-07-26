@@ -51,6 +51,26 @@ class RagService {
 	const MAX_QUESTION_LEN = 2000;
 
 	/**
+	 * Prefiks znacznika „ten wpis dziennika już powstał w tym oknie”.
+	 *
+	 * Dziennik `wp_aifaq_qa_log` zapisuje się na KAŻDEJ ścieżce wyjścia `/ask` —
+	 * także na tych, które NIE przechodzą przez limiter gościa ani przez dobowy
+	 * sufit witryny: trafienie w cache (bramka stoi PRZED limiterem, §7.4) oraz
+	 * samo odbicie na limicie. Bez znacznika bot powtarzający jedno żądanie ma
+	 * darmowy, NIELIMITOWANY endpoint piszący wiersze do bazy klienta:
+	 * na tanim hostingu to zapchana baza i bezużyteczny ekran „Historia”.
+	 *
+	 * Znacznik NIE zmienia niczego, co widzi gość (dalej 200 z cache albo 429) —
+	 * tłumi wyłącznie POWTÓRZONY wpis w dzienniku w obrębie okna.
+	 */
+	const LOG_MARK_PREFIX = 'aifaq_qlog_';
+
+	/**
+	 * Długość okna tłumienia powtórzonych wpisów dziennika (sekundy).
+	 */
+	const LOG_MARK_TTL = 3600;
+
+	/**
 	 * Podłoga progu miękkiego dla ścieżki /ask.
 	 *
 	 * Zapisana w bazie wartość niższa (np. 0,35 z czasów strojenia) czyniła oba progi
@@ -243,14 +263,19 @@ class RagService {
 		if ( is_array( $cached ) && '' !== (string) ( $cached['answer'] ?? '' ) ) {
 			$answer          = (string) $cached['answer'];
 			$debug['stage']  = 'cache';
-			$this->log( $q, $answer, 'answered', 'cache', 1.0, $ip_hash );
+			// Ścieżka BEZ limitera (bramka cache stoi przed nim) — wpis tłumiony
+			// per gość i per pytanie, żeby powtarzane żądanie nie mnożyło wierszy.
+			$this->log_once( 'cache|' . $q, $q, $answer, 'answered', 'cache', 1.0, $ip_hash );
 			return $this->finish( 'answered', $answer, 1.0, 'cache', $debug );
 		}
 
 		// 2) Limiter gościa PRZED API (GR5) — ochrona kosztu/klucza.
 		if ( ! $this->limiter->allow( $ip_hash ) ) {
 			$debug['stage'] = 'rate_limit';
-			$this->log( $q, '', 'error', 'rate_limit', 0.0, $ip_hash );
+			// Klucz BEZ pytania: gość za limitem może wysyłać dowolnie wiele różnych
+			// pytań, a każde z nich to kolejny wiersz. Jeden wpis „ten gość odbił się
+			// o limit w tym oknie" niesie właścicielowi dokładnie tę samą informację.
+			$this->log_once( 'limit', $q, '', 'error', 'rate_limit', 0.0, $ip_hash );
 			return $this->finish( 'error', '', 0.0, 'rate_limit', $debug );
 		}
 
@@ -261,7 +286,7 @@ class RagService {
 		//    nie zmieniają się o ani jeden bajt.
 		if ( ! $this->budget_allows() ) {
 			$debug['stage'] = 'rate_limit';
-			$this->log( $q, '', 'error', 'rate_limit', 0.0, $ip_hash );
+			$this->log_once( 'budget', $q, '', 'error', 'rate_limit', 0.0, $ip_hash );
 			return $this->finish( 'error', '', 0.0, 'rate_limit', $debug );
 		}
 
@@ -772,6 +797,63 @@ class RagService {
 				'ip_hash'  => $ip_hash,
 			)
 		);
+	}
+
+	/**
+	 * Zapis do dziennika TYLKO przy pierwszym wystąpieniu w oknie.
+	 *
+	 * Dotyczy wyłącznie ścieżek, których NIE chroni limiter gościa ani dobowy sufit
+	 * witryny (trafienie cache, odbicie na limicie, odbicie na sufcie). Pozostałe
+	 * ścieżki logują bez tłumienia — są już ograniczone liczbą jednostek gościa.
+	 *
+	 * Brak magazynu znaczników (czyste PHP CLI) → logujemy jak dotąd: tłumik jest
+	 * ochroną przed nadużyciem, nie warunkiem poprawności dziennika.
+	 *
+	 * @param string $bucket   Kubełek tłumienia (`limit`, `budget`, `cache|<pytanie>`).
+	 * @param string $question Pytanie (do dziennika).
+	 * @param string $answer   Odpowiedź (lub pusta).
+	 * @param string $status   answered|refused|error.
+	 * @param string $source   ai|cache|rate_limit|provider_rate_limit.
+	 * @param float  $score    Wynik podobieństwa.
+	 * @param string $ip_hash  Identyfikator gościa.
+	 */
+	private function log_once( string $bucket, string $question, string $answer, string $status, string $source, float $score, string $ip_hash ): void {
+		if ( $this->log_marked( $bucket, $ip_hash ) ) {
+			return;
+		}
+
+		$this->log( $question, $answer, $status, $source, $score, $ip_hash );
+	}
+
+	/**
+	 * Czy ten kubełek dla tego gościa był już zapisany w bieżącym oknie.
+	 *
+	 * Znacznik zakłada się PRZED zapisem wiersza — kolejność jest istotna, bo
+	 * odwrotna przepuszczałaby przy równoległych żądaniach dokładnie ten scenariusz,
+	 * przed którym broni. Sam znacznik wygasa po {@see LOG_MARK_TTL}.
+	 *
+	 * @param string $bucket  Kubełek tłumienia.
+	 * @param string $ip_hash Identyfikator gościa.
+	 * @return bool `true` = wpis już był, nie zapisujemy drugi raz.
+	 */
+	private function log_marked( string $bucket, string $ip_hash ): bool {
+		if ( ! function_exists( 'get_transient' ) || ! function_exists( 'set_transient' ) ) {
+			return false;
+		}
+
+		// Prefiks sklejany INLINE w obu wywołaniach (idiom `RateLimiter::PREFIX`):
+		// strażnik odinstalowania rozwiązuje klucze transientów statycznie i klucz
+		// schowany w zmiennej lokalnej zgłasza jako niesprawdzalny — słusznie, bo
+		// nie da się wtedy dowieść, że sprzątanie go obejmuje.
+		$suffix = substr( hash( 'sha256', $ip_hash . '|' . $bucket ), 0, 40 );
+
+		if ( get_transient( self::LOG_MARK_PREFIX . $suffix ) ) {
+			return true;
+		}
+
+		set_transient( self::LOG_MARK_PREFIX . $suffix, 1, self::LOG_MARK_TTL );
+
+		return false;
 	}
 
 	/**
