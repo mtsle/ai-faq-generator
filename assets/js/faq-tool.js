@@ -619,7 +619,7 @@
 					if ( 200 === r.status && 'ok' === r.data.status ) {
 						setPubStatus( t.pubDone || '', 'ok' );
 					} else {
-						setPubStatus( t.pubErr || '', 'error' );
+						setPubStatus( ( r.data && r.data.message ) ? r.data.message : ( t.pubErr || '' ), 'error' );
 					}
 				} )
 				.catch( function () {
@@ -642,7 +642,7 @@
 					if ( 200 === r.status && 'ok' === r.data.status ) {
 						setPubStatus( t.pubRemoved || '', 'ok' );
 					} else {
-						setPubStatus( t.pubErr || '', 'error' );
+						setPubStatus( ( r.data && r.data.message ) ? r.data.message : ( t.pubErr || '' ), 'error' );
 					}
 				} )
 				.catch( function () {
@@ -678,8 +678,10 @@
 			return;
 		}
 
-		// 502 / inne — błąd generacji (bez surowej treści błędu).
-		setStatus( t.errMsg || '', 'error' );
+		// 502 i inne błędy bez treści — komunikat generyczny. 401/403 (sesja/nonce
+		// wygasły po nocy) WordPress opisuje własnym, zrozumiałym komunikatem w
+		// `data.message` — pokazujemy go zamiast udawać, że przyczyna jest nieznana.
+		setStatus( ( data && data.message ) ? data.message : ( t.errMsg || '' ), 'error' );
 	}
 
 	// -----------------------------------------------------------------------

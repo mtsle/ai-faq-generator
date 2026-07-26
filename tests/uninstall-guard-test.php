@@ -444,6 +444,10 @@ $unresolved_allow = array(
 	'CrawlQueue.php|$this -> meta_key ( )',
 	// WpContentSource: pętla po OPCJACH WOOCOMMERCE (cudze klucze, nie nasze).
 	'WpContentSource.php|$option',
+	// RagService: D7 (cache odmów off-topic, dług sprzed Kroku 22) — klucz sklejany
+	// w refusal_cache_key() jako 'aifaq_refuse_' . hash(pytanie); prefiks 'aifaq_'
+	// ma pokrycie wzorcem SQL LIKE '_transient_aifaq_%' już zadeklarowanym wyżej.
+	'RagService.php|$this -> refusal_cache_key ( $q )',
 );
 
 // ---------------------------------------------------------------------------

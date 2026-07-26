@@ -119,39 +119,13 @@
 			setText( 'aifaq-stat-posts', stats.posts );
 			setText( 'aifaq-stat-embedded', stats.embedded );
 		};
-		var num = function ( v ) { return ( v === undefined || v === null ) ? 0 : v; };
-		var appendList = function ( items, label ) {
-			if ( ! items || ! items.length ) { return; }
-			var h = document.createElement( 'p' );
-			var s = document.createElement( 'strong' );
-			s.textContent = label;
-			h.appendChild( s );
-			reportEl.appendChild( h );
-			var ul = document.createElement( 'ul' );
-			items.forEach( function ( it ) {
-				var li = document.createElement( 'li' );
-				li.textContent = String( it );
-				ul.appendChild( li );
-			} );
-			reportEl.appendChild( ul );
-		};
-		// Raport: liczby i listy budowane przez textContent (anti-XSS).
+		// Raport: implementacja WSPÓLNA z indexer.js (kokpit), patrz
+		// {@see window.AIFAQReport} w `report-render.js` (R3 — dwie niezależne
+		// implementacje dryfowały już w treści etykiet).
 		var renderReport = function ( report ) {
-			if ( ! report || ! reportEl ) { return; }
-			reportEl.textContent = '';
-			var line = document.createElement( 'p' );
-			line.textContent = [
-				'Wpisów: ' + num( report.posts ),
-				'Zaindeksowano: ' + num( report.indexed ),
-				'Pominięto: ' + num( report.skipped ),
-				'Wyczyszczono: ' + num( report.cleared ),
-				'Usunięto osierocone: ' + num( report.pruned ),
-				'Fragmentów: ' + num( report.chunks )
-			].join( ' · ' );
-			reportEl.appendChild( line );
-			appendList( report.warnings, 'Uwagi:' );
-			appendList( report.errors, 'Błędy:' );
-			reportEl.hidden = false;
+			if ( window.AIFAQReport ) {
+				window.AIFAQReport.render( reportEl, report );
+			}
 		};
 
 		btnReindex.addEventListener( 'click', function () {

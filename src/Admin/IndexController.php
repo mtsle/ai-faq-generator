@@ -52,6 +52,17 @@ class IndexController {
 	const CAPABILITY = 'manage_options';
 
 	/**
+	 * Hook crona kontynuującego reindeks po wyczerpaniu budżetu czasu (F1).
+	 *
+	 * Pojedyncze zdarzenie (`wp_schedule_single_event`), nie harmonogram
+	 * cykliczny — `run_reindex()` samo zaplanuje kolejne, dopóki przebieg
+	 * kończy się `budget_hit`. Skip-unchanged (hash fragmentów) czyni każde
+	 * wywołanie idempotentnym, więc bezpiecznie je powtarzać bez śledzenia
+	 * pozycji w strumieniu.
+	 */
+	const CRON_CONTINUE_HOOK = 'aifaq_reindex_continue';
+
+	/**
 	 * AJAX: uruchamia indeksowanie całej treści i zwraca raport.
 	 */
 	public function ajax_reindex(): void {
@@ -255,7 +266,20 @@ class IndexController {
 				}
 			}
 		} else {
-			self::save_index_signature( 'partial:' . self::partial_reason( $report ) . ':' . $sig );
+			$reason = self::partial_reason( $report );
+			self::save_index_signature( 'partial:' . $reason . ':' . $sig );
+
+			// F1: reindeks przerwany WYŁĄCZNIE budżetem czasu (nie crawlem, nie
+			// błędami) wznawia się SAM przez WP-Cron — właściciel dużej witryny
+			// nie musi pamiętać, żeby kliknąć „Zaindeksuj” drugi, trzeci, N-ty
+			// raz. Powtórzenie jest bezpieczne: skip-unchanged (hash fragmentów)
+			// pomija to, co już policzono, więc każde wywołanie robi tylko
+			// przyrostową robotę. Reindeks przerwany crawlem/błędami NIE jest
+			// tu obsługiwany — pierwszy czeka na własny cron kolejki stron,
+			// drugi wymaga uwagi właściciela, nie ślepego ponowienia.
+			if ( 'budget' === $reason ) {
+				self::schedule_continue();
+			}
 		}
 
 		$stats = ( new KnowledgeRepository() )->stats();
@@ -410,6 +434,28 @@ class IndexController {
 	 */
 	public static function stats(): array {
 		return ( new KnowledgeRepository() )->stats();
+	}
+
+	/**
+	 * Planuje JEDNORAZOWE wznowienie reindeksu (F1) — tylko gdy nic już nie czeka.
+	 *
+	 * Wzorzec identyczny z {@see \AIFAQ\Index\CrawlQueue::schedule()}: brak
+	 * funkcji crona (środowisko testowe/CLI) po cichu nic nie robi, a
+	 * `wp_next_scheduled()` chroni przed zdublowaniem zdarzenia, gdyby
+	 * `run_reindex()` odpalił się drugi raz zanim cron zdążył wystrzelić
+	 * pierwsze zaplanowane.
+	 */
+	private static function schedule_continue(): void {
+		if ( ! function_exists( 'wp_next_scheduled' ) || ! function_exists( 'wp_schedule_single_event' ) ) {
+			return;
+		}
+
+		if ( wp_next_scheduled( self::CRON_CONTINUE_HOOK ) ) {
+			return;
+		}
+
+		$delay = defined( 'MINUTE_IN_SECONDS' ) ? MINUTE_IN_SECONDS : 60;
+		wp_schedule_single_event( time() + $delay, self::CRON_CONTINUE_HOOK );
 	}
 
 	/**

@@ -267,7 +267,7 @@ if ( class_exists( 'AIFAQ\Data\CacheRepository' ) ) {
 		public $hit = null;
 		public function __construct( $hit = null ) { $this->hit = $hit; }
 		public function get_by_question( string $q ): ?array { return $this->hit; }
-		public function put( string $q, string $a ): int { ++$this->puts; $this->stored[ $q ] = $a; return 1; }
+		public function put( string $q, string $a, float $score = 0.0 ): int { ++$this->puts; $this->stored[ $q ] = $a; return 1; }
 		public function clear_all(): int { ++$this->clears; return 0; }
 	}
 }

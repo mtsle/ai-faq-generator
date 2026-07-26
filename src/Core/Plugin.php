@@ -365,6 +365,10 @@ final class Plugin {
 		add_filter( 'cron_schedules', array( $this, 'register_cron_schedule' ) ); // phpcs:ignore WordPress.WP.CronInterval.ChangeDetected
 		add_action( self::CRAWL_HOOK, array( $this, 'run_crawl_tick' ) );
 
+		// F1: wznowienie reindeksu przerwanego budżetem czasu — POZA `is_admin()`
+		// z tego samego powodu co crawl (`wp-cron.php` nie jest kontekstem admina).
+		add_action( IndexController::CRON_CONTINUE_HOOK, array( $this, 'run_reindex_continue_tick' ) );
+
 		// Niezawodność podstrony generatora (Krok 18) — POZA gałęzią `is_admin()`,
 		// bo kosz bywa obsługiwany także z REST i z WP-CLI, gdzie `is_admin()` jest
 		// fałszem. Usunięcie TRWAŁE ma osobny callback: tylko rozdzielenie „leży
@@ -453,6 +457,27 @@ final class Plugin {
 
 		try {
 			( new \AIFAQ\Index\CrawlQueue() )->tick();
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
+
+	/**
+	 * Callback crona: wznawia reindeks przerwany budżetem czasu (F1).
+	 *
+	 * `run_reindex()` samo zaplanuje KOLEJNE wznowienie, jeśli budżet znów
+	 * zostanie wyczerpany — pętla kończy się dopiero, gdy przebieg wyjdzie
+	 * `complete` albo padnie na crawlu/błędach (te dwa nie planują niczego).
+	 * Klasa kontrolera należy do innego etapu — jej brak (albo dowolny
+	 * wyjątek w środku) NIE ma prawa wywalić crona witryny klienta.
+	 */
+	public function run_reindex_continue_tick(): void {
+		if ( ! class_exists( '\AIFAQ\Admin\IndexController' ) ) {
+			return;
+		}
+
+		try {
+			( new IndexController() )->run_reindex();
 		} catch ( \Throwable $e ) {
 			unset( $e );
 		}

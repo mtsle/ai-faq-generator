@@ -41,6 +41,13 @@ class Deactivator {
 				? \AIFAQ\Index\CrawlQueue::CRON_HOOK
 				: 'aifaq_crawl_tick';
 			wp_unschedule_hook( $hook );
+
+			// F1: wznowienie reindeksu (Krok 22-dług) — ten sam powód: harmonogram
+			// wisiałby w `cron` bez wtyczki, która go obsłuży.
+			$reindex_hook = class_exists( '\AIFAQ\Admin\IndexController' )
+				? \AIFAQ\Admin\IndexController::CRON_CONTINUE_HOOK
+				: 'aifaq_reindex_continue';
+			wp_unschedule_hook( $reindex_hook );
 		}
 
 		// Pozycja „Generator FAQ" w menu nawigacji (Krok 20). To PIERWSZE miejsce w tym

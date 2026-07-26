@@ -45,22 +45,28 @@ class CacheRepository extends Repository {
 	 * na duplikacie. Używamy `INSERT ... ON DUPLICATE KEY UPDATE` — wpis powstaje
 	 * przy pierwszym pytaniu, a kolejne odświeżają odpowiedź (bez błędu, bez wyścigu).
 	 *
+	 * `$score` (D4, dług sprzed Kroku 22): realny wynik podobieństwa z chwili
+	 * zapisu — {@see RagService} czyta go z powrotem przy trafieniu cache, żeby
+	 * dziennik `qa_log` nie kłamał stałym `score=1.0`.
+	 *
 	 * @param string $question Treść pytania.
 	 * @param string $answer   Odpowiedź do zapamiętania.
+	 * @param float  $score    Realny wynik podobieństwa w chwili generacji.
 	 * @return int ID wiersza (0, gdy nie udało się ustalić).
 	 */
-	public function put( string $question, string $answer ): int {
+	public function put( string $question, string $answer, float $score = 0.0 ): int {
 		global $wpdb;
 		$table = static::table();
 
 		$wpdb->query( // phpcs:ignore WordPress.DB
 			$wpdb->prepare(
-				"INSERT INTO {$table} (question_hash, question, answer, hits, created_at)
-				 VALUES (%s, %s, %s, 0, %s)
-				 ON DUPLICATE KEY UPDATE answer = VALUES(answer), created_at = VALUES(created_at)",
+				"INSERT INTO {$table} (question_hash, question, answer, score, hits, created_at)
+				 VALUES (%s, %s, %s, %f, 0, %s)
+				 ON DUPLICATE KEY UPDATE answer = VALUES(answer), score = VALUES(score), created_at = VALUES(created_at)",
 				self::hash( $question ),
 				$question,
 				$answer,
+				$score,
 				current_time( 'mysql' )
 			)
 		);

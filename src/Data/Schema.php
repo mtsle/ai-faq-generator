@@ -107,11 +107,15 @@ class Schema {
 		) ENGINE=InnoDB {$charset_collate};";
 
 		// Cache odpowiedzi (dedup po hashu pytania).
+		// `score` (Krok 22-dług, D4): realny wynik podobieństwa z chwili WPISU do
+		// cache — bez niego każde trafienie cache logowało do qa_log stały,
+		// zmyślony `score=1.0` niezależnie od tego, jak dobre było dopasowanie.
 		$out[] = "CREATE TABLE {$cache} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			question_hash char(64) NOT NULL DEFAULT '',
 			question text NOT NULL,
 			answer longtext NOT NULL,
+			score float NOT NULL DEFAULT 0,
 			hits int(10) unsigned NOT NULL DEFAULT 0,
 			created_at datetime NOT NULL,
 			PRIMARY KEY  (id),

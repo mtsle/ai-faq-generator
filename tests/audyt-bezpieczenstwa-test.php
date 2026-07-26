@@ -139,7 +139,7 @@ class SecCache extends CacheRepository {
 	public $store;
 	public function __construct( $store = null ) { $this->store = $store; }
 	public function get_by_question( string $q ): ?array { return $this->store; }
-	public function put( string $q, string $a ): int { return 1; }
+	public function put( string $q, string $a, float $score = 0.0 ): int { return 1; }
 }
 class SecQaLog extends QaLogRepository {
 	public $entries = array();

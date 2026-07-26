@@ -39,10 +39,16 @@
 	var pollTimer    = null;
 
 	/**
-	 * Wysyła żądanie AJAX (application/x-www-form-urlencoded) i zwraca Promise z JSON.
+	 * Wysyła żądanie AJAX (application/x-www-form-urlencoded) i zwraca Promise
+	 * z `{status, json}` — NIGDY nie odrzuca przez samo nieudane parsowanie JSON-a.
+	 *
+	 * `check_ajax_referer()` przy wygasłym nonce kończy żądanie surowym „-1"
+	 * (status 401/403), nie JSON-em — bez tego opakowania wywołujący nie miał
+	 * jak odróżnić „sesja wygasła" od „serwer padł" (obie lądowały w tym samym
+	 * catch-u niżej).
 	 *
 	 * @param {string} action Nazwa akcji admin-ajax.
-	 * @return {Promise<Object>}
+	 * @return {Promise<{status:number,json:Object}>}
 	 */
 	function post( action ) {
 		var body = new URLSearchParams();
@@ -55,8 +61,24 @@
 			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 			body: body.toString()
 		} ).then( function ( res ) {
-			return res.json();
+			return res.json()
+				.catch( function () { return null; } )
+				.then( function ( json ) { return { status: res.status, json: json }; } );
 		} );
+	}
+
+	/**
+	 * Komunikat błędu: 401/403 (sesja/nonce wygasły) dostają WŁASNY tekst
+	 * zamiast ogólnego — `admin-ajax.php` nie zwraca tu treści do pokazania.
+	 *
+	 * @param {number} status
+	 * @return {string}
+	 */
+	function errorMessage( status ) {
+		if ( 401 === status || 403 === status ) {
+			return i18n.sessionExpired || i18n.error || '';
+		}
+		return i18n.error || '';
 	}
 
 	/**
@@ -113,99 +135,21 @@
 	}
 
 	/**
-	 * Tworzy element i wypełnia go przez textContent (nigdy wstrzyknięciem HTML-a).
-	 *
-	 * @param {string} tag
-	 * @param {string} text
-	 * @param {string} [color]
-	 * @return {HTMLElement}
-	 */
-	function el( tag, text, color ) {
-		var node = document.createElement( tag );
-		if ( undefined !== text && null !== text ) {
-			node.textContent = String( text );
-		}
-		if ( color ) {
-			node.style.color = color;
-		}
-		return node;
-	}
-
-	/**
-	 * Dokłada nagłówek + listę pozycji.
-	 *
-	 * @param {HTMLElement} parent
-	 * @param {string} label
-	 * @param {Array} items
-	 * @param {string} [color]
-	 */
-	function appendList( parent, label, items, color ) {
-		if ( ! items || ! items.length ) {
-			return;
-		}
-
-		var head = el( 'p' );
-		head.appendChild( el( 'strong', label ) );
-		parent.appendChild( head );
-
-		var list = document.createElement( 'ul' );
-		list.style.listStyle = 'disc';
-		list.style.marginLeft = '1.5em';
-		if ( color ) {
-			list.style.color = color;
-		}
-
-		items.forEach( function ( item ) {
-			list.appendChild( el( 'li', item ) );
-		} );
-
-		parent.appendChild( list );
-	}
-
-	/**
-	 * Renderuje raport indeksowania.
+	 * Renderuje raport indeksowania — implementacja WSPÓLNA z app.js,
+	 * patrz {@see window.AIFAQReport} w `report-render.js` (R3).
 	 *
 	 * @param {Object} report
 	 */
 	function renderReport( report ) {
-		if ( ! report || ! reportEl ) {
+		if ( ! window.AIFAQReport ) {
 			return;
 		}
-
-		while ( reportEl.firstChild ) {
-			reportEl.removeChild( reportEl.firstChild );
-		}
-
-		var lines = [];
-		lines.push( 'Wpisów: ' + report.posts );
-		lines.push( 'Zaindeksowano: ' + report.indexed );
-		lines.push( 'Pominięto (bez zmian): ' + report.skipped );
-		lines.push( 'Wyczyszczono: ' + report.cleared );
-		lines.push( 'Usunięto osierocone: ' + report.pruned );
-		lines.push( 'Fragmentów zapisanych: ' + report.chunks );
-
-		reportEl.appendChild( el( 'p', lines.join( ' · ' ) ) );
-
-		// Krok 17: skąd wzięła się treść (klucz = krótka nazwa klasy źródła).
-		if ( report.sources && 'object' === typeof report.sources ) {
-			var srcLines = Object.keys( report.sources ).map( function ( name ) {
-				var s = report.sources[ name ] || {};
-				return name + ': ' + ( s.docs || 0 ) + ' dok. / ' + ( s.chars || 0 ) + ' zn.';
-			} );
-			appendList( reportEl, i18n.reportSources || 'Źródła treści:', srcLines );
-		}
-
-		if ( report.filtered_lines ) {
-			reportEl.appendChild( el(
-				'p',
-				( i18n.reportFilter || 'Usunięto powtarzalnych linii:' ) + ' ' + report.filtered_lines
-			) );
-		}
-
-		appendList( reportEl, i18n.reportWarn || 'Uwagi:', report.warnings, '#996800' );
-		appendList( reportEl, i18n.reportErrors || 'Błędy:', report.errors, '#b32d2e' );
-
-		reportEl.hidden = false;
+		window.AIFAQReport.render( reportEl, report, {
+			sources:  i18n.reportSources,
+			filtered: i18n.reportFilter,
+			warnings: i18n.reportWarn,
+			errors:   i18n.reportErrors
+		} );
 	}
 
 	function setStatus( msg ) {
@@ -275,13 +219,14 @@
 			reportEl.hidden = true;
 		}
 
-		post( cfg.actionReindex ).then( function ( json ) {
+		post( cfg.actionReindex ).then( function ( r ) {
+			var json = r.json;
 			if ( json && json.success ) {
 				updateStats( json.data.stats );
 				renderReport( json.data.report );
 				setStatus( i18n.done );
 			} else {
-				setStatus( ( json && json.data && json.data.message ) ? json.data.message : i18n.error );
+				setStatus( ( json && json.data && json.data.message ) ? json.data.message : errorMessage( r.status ) );
 			}
 		} ).catch( function () {
 			setStatus( i18n.error );
@@ -300,7 +245,8 @@
 		setBusy( true );
 		setStatus( i18n.clearing );
 
-		post( cfg.actionClear ).then( function ( json ) {
+		post( cfg.actionClear ).then( function ( r ) {
+			var json = r.json;
 			if ( json && json.success ) {
 				updateStats( json.data.stats );
 				if ( reportEl ) {
@@ -308,7 +254,7 @@
 				}
 				setStatus( i18n.done );
 			} else {
-				setStatus( ( json && json.data && json.data.message ) ? json.data.message : i18n.error );
+				setStatus( ( json && json.data && json.data.message ) ? json.data.message : errorMessage( r.status ) );
 			}
 		} ).catch( function () {
 			setStatus( i18n.error );

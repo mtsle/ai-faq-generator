@@ -183,6 +183,9 @@
 			showAnswer( 'error', ( data && data.message ) ? data.message : ( t.errTooLong || '' ), '' );
 			return;
 		}
-		showAnswer( 'error', t.errGeneric || '', '' );
+		// 401/403 (sesja/nonce właściciela wygasły po nocy), 502 i inne — WordPress
+		// opisuje 401/403 własnym, zrozumiałym komunikatem w `data.message`;
+		// pokazujemy go zamiast generycznego, gdy jest dostępny.
+		showAnswer( 'error', ( data && data.message ) ? data.message : ( t.errGeneric || '' ), '' );
 	}
 } )();

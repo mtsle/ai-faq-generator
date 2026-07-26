@@ -87,9 +87,27 @@ class Chunker {
 	 */
 	private function normalize( string $text ): string {
 		$text = str_replace( array( "\r\n", "\r" ), "\n", $text );
-		$text = (string) preg_replace( '/[ \t]+/u', ' ', $text );
-		$text = (string) preg_replace( '/\n{2,}/u', "\n", $text );
+		$text = $this->re( '/[ \t]+/u', ' ', $text );
+		$text = $this->re( '/\n{2,}/u', "\n", $text );
 		return trim( $text );
+	}
+
+	/**
+	 * `preg_replace` odporny na porażkę (niepoprawny UTF-8 przy modyfikatorze `u`).
+	 *
+	 * Bez tego `null` rzutowany na string kasowałby CAŁĄ treść wpisu — dokładnie
+	 * ten sam bezpiecznik co {@see WpContentSource::re()} (NISKIE z audytu
+	 * Kroków 0-5: „niepoprawny UTF-8 → pusty chunk"). Reszta pipeline'u miała
+	 * już ten bezpiecznik; `normalize()` w Chunkerze był jedynym miejscem bez niego.
+	 *
+	 * @param string $pattern     Wzorzec.
+	 * @param string $replacement Zamiennik.
+	 * @param string $subject     Tekst wejściowy.
+	 * @return string
+	 */
+	private function re( string $pattern, string $replacement, string $subject ): string {
+		$out = preg_replace( $pattern, $replacement, $subject );
+		return ( null === $out ) ? $subject : (string) $out;
 	}
 
 	/**

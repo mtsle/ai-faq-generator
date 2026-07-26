@@ -208,10 +208,19 @@ class Menu {
 			}
 		}
 		if ( ! $is_sub ) {
+			// R3 (dług sprzed Kroku 22): render raportu WSPÓLNY z panelem
+			// właściciela na froncie (app.js) — patrz `report-render.js`.
+			wp_enqueue_script(
+				'aifaq-report',
+				AIFAQ_PLUGIN_URL . 'assets/js/report-render.js',
+				array(),
+				AIFAQ_VERSION,
+				true
+			);
 			wp_enqueue_script(
 				'aifaq-indexer',
 				AIFAQ_PLUGIN_URL . 'assets/js/indexer.js',
-				array(),
+				array( 'aifaq-report' ),
 				AIFAQ_VERSION,
 				true
 			);
@@ -233,6 +242,11 @@ class Menu {
 						'clearing'      => __( 'Czyszczę bazę…', 'ai-faq-generator' ),
 						'confirmClear'  => __( 'Na pewno wyczyścić całą bazę wiedzy? Trzeba będzie zaindeksować treść od nowa.', 'ai-faq-generator' ),
 						'error'         => __( 'Wystąpił błąd. Spróbuj ponownie.', 'ai-faq-generator' ),
+						// Dług sprzed Kroku 22: sesja admina zostawiona na noc → nonce
+						// wygasa, a `admin-ajax.php` na to nie zwraca JSON-a z opisem
+						// (samo "-1"), więc bez tego komunikatu właściciel dostawał
+						// mylący ogólny błąd zamiast „odśwież stronę".
+						'sessionExpired' => __( 'Sesja wygasła — odśwież stronę i spróbuj ponownie.', 'ai-faq-generator' ),
 						'done'          => __( 'Gotowe.', 'ai-faq-generator' ),
 						// %1$s = pobrane, %2$s = wszystkie. Podstawienia robi JS.
 						'crawlRunning'  => __( 'Pobieram strony w tle: %1$s z %2$s. Indeksowanie odblokuje się po zakończeniu.', 'ai-faq-generator' ),

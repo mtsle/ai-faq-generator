@@ -82,6 +82,20 @@ foreach ( $che as $frag ) {
 check( count( $che ) > 1, "polski tekst → wiele fragmentów" );
 check( $all_valid, "każdy fragment to POPRAWNY UTF-8 (żaden znak nie przecięty)" );
 
+echo "\n=== F. Niepoprawny UTF-8 nie kasuje CAŁEJ treści (NISKIE z audytu K0-5) ===\n";
+// \xFF nie jest poprawnym bajtem startowym UTF-8 — preg_replace z modyfikatorem
+// /u na takim wejściu zwraca null. Bez bezpiecznika normalize() zwracała '',
+// a chunk() całą resztę realnej treści dookoła zgniatała do [].
+$broken = "Tekst przed błędem \xFF a to jest dalsza treść, która musi przeżyć.";
+$cf     = new Chunker( 1000, 0 );
+$chf    = $cf->chunk( $broken );
+check( array() !== $chf, "tekst z niepoprawnym bajtem UTF-8 → NIE daje pustej listy fragmentów" );
+$has_content = false;
+foreach ( $chf as $frag ) {
+	if ( false !== strpos( $frag, 'dalsza tre' ) ) { $has_content = true; }
+}
+check( $has_content, "treść PO błędnym bajcie nadal trafia do fragmentu (nic nie ucięte w ciszy)" );
+
 echo "\n=== PODSUMOWANIE ===\n";
 echo ( 0 === $fail ) ? "TEST KROK 5 (Chunker): WSZYSTKIE ASERCJE OK\n" : "TEST KROK 5 (Chunker): $fail ASERCJI NIE PRZESZŁO\n";
 exit( $fail === 0 ? 0 : 1 );

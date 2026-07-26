@@ -390,8 +390,10 @@
 			return;
 		}
 
-		// 502, 401/403 (wygasły nonce) i wszystko inne — jeden komunikat błędu.
-		setStatus( t.mbErrMsg || '', 'is-error' );
+		// 502 i inne błędy bez treści — komunikat generyczny. 401/403 (sesja/nonce
+		// wygasły po nocy) WordPress opisuje własnym, zrozumiałym komunikatem w
+		// `data.message` — pokazujemy go zamiast udawać, że przyczyna jest nieznana.
+		setStatus( ( data && data.message ) ? data.message : ( t.mbErrMsg || '' ), 'is-error' );
 	}
 
 	genBtn.addEventListener( 'click', function () {
@@ -566,7 +568,7 @@
 							setStatus( t.mbInsertErr || '', 'is-error' );
 						}
 					} else {
-						setStatus( t.mbInsertErr || '', 'is-error' );
+						setStatus( ( r.data && r.data.message ) ? r.data.message : ( t.mbInsertErr || '' ), 'is-error' );
 					}
 					// Lista par ZOSTAJE widoczna i niezmieniona — ponowne „Wstaw"
 					// wstawi je drugi raz i jest to zachowanie dozwolone.

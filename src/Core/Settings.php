@@ -684,6 +684,26 @@ class Settings {
 	}
 
 	/**
+	 * Komunikat błędu weryfikacji klucza — JEDNO źródło dla AJAX (kokpit) i REST
+	 * (panel `/faqgenerator`), które inaczej dryfowałyby w treści (R1, dług
+	 * sprzed Kroku 22).
+	 *
+	 * `aifaq_no_key` dostaje własną treść z providera wprost (już mówi „brak
+	 * klucza"); każdy inny kod owijamy w „Błąd: %s", żeby odróżnić usterkę
+	 * połączenia/klucza od reszty komunikatów ekranu.
+	 *
+	 * @param \WP_Error $result Błąd z {@see verify_key()}.
+	 * @return string
+	 */
+	public static function verify_error_message( \WP_Error $result ): string {
+		if ( 'aifaq_no_key' === $result->get_error_code() ) {
+			return (string) $result->get_error_message();
+		}
+		/* translators: %s: komunikat błędu z providera */
+		return sprintf( __( 'Błąd: %s', 'ai-faq-generator' ), $result->get_error_message() );
+	}
+
+	/**
 	 * AJAX: „Test połączenia" — realny, lekki ping klucza do Gemini.
 	 *
 	 * Cienkie opakowanie {@see verify_key()} dla ekranu Ustawień w kokpicie.
@@ -699,11 +719,7 @@ class Settings {
 		$result  = self::verify_key( $api_key );
 
 		if ( is_wp_error( $result ) ) {
-			$message = ( 'aifaq_no_key' === $result->get_error_code() )
-				? $result->get_error_message()
-				/* translators: %s: komunikat błędu z providera */
-				: sprintf( __( 'Błąd: %s', 'ai-faq-generator' ), $result->get_error_message() );
-			wp_send_json_error( array( 'message' => $message ) );
+			wp_send_json_error( array( 'message' => self::verify_error_message( $result ) ) );
 		}
 
 		wp_send_json_success( array( 'message' => __( 'Połączenie OK — klucz działa.', 'ai-faq-generator' ) ) );

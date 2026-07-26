@@ -228,7 +228,10 @@ class Shortcode {
 		}
 
 		wp_enqueue_style( 'aifaq-app', AIFAQ_PLUGIN_URL . 'assets/css/app.css', array( 'aifaq-generator' ), $ver );
-		wp_enqueue_script( 'aifaq-app', AIFAQ_PLUGIN_URL . 'assets/js/app.js', array( 'aifaq-generator' ), $ver, true );
+		// R3 (dług sprzed Kroku 22): render raportu WSPÓLNY z kokpitem
+		// (indexer.js) — patrz `report-render.js`.
+		wp_enqueue_script( 'aifaq-report', AIFAQ_PLUGIN_URL . 'assets/js/report-render.js', array(), $ver, true );
+		wp_enqueue_script( 'aifaq-app', AIFAQ_PLUGIN_URL . 'assets/js/app.js', array( 'aifaq-generator', 'aifaq-report' ), $ver, true );
 		wp_add_inline_script(
 			'aifaq-app',
 			'window.aifaqApp = ' . wp_json_encode( AppShell::config() ) . ';',

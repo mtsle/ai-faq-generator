@@ -355,6 +355,22 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 				'l' => __( 'Średnia trafność', 'ai-faq-generator' ),
 			),
 		);
+
+		// Miernik sufitu dobowego (dług sprzed Kroku 22): 0 = sufit wyłączony w
+		// Ustawieniach (np. klucz płatny) — kafelek wtedy pomijamy, bo liczba
+		// „n/0" nic by właścicielowi nie powiedziała. Czytamy ZAPISANY licznik,
+		// nie budujemy całego RagService — Dashboard nie ma prawa kosztować
+		// wywołania API ani wymagać skonfigurowanego dostawcy.
+		$aifaq_budget_limit = (int) \AIFAQ\Core\Settings::get_field( 'rag_daily_budget', 12 );
+		if ( $aifaq_budget_limit > 0 && class_exists( '\AIFAQ\Rag\RagService' )
+			&& method_exists( '\AIFAQ\Rag\RagService', 'usage_snapshot' ) ) {
+			$aifaq_budget_usage = (int) ( \AIFAQ\Rag\RagService::usage_snapshot()['n'] ?? 0 );
+			$aifaq_tiles[]      = array(
+				/* translators: 1: pytania zużyte dziś, 2: dobowy sufit */
+				'n' => sprintf( __( '%1$s / %2$s', 'ai-faq-generator' ), number_format_i18n( $aifaq_budget_usage ), number_format_i18n( $aifaq_budget_limit ) ),
+				'l' => __( 'Sufit dobowy (dziś)', 'ai-faq-generator' ),
+			);
+		}
 		?>
 		<div class="aifaq-tiles">
 			<?php foreach ( $aifaq_tiles as $aifaq_tile ) : ?>

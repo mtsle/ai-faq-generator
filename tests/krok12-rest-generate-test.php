@@ -45,6 +45,9 @@ if ( ! function_exists( 'get_userdata' ) ) {
 	function get_userdata( $id ) { $o = new stdClass(); $o->display_name = ( 5 === (int) $id ) ? 'Admin' : ''; return $o; }
 }
 if ( ! function_exists( 'is_wp_error' ) ) { function is_wp_error( $t ) { return $t instanceof WP_Error; } }
+$GLOBALS['__aifaq_transients'] = array();
+if ( ! function_exists( 'get_transient' ) ) { function get_transient( $k ) { return $GLOBALS['__aifaq_transients'][ $k ] ?? false; } }
+if ( ! function_exists( 'set_transient' ) ) { function set_transient( $k, $v, $ttl = 0 ) { $GLOBALS['__aifaq_transients'][ $k ] = $v; return true; } }
 
 // --- shimy klas WP ---
 if ( ! class_exists( 'WP_Error' ) ) {
@@ -79,6 +82,7 @@ require __DIR__ . '/../src/Providers/ProviderInterface.php';
 require __DIR__ . '/../src/Providers/ProviderFactory.php';
 require __DIR__ . '/../src/Faq/FaqGenerator.php';
 require __DIR__ . '/../src/Core/Settings.php';
+require __DIR__ . '/../src/Rag/RateLimiter.php';
 require __DIR__ . '/../src/Rest/RestController.php';
 
 use AIFAQ\Rest\RestController;
@@ -219,6 +223,20 @@ $wpdb->deleted = 1;
 $resp = $c->handle_generations_delete( req( array( 'id' => 3 ) ) );
 check( 200 === $resp->get_status() && true === (bool) $resp->get_data()['deleted'], 'poprawne id → 200 + deleted' );
 check( 3 === $wpdb->delete_id, 'delete trafił we właściwe id' );
+
+echo "\n=== H. Bezpiecznik generatora: limit 10/h (dług sprzed Kroku 22 — brak limitowania ścieżki admina) ===\n";
+// Sekcje B-E zużyły już 6 wywołań tego samego, STAŁEGO kubełka
+// (RestController::GENERATE_FAQ_LIMIT_BUCKET) — limit 10/h, więc 4 kolejne
+// mieszczą się jeszcze w puli, a 11. musi dostać 429.
+ProviderFactory::set_override( new FakeGenProvider( json_encode( $pairs ) ) );
+for ( $i = 0; $i < 4; $i++ ) {
+	$resp = $c->handle_generate_faq( req( array( 'topic' => 'Test limitu', 'count' => 5 ) ) );
+	check( 200 === $resp->get_status(), "wywołanie #" . ( 7 + $i ) . " (w limicie) → 200" );
+}
+$resp = $c->handle_generate_faq( req( array( 'topic' => 'Test limitu', 'count' => 5 ) ) );
+$d    = $resp->get_data();
+check( 429 === $resp->get_status(), '11. wywołanie w tej godzinie → HTTP 429 (bezpiecznik zadziałał)' );
+check( 'error' === ( $d['status'] ?? '' ), '429: status error' );
 
 ProviderFactory::set_override( null );
 

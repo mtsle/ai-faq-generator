@@ -33,6 +33,7 @@ use AIFAQ\Faq\Exporter;
 use AIFAQ\Faq\FaqGenerator;
 use AIFAQ\Providers\ProviderFactory;
 use AIFAQ\Rag\RagService;
+use AIFAQ\Rag\RateLimiter;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -65,6 +66,22 @@ class RestController {
 	 * dotykające klucza API, indeksu i dziennika gości zostają na `manage_options`.
 	 */
 	const CAPABILITY_TOOL = 'publish_posts';
+
+	/**
+	 * Bezpiecznik generatora FAQ: max wywołań na godzinę (dług sprzed Kroku 22
+	 * — „brak limitowania ścieżki admina"). Pula dostawcy jest wspólna z `/ask`
+	 * (ta sama darmowa doba, ~20 żądań), więc bez tego jedna testowa sesja
+	 * klikania „Generuj” mogłaby ją wyczerpać samodzielnie, zanim jakikolwiek
+	 * gość zadał pytanie. Osobny od `rag_daily_budget` (ten liczy WYŁĄCZNIE
+	 * `/ask`) i od per-gość RateLimitera w RagService — to jest bramka dla
+	 * NARZĘDZIA, nie dla gościa.
+	 */
+	const GENERATE_FAQ_HOURLY_LIMIT = 10;
+
+	/**
+	 * Klucz-kubełek limitera generatora FAQ — stały (jedno narzędzie, nie per-gość).
+	 */
+	const GENERATE_FAQ_LIMIT_BUCKET = 'admin-generate-faq';
 
 	/**
 	 * Podpina rejestrację tras pod `rest_api_init` (wywoływane z Plugin::init_hooks).
@@ -778,11 +795,7 @@ class RestController {
 		$result  = Settings::verify_key( $api_key );
 
 		if ( is_wp_error( $result ) ) {
-			$message = ( 'aifaq_no_key' === $result->get_error_code() )
-				? $result->get_error_message()
-				/* translators: %s: komunikat błędu z providera */
-				: sprintf( __( 'Błąd: %s', 'ai-faq-generator' ), $result->get_error_message() );
-			return new WP_REST_Response( array( 'status' => 'error', 'message' => $message ), 200 );
+			return new WP_REST_Response( array( 'status' => 'error', 'message' => Settings::verify_error_message( $result ) ), 200 );
 		}
 
 		return new WP_REST_Response(
@@ -879,6 +892,20 @@ class RestController {
 	 * @return WP_REST_Response
 	 */
 	public function handle_generate_faq( WP_REST_Request $request ): WP_REST_Response {
+		// Bezpiecznik: pula dostawcy wspólna z /ask, więc rwąca sesja klikania
+		// „Generuj” (dubel, skrypt, pomyłka) nie może jej wyczerpać samodzielnie.
+		$gen_limiter = new RateLimiter( self::GENERATE_FAQ_HOURLY_LIMIT, null, 3600 );
+		if ( ! $gen_limiter->allow( self::GENERATE_FAQ_LIMIT_BUCKET ) ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Zbyt wiele generacji w tej godzinie — poczekaj chwilę (chroni to wspólny dzienny limit API).', 'ai-faq-generator' ),
+				),
+				429
+			);
+		}
+		$gen_limiter->hit( self::GENERATE_FAQ_LIMIT_BUCKET );
+
 		$topic = trim( (string) $request->get_param( 'topic' ) );
 		$desc  = (string) $request->get_param( 'description' );
 		$count = (int) $request->get_param( 'count' );

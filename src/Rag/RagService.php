@@ -71,6 +71,18 @@ class RagService {
 	const LOG_MARK_TTL = 3600;
 
 	/**
+	 * Długość okna cache'owania odmów off-topic (sekundy) — D7.
+	 *
+	 * Transient (nie wiersz w `wp_aifaq_cache`), więc — inaczej niż odpowiedzi
+	 * pozytywne — NIE jest kasowany przez {@see \AIFAQ\Data\CacheRepository::clear_all()}
+	 * przy reindeksie. Świadomy kompromis: brakuje rejestru „które pytania
+	 * dostały odmowę”, więc nie ma czego wyliczyć do skasowania punktowo, a
+	 * krótkie okno (ta sama jednostka co {@see LOG_MARK_TTL}) ogranicza koszt
+	 * błędu do góry maksymalnie godziny nieaktualnej odmowy.
+	 */
+	const REFUSAL_CACHE_TTL = 3600;
+
+	/**
 	 * Podłoga progu miękkiego dla ścieżki /ask.
 	 *
 	 * Zapisana w bazie wartość niższa (np. 0,35 z czasów strojenia) czyniła oba progi
@@ -261,12 +273,32 @@ class RagService {
 		// 1) Cache PRZED generacją (GR5) — identyczne pytanie nie płaci drugi raz.
 		$cached = $this->cache->get_by_question( $q );
 		if ( is_array( $cached ) && '' !== (string) ( $cached['answer'] ?? '' ) ) {
-			$answer          = (string) $cached['answer'];
-			$debug['stage']  = 'cache';
+			$answer = (string) $cached['answer'];
+			// D4 (dług sprzed Kroku 22): realny score zapisany w chwili generacji,
+			// nie zmyślony 1.0 — inaczej `qa_log` twierdzi, że KAŻDE trafienie cache
+			// było idealnym dopasowaniem. Zapasowe 1.0 tylko dla wierszy sprzed
+			// migracji/atrap testowych bez kolumny `score`.
+			$score_cached   = isset( $cached['score'] ) ? (float) $cached['score'] : 1.0;
+			$debug['stage'] = 'cache';
 			// Ścieżka BEZ limitera (bramka cache stoi przed nim) — wpis tłumiony
 			// per gość i per pytanie, żeby powtarzane żądanie nie mnożyło wierszy.
-			$this->log_once( 'cache|' . $q, $q, $answer, 'answered', 'cache', 1.0, $ip_hash );
-			return $this->finish( 'answered', $answer, 1.0, 'cache', $debug );
+			$this->log_once( 'cache|' . $q, $q, $answer, 'answered', 'cache', $score_cached, $ip_hash );
+			return $this->finish( 'answered', $answer, $score_cached, 'cache', $debug );
+		}
+
+		// D7: odmowa off-topic cache'owana OBOK odpowiedzi pozytywnych — bez tego
+		// spam jednym pytaniem spoza tematu płaci pełny embedding za KAŻDYM
+		// powtórzeniem, a limiter gościa chroni tylko JEDEN adres IP, nie
+		// powtórzenie z wielu. Trzymamy realny score sprzed odmowy (D4 — ta sama
+		// zasada „nie zmyślaj analityki" co przy cache odpowiedzi), a treść
+		// odmowy liczymy na nowo przez {@see refusal_message()} — tanio, bez
+		// wywołania dostawcy.
+		$refused_score = $this->refusal_cached_score( $q );
+		if ( false !== $refused_score ) {
+			$debug['stage'] = 'cache';
+			$msg            = $this->refusal_message();
+			$this->log_once( 'refuse|' . $q, $q, $msg, 'refused', 'cache', $refused_score, $ip_hash );
+			return $this->finish( 'refused', $msg, $refused_score, 'cache', $debug );
 		}
 
 		// 2) Limiter gościa PRZED API (GR5) — ochrona kosztu/klucza.
@@ -335,6 +367,7 @@ class RagService {
 			$debug['stage']    = 'guard';
 			$debug['provider'] = $this->provider_meta();
 			$msg               = $this->refusal_message();
+			$this->cache_refusal( $q, $score );
 			$this->log( $q, $msg, 'refused', 'ai', $score, $ip_hash );
 			return $this->finish( 'refused', $msg, $score, 'ai', $debug );
 		}
@@ -401,7 +434,7 @@ class RagService {
 			// Odpowiedzi uciętej nie UTRWALAMY — cache nie ma TTL, więc połowa zdania
 			// zostałaby na stałe. Zwracamy ją mimo to: bywa użyteczna.
 			if ( ! $truncated ) {
-				$this->cache->put( $q, $answer['answer'] );
+				$this->cache->put( $q, $answer['answer'], $score );
 			}
 			$this->log( $q, $answer['answer'], 'answered', 'ai', $score, $ip_hash );
 			return $this->finish( 'answered', $answer['answer'], $score, 'ai', $debug );
@@ -519,6 +552,21 @@ class RagService {
 	 * @return array{d:string,n:int}
 	 */
 	private function budget_usage(): array {
+		return self::usage_snapshot();
+	}
+
+	/**
+	 * Zużycie doby — wersja PUBLICZNA i STATYCZNA dla kokpitu (miernik sufitu).
+	 *
+	 * Ta sama logika co {@see budget_usage()} (celowo: jedno źródło prawdy —
+	 * kokpit i bramka MUSZĄ zgadzać się co do liczby, inaczej właściciel
+	 * widziałby inny licznik niż ten, który go faktycznie odbija). Statyczna
+	 * i bez zależności od `$this->config`, żeby widok mógł ją odczytać bez
+	 * budowania całego `RagService` (providera, limitera, retrievera).
+	 *
+	 * @return array{d:string,n:int}
+	 */
+	public static function usage_snapshot(): array {
 		$today = (string) current_time( 'Y-m-d' );
 		$raw   = get_option( 'aifaq_daily_usage', array() );
 
@@ -854,6 +902,50 @@ class RagService {
 		set_transient( self::LOG_MARK_PREFIX . $suffix, 1, self::LOG_MARK_TTL );
 
 		return false;
+	}
+
+	/**
+	 * D7: czy to pytanie dostało odmowę off-topic w bieżącym oknie — jeśli tak,
+	 * zwraca REALNY score sprzed odmowy (D4: żadna cache'owana ścieżka nie ma
+	 * prawa zmyślać analityki). `false` = brak wpisu w cache (nigdy realny
+	 * wynik, bo score jest zawsze skończonym floatem).
+	 *
+	 * @param string $q Pytanie znormalizowane przez {@see sanitize_question()}.
+	 * @return float|false
+	 */
+	private function refusal_cached_score( string $q ) {
+		if ( ! function_exists( 'get_transient' ) ) {
+			return false;
+		}
+		$value = get_transient( $this->refusal_cache_key( $q ) );
+		return ( false === $value ) ? false : (float) $value;
+	}
+
+	/**
+	 * D7: zapamiętuje, że to pytanie dostało odmowę off-topic, razem z REALNYM
+	 * score'em (D4) — treść odmowy nie jest zapisywana, bo jest deterministyczna
+	 * względem konfiguracji i liczy się na nowo przez {@see refusal_message()}.
+	 *
+	 * @param string $q     Pytanie znormalizowane przez {@see sanitize_question()}.
+	 * @param float  $score Realny wynik podobieństwa (poniżej progu — stąd odmowa).
+	 */
+	private function cache_refusal( string $q, float $score ): void {
+		if ( ! function_exists( 'set_transient' ) ) {
+			return;
+		}
+		set_transient( $this->refusal_cache_key( $q ), $score, self::REFUSAL_CACHE_TTL );
+	}
+
+	/**
+	 * Klucz transientu odmowy — hash pytania współdzielony z {@see CacheRepository::hash()}
+	 * (jedno źródło normalizacji: wielkość liter i białe znaki nie mają tworzyć
+	 * dwóch różnych wpisów dla tego samego pytania).
+	 *
+	 * @param string $q Pytanie znormalizowane przez {@see sanitize_question()}.
+	 * @return string
+	 */
+	private function refusal_cache_key( string $q ): string {
+		return 'aifaq_refuse_' . CacheRepository::hash( $q );
 	}
 
 	/**

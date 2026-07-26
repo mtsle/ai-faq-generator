@@ -31,12 +31,11 @@ $aifaq_rate_windows = array(
 	'doba'    => __( 'doba', 'ai-faq-generator' ),
 );
 
-// Etykiety języków dla komunikatów odmowy (RAG) — spójne z whitelistą języków.
-$aifaq_refusal_langs = array(
-	'pl' => __( 'polski', 'ai-faq-generator' ),
-	'en' => __( 'angielski', 'ai-faq-generator' ),
-	'de' => __( 'niemiecki', 'ai-faq-generator' ),
-);
+// Etykiety języków dla komunikatów odmowy (RAG) — R2 (dług sprzed Kroku 22):
+// dawniej osobna lista zdublowana ręcznie zamiast $aifaq_langs wyliczonego
+// wyżej z tej samej whitelisty ({@see Settings::languages()}); rozjazd groził
+// przy dodaniu kolejnego języka w JEDNYM miejscu, a nie w drugim.
+$aifaq_refusal_langs = $aifaq_langs;
 ?>
 <div class="wrap aifaq-wrap">
 	<h1 class="aifaq-title">

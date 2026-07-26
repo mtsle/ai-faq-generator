@@ -57,7 +57,11 @@ class TopicGuard {
 			);
 		}
 
-		$best = 0.0;
+		// D5 (dług sprzed Kroku 22): init na -INF, nie 0.0 — cosinus bywa UJEMNY
+		// (kierunki przeciwne). Startem 0.0 wynik -0.4 nigdy by go nie przebił,
+		// więc log pokazywałby `best=0.0` zamiast realnego -0.4 (myląca analityka,
+		// zero wpływu na decyzję pass/refuse — $hard jest zawsze >= 0).
+		$best = -INF;
 		foreach ( $results as $r ) {
 			$score = (float) ( $r['score'] ?? 0.0 );
 			if ( $score > $best ) {

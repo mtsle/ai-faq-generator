@@ -87,10 +87,10 @@ class FakeKnowledge extends KnowledgeRepository {
 }
 
 class FakeCache extends CacheRepository {
-	public $store; public $put_calls = 0;
+	public $store; public $put_calls = 0; public $put_score = null;
 	public function __construct( $store = null ) { $this->store = $store; }
 	public function get_by_question( string $q ): ?array { return $this->store; }
-	public function put( string $q, string $a ): int { $this->put_calls++; return 1; }
+	public function put( string $q, string $a, float $score = 0.0 ): int { $this->put_calls++; $this->put_score = $score; return 1; }
 }
 
 class FakeQaLog extends QaLogRepository {
@@ -181,6 +181,12 @@ check( 'refuse' === $d3['decision'] && array() === $d3['ids'], 'poniżej progu �
 $d4 = $g->evaluate( array(), 0.5 );
 check( 'refuse' === $d4['decision'] && approx( $d4['score'], 0.0 ), 'pusta lista → refuse' );
 
+// D5 (dług sprzed Kroku 22): same wyniki UJEMNE (kierunki przeciwne) — `best`
+// musi pokazać realne -0.2, nie 0.0 (fałszywie „lepsze" niż jest naprawdę).
+$hits_neg = array( array( 'id' => 9, 'post_id' => 9, 'score' => -0.5 ), array( 'id' => 8, 'post_id' => 9, 'score' => -0.2 ) );
+$d5       = $g->evaluate( $hits_neg, 0.5 );
+check( 'refuse' === $d5['decision'] && approx( $d5['score'], -0.2 ), 'D5: wszystkie wyniki ujemne → best = -0.2 (realny), nie 0.0' );
+
 // ============ RateLimiter ============
 echo "\n=== RateLimiter: okno/limit, wyłącznik, reset ===\n";
 $t = 1000;
@@ -207,6 +213,12 @@ $svc = make_service( $prov, new FakeKnowledge(), $cacheHit, $qa, $config );
 $out = $svc->ask( 'Cokolwiek?', str_repeat( 'b', 64 ) );
 check( 'answered' === $out['status'] && 'cache' === $out['source'], 'cache hit → answered/source=cache' );
 check( 0 === $prov->embed_calls, 'cache hit NIE woła embed (GR5)' );
+check( approx( $out['score'], 1.0 ), 'wiersz cache BEZ kolumny score (atrapa/sprzed migracji) → zapasowe 1.0' );
+
+// D4: wiersz cache Z realnym score → RagService go czyta, nie zmyśla 1.0.
+$cacheHit2 = new FakeCache( array( 'answer' => 'Odpowiedź z cache', 'score' => 0.42 ) );
+$out1b     = make_service( $prov, new FakeKnowledge(), $cacheHit2, new FakeQaLog(), $config )->ask( 'Inne pytanie?', str_repeat( 'b', 64 ) );
+check( approx( $out1b['score'], 0.42 ), 'D4: wiersz cache Z score=0.42 → RagService zwraca 0.42, nie 1.0 (jest: ' . $out1b['score'] . ')' );
 
 echo "\n=== RagService: odmowa off-topic (poniżej progu) ===\n";
 $repoT = new FakeKnowledge(
@@ -221,6 +233,31 @@ $out2 = $svc2->ask( 'Kim był Napoleon?', str_repeat( 'c', 64 ) );
 check( 'refused' === $out2['status'] && 'ODMOWA-PL' === $out2['answer'], 'poniżej progu → refused z komunikatem PL' );
 check( 0 === $prov2->gen_calls, 'odmowa NIE woła generate (fail-closed, GR4)' );
 check( 'refused' === end( $qa2->entries )['status'], 'wpis w dzienniku = refused' );
+
+echo "\n=== RagService: D7 — odmowa off-topic cache'owana (dług sprzed Kroku 22) ===\n";
+// To samo pytanie, INNY gość (IP 'd' zamiast 'c') — dowód, że cache odmów jest
+// per-PYTANIE, nie per-gość (spójne z cache odpowiedzi pozytywnych, GR5).
+$out2b = $svc2->ask( 'Kim był Napoleon?', str_repeat( 'd', 64 ) );
+check( 'refused' === $out2b['status'] && 'cache' === $out2b['source'], 'powtórzone off-topic → refused/source=cache' );
+check( 1 === $prov2->embed_calls, 'D7: drugie pytanie NIE woła embed drugi raz (embed_calls zostaje na 1)' );
+check( 0 === $prov2->gen_calls, 'D7: cache odmowy nadal nie woła generate' );
+check(
+	approx( $out2b['score'], $out2['score'] ) && ! approx( $out2b['score'], 0.0 ) && ! approx( $out2b['score'], 1.0 ),
+	'D4: score cache-owanej odmowy = realny score sprzed odmowy (≈0,7071), nie 0.0 ani zmyślone 1.0 (jest: ' . $out2b['score'] . ')'
+);
+
+echo "\n=== RagService: D4 — cache odpowiedzi zapisuje REALNY score (nie stały 1.0) ===\n";
+$cache2b = new FakeCache( null );
+$qa2b    = new FakeQaLog();
+$cfgLow  = array_merge( $config, array( 'threshold' => 0.5, 'threshold_hard' => 0.5 ) );
+$prov2b  = new FakeProvider( array( 1.0, 0.0 ), 'Odpowiedź częściowa.' );
+$svc2b   = make_service( $prov2b, $repoT, $cache2b, $qa2b, $cfgLow );
+$out2c   = $svc2b->ask( 'Częściowe trafienie?', str_repeat( 'e', 64 ) );
+check( 'answered' === $out2c['status'], 'partial-match pytanie → answered (score ≥ próg, ale < 1.0)' );
+check(
+	approx( $cache2b->put_score, $out2c['score'] ) && ! approx( $cache2b->put_score, 1.0 ),
+	'D4: CacheRepository::put() dostaje REALNY score z odpowiedzi (≈0,7071), nie zmyślony 1.0 (jest: ' . $cache2b->put_score . ')'
+);
 
 echo "\n=== RagService: ścieżka answered (retrieve→guard→answer→cache→log) ===\n";
 $repoA = new FakeKnowledge(
