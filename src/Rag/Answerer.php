@@ -318,7 +318,14 @@ class Answerer {
 		$parts = array();
 		$i     = 0;
 		foreach ( $contents as $pos => $content ) {
-			$content = trim( (string) $content );
+			// Fragmenty bazy wiedzy są DANYMI dokładnie tak samo jak pytanie gościa
+			// (GR8) i przechodzą TĘ SAMĄ neutralizację granic sekcji (K21). Treść
+			// pochodzi z całej kaskady źródeł (Krok 17): posty i strony dowolnego
+			// autora (Współpracownik, Autor), postmeta/ACF i crawl własnych podstron
+			// — żadne z nich nie jest w pełni zaufane. Bez tej linii ktokolwiek
+			// mógł wpisać w treść strony własny nagłówek `### ODPOWIEDŹ:` i dopisać
+			// modelowi dowolne dalsze „instrukcje" w cudzym imieniu.
+			$content = $this->neutralize_structure( trim( (string) $content ) );
 			if ( '' === $content ) {
 				continue;
 			}
@@ -422,15 +429,29 @@ class Answerer {
 	 * @return string
 	 */
 	private function harden_question( string $question ): string {
-		$out = preg_replace( '/#{3,}/u', '# # #', $question );
+		return $this->neutralize_structure( $question );
+	}
+
+	/**
+	 * Neutralizuje w dowolnych DANYCH promptu to, co mogłoby udawać jego strukturę.
+	 *
+	 * Współdzielona przez {@see harden_question()} (pytanie gościa) i
+	 * {@see format_context()} (fragmenty bazy wiedzy, K21) — jedna reguła dla
+	 * WSZYSTKICH danych wstawianych do promptu, niezależnie od źródła.
+	 *
+	 * @param string $text Surowy tekst danych (pytanie albo fragment treści).
+	 * @return string
+	 */
+	private function neutralize_structure( string $text ): string {
+		$out = preg_replace( '/#{3,}/u', '# # #', $text );
 
 		// Niepoprawne UTF-8 wywraca tryb /u na null — powtarzamy bajtowo, zamiast
-		// skasować pytanie rzutowaniem null → '' (ta sama zasada co w FaqGenerator).
+		// skasować tekst rzutowaniem null → '' (ta sama zasada co w FaqGenerator).
 		if ( null === $out ) {
-			$out = preg_replace( '/#{3,}/', '# # #', $question );
+			$out = preg_replace( '/#{3,}/', '# # #', $text );
 		}
 
-		$clean = is_string( $out ) ? $out : $question;
+		$clean = is_string( $out ) ? $out : $text;
 
 		return str_replace( self::NO_ANSWER, '', $clean );
 	}

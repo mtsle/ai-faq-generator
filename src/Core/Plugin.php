@@ -353,6 +353,10 @@ final class Plugin {
 		// bo SEO dotyczy wyłącznie żądań gościa i bota.
 		( new \AIFAQ\PublicUi\PageSchema() )->register();
 
+		// Nagłówki bezpieczeństwa podstrony generatora (Krok 21) — POZA gałęzią
+		// `is_admin()`, bo obie trasy, które osłania, są publiczne.
+		( new \AIFAQ\PublicUi\SecurityHeaders() )->register();
+
 		// Crawl własnej witryny (Krok 17) — POZA gałęzią `is_admin()`, bo cron
 		// nie jest kontekstem admina (`wp-cron.php` to zwykłe żądanie frontowe).
 		//

@@ -290,6 +290,15 @@ class GeneratorPage {
 		$app_cfg  = $is_owner ? wp_json_encode( AppShell::config() ) : '';
 		$ft_cfg   = $is_owner ? wp_json_encode( \AIFAQ\App\FaqToolPanel::config() ) : '';
 		$doc_title = $t['title'] . ( '' !== $site ? ' — ' . $site : '' );
+		// Nonce CSP (K21): script-src standalone nie ma już 'unsafe-inline', więc
+		// KAŻDY inline <script> niżej musi nieść ten sam nonce co nagłówek
+		// wysłany przez SecurityHeaders::maybe_send() na tym samym żądaniu.
+		// `class_exists()` jak wszędzie w projekcie tam, gdzie klasa należy do
+		// innego modułu: harnessy testowe tej klasy nie zawsze ładują, a atrybut
+		// pusty w takim wypadku po prostu nie wypisuje się wcale.
+		$nonce_attr = class_exists( '\AIFAQ\PublicUi\SecurityHeaders' )
+			? ' nonce="' . esc_attr( \AIFAQ\PublicUi\SecurityHeaders::nonce() ) . '"'
+			: '';
 		?>
 <!doctype html>
 <html lang="<?php echo esc_attr( $lang ); ?>">
@@ -311,10 +320,10 @@ class GeneratorPage {
 			<a href="<?php echo esc_url( home_url( '/' ) ); ?>">&larr; <?php echo esc_html( $t['back'] ); ?></a>
 		</footer>
 	</main>
-	<script>window.aifaqFront = <?php echo $config; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
+	<script<?php echo $nonce_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — esc_attr() już zastosowany przy budowie $nonce_attr. ?>>window.aifaqFront = <?php echo $config; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
 	<?php if ( $is_owner ) : ?>
-	<script>window.aifaqApp = <?php echo $app_cfg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
-	<script>window.aifaqFaqTool = <?php echo $ft_cfg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
+	<script<?php echo $nonce_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — esc_attr() już zastosowany przy budowie $nonce_attr. ?>>window.aifaqApp = <?php echo $app_cfg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
+	<script<?php echo $nonce_attr; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — esc_attr() już zastosowany przy budowie $nonce_attr. ?>>window.aifaqFaqTool = <?php echo $ft_cfg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — wp_json_encode. ?>;</script>
 	<?php endif; ?>
 	<script src="<?php echo esc_url( $js_url ); ?>?ver=<?php echo esc_attr( $ver ); ?>"></script>
 	<?php if ( $is_owner ) : ?>
