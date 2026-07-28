@@ -507,6 +507,10 @@ final class Plugin {
 	 * z Kroku 20 — i odwrotnie. Klasy należą do innych etapów, więc ich brak
 	 * pomija wypis i NIGDY nie wywala kokpitu klienta (błąd na tym hooku
 	 * wypisuje się wprost na górze każdego ekranu panelu).
+	 *
+	 * PIĄTY blok (K23, audyt RWA — znalezisko F1): świeżość treści względem
+	 * ostatniego indeksowania. Ta sama zasada niezależności — brak klasy albo
+	 * wyjątek w środku nie ma prawa wyciszyć pozostałych czterech komunikatów.
 	 */
 	public function render_page_notice(): void {
 		if ( class_exists( '\AIFAQ\Admin\PageNotice' ) ) {
@@ -536,6 +540,14 @@ final class Plugin {
 		if ( class_exists( '\AIFAQ\Admin\EditorNotice' ) ) {
 			try {
 				\AIFAQ\Admin\EditorNotice::render();
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
+		}
+
+		if ( class_exists( '\AIFAQ\Admin\FreshnessNotice' ) ) {
+			try {
+				\AIFAQ\Admin\FreshnessNotice::render();
 			} catch ( \Throwable $e ) {
 				unset( $e );
 			}

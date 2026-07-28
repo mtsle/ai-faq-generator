@@ -14,6 +14,12 @@
  * żądanie na falę zamiast jednego na wpis), pomijanie pruningu przy niekompletnym
  * źródle oraz bezpiecznik ilościowy sygnalizujący nagły ubytek fragmentów.
  *
+ * K23 (audyt RWA, znalezisko R1): tytuł wpisu jest doklejany do KAŻDEGO
+ * fragmentu (po chunkingu), nie tylko do pierwszego — dawniej `title . text`
+ * szło do Chunkera razem, więc zakotwiczenie tytułem trafiało wyłącznie do
+ * chunk_index=0, a fragmenty 2+ (gdzie realnie leżą szczegóły) traciły ten
+ * sygnał przy wyszukiwaniu.
+ *
  * @package AI_FAQ_Generator
  */
 
@@ -169,17 +175,30 @@ class Indexer {
 			$text  = (string) ( $doc['text'] ?? '' );
 			$title = trim( (string) ( $doc['title'] ?? '' ) );
 
-			// Prepend tytułu WARUNKOWY: pusty tekst musi dalej dawać `cleared`,
-			// inaczej sam tytuł udawałby treść i wpis nigdy nie zostałby wyczyszczony.
-			$source_text = ( '' === trim( $text ) || '' === $title ) ? $text : $title . "\n" . $text;
-
-			$pieces = $this->chunker->chunk( $source_text );
+			// Chunking na SAMEJ treści (bez tytułu) — tytuł dokładany NIŻEJ do
+			// KAŻDEGO fragmentu, nie tylko do pierwszego. Dawniej `title . text`
+			// szło do Chunkera RAZEM, więc zakotwiczenie tytułem („Cennik”,
+			// „Godziny otwarcia”) trafiało wyłącznie do chunk_index=0 — fragmenty
+			// 2+ tej samej strony (gdzie realnie leżą liczby/szczegóły) traciły
+			// ten sygnał przy wyszukiwaniu (RWA audyt K23, znalezisko R1).
+			$pieces = $this->chunker->chunk( $text );
 
 			// Wpis stracił treść tekstową — usuwamy jego stare fragmenty.
 			if ( array() === $pieces ) {
 				$this->repo->delete_by_post( $post_id );
 				++$report['cleared'];
 				continue;
+			}
+
+			// Prefiks tytułu na KAŻDYM fragmencie — po chunkingu, więc nie zabiera
+			// miejsca z budżetu docelowego rozmiaru fragmentu w Chunkerze.
+			if ( '' !== $title ) {
+				$pieces = array_map(
+					static function ( $piece ) use ( $title ) {
+						return $title . "\n" . $piece;
+					},
+					$pieces
+				);
 			}
 
 			// M1: podpis przestrzeni embeddingów wchodzi do hasha — zmiana modelu/
@@ -197,6 +216,11 @@ class Indexer {
 			// pełnopłatnym — czyli odwrotnie do celu batchowania.
 			if ( $this->unchanged( $hashes, $this->repo->hashes_for_post( $post_id ) ) ) {
 				++$report['skipped'];
+				// RWA audyt K23, znalezisko F1: hash się nie zmienił, ale wpis ZOSTAŁ
+				// sprawdzony teraz — odświeżamy `updated_at`, żeby licznik świeżości
+				// (FreshnessNotice) nie oznaczał wpisu jako „zmieniony od indeksowania”
+				// tylko dlatego, że zmieniła się np. kategoria, nie treść. Zero API.
+				$this->repo->touch_post( $post_id );
 				continue;
 			}
 

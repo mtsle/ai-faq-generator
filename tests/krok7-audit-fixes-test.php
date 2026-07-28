@@ -93,6 +93,18 @@ class AF_Wpdb {
 		} ) );
 		return $before - count( $this->rows );
 	}
+	// K23 (audyt RWA, F1): KnowledgeRepository::touch_post() woła $wpdb->update() na
+	// skip-unchanged — bez atrapy Indexer::run() faluje na wywołaniu nieznanej metody.
+	public function update( $table, $data, $where, $fmt = null, $where_fmt = null ) {
+		$n = 0;
+		foreach ( $this->rows as &$r ) {
+			$match = true;
+			foreach ( $where as $k => $v ) { if ( (string) ( $r[ $k ] ?? null ) !== (string) $v ) { $match = false; break; } }
+			if ( $match ) { $r = array_merge( $r, $data ); ++$n; }
+		}
+		unset( $r );
+		return $n;
+	}
 	public function query( $sql ) {
 		if ( false !== stripos( $sql, 'NOT IN' ) ) {
 			$keep = array_map( 'intval', $this->lastArgs );

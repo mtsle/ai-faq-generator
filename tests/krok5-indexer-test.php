@@ -38,6 +38,18 @@ class FakeWpdb {
 	private $auto = 0;
 	private $lastArgs = array();
 	public function insert( $table, $data ) { $this->rows[] = array_merge( array( 'id' => ++$this->auto ), $data ); $this->insert_id = $this->auto; return 1; }
+	// K23 (audyt RWA, F1): KnowledgeRepository::touch_post() woła $wpdb->update() na
+	// skip-unchanged — bez atrapy Indexer::run() faluje na wywołaniu nieznanej metody.
+	public function update( $table, $data, $where, $fmt = null, $where_fmt = null ) {
+		$n = 0;
+		foreach ( $this->rows as &$r ) {
+			$match = true;
+			foreach ( $where as $k => $v ) { if ( (string) ( $r[ $k ] ?? null ) !== (string) $v ) { $match = false; break; } }
+			if ( $match ) { $r = array_merge( $r, $data ); ++$n; }
+		}
+		unset( $r );
+		return $n;
+	}
 	public function delete( $table, $where, $fmt = null ) {
 		$before = count( $this->rows );
 		$this->rows = array_values( array_filter( $this->rows, function ( $r ) use ( $where ) {

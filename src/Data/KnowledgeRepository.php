@@ -135,6 +135,55 @@ class KnowledgeRepository extends Repository {
 	}
 
 	/**
+	 * Odświeża `updated_at` wszystkich fragmentów wpisu na TERAZ — bez zmiany
+	 * treści/embeddingu (RWA audyt K23, znalezisko F1).
+	 *
+	 * Wołane przez {@see \AIFAQ\Index\Indexer::run()} przy skip-unchanged: hash
+	 * fragmentów się nie zmienił, ale wpis ZOSTAŁ sprawdzony w tym przebiegu, więc
+	 * dla licznika świeżości ({@see stale_post_count()}) liczy się jako „aktualny”.
+	 * Bez tego wpis, którego treść nigdy się nie zmienia, ale `post_modified`
+	 * rośnie z innych powodów (kategoria, status), zostałby oznaczony jako
+	 * „zmieniony od indeksowania” na zawsze — żaden reindeks by tego nie gasił,
+	 * bo skip-unchanged nigdy nie woła {@see replace_for_post()}.
+	 *
+	 * @param int $post_id ID wpisu źródłowego.
+	 */
+	public function touch_post( int $post_id ): void {
+		global $wpdb;
+		$wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			static::table(),
+			array( 'updated_at' => current_time( 'mysql' ) ),
+			array( 'post_id' => $post_id ),
+			array( '%s' ),
+			array( '%d' )
+		);
+	}
+
+	/**
+	 * Liczba wpisów źródłowych, których `post_modified` jest NOWSZY niż ostatnie
+	 * indeksowanie ich fragmentów — „zmienione od ostatniego indeksowania”
+	 * (RWA audyt K23, znalezisko F1).
+	 *
+	 * ZERO wywołań API — porównanie dwóch znaczników czasu już obecnych w bazie.
+	 * Dotyczy WYŁĄCZNIE wpisów typu `post`/`page` (JOIN do `wp_posts`); treść
+	 * z innych źródeł kaskady (crawl, ACF bez własnego `post_modified`
+	 * miarodajnego dla TEJ treści) jest pominięta świadomie — brak sygnału
+	 * jest bezpieczniejszy niż fałszywy alarm.
+	 *
+	 * @return int
+	 */
+	public function stale_post_count(): int {
+		global $wpdb;
+		$table = static::table();
+		return (int) $wpdb->get_var( // phpcs:ignore WordPress.DB
+			"SELECT COUNT(DISTINCT k.post_id)
+			 FROM {$table} k
+			 INNER JOIN {$wpdb->posts} p ON p.ID = k.post_id
+			 WHERE p.post_modified > k.updated_at"
+		);
+	}
+
+	/**
 	 * Czyści całą bazę wiedzy (twardy reset przed pełnym re-indeksowaniem).
 	 *
 	 * @return int Liczba usuniętych fragmentów.
