@@ -187,7 +187,7 @@ echo "\n=== E. Błąd embed → zebrany w raporcie, nie przerywa ===\n";
 $prov->mode = 'error';
 $src->docs[0]['text'] = 'Zupełnie nowa treść o krowach mlecznych i ich diecie.';
 $r5 = $idx->run();
-check( ! empty( $r5['errors'] ) && 0 === $r5['indexed'], "błąd embed → errors niepuste, indexed=0" );
+check( 1 === count( $r5['errors'] ) && 0 === $r5['indexed'], "błąd embed → dokładnie 1 wpis w errors (jedyny brudny dokument), indexed=0" );
 check( false !== strpos( $r5['errors'][0], 'awaria API' ), "komunikat błędu providera w raporcie" );
 
 echo "\n=== F. Pruning osieroconych wpisów ===\n";
@@ -202,7 +202,7 @@ $before_prune = count( $repo->all_with_embeddings() );
 // Wpis 2 znika ze źródła (usunięty/odpublikowany).
 $src->docs = array( $src->docs[0] );
 $rP = $idx->run();
-check( $rP['pruned'] >= 1, "wpis usunięty ze źródła → pruned≥1 (" . $rP['pruned'] . ')' );
+check( 1 === $rP['pruned'], "dokładnie jeden wpis (post_id=2) usunięty ze źródła → pruned=1 (jest: " . $rP['pruned'] . ')' );
 check( 1 === $rP['skipped'] && 0 === $rP['indexed'], "pozostały wpis bez zmian → skipped=1, indexed=0" );
 $post2_after = 0;
 foreach ( $repo->all_with_embeddings() as $row ) { if ( 2 === (int) $row['post_id'] ) { $post2_after++; } }

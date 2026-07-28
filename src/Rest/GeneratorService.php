@@ -76,7 +76,13 @@ class GeneratorService {
 		$result    = $generator->generate( $topic, $desc, $count, $lang, array( 'temperature' => $temperature ) );
 
 		$status = (string) ( $result['status'] ?? 'error' );
-		$pairs  = ( isset( $result['pairs'] ) && is_array( $result['pairs'] ) ) ? $result['pairs'] : array();
+		// Exporter::normalize() — TA SAMA reguła co ścieżka publikacji/snapshotu
+		// (PairsInput::from_snapshot()/from_request_for_publish()): świeżo
+		// wygenerowane pary lecą stąd PROSTO do bazy (wp_aifaq_generations.pairs_json)
+		// i do przeglądarki, bez żadnego dalszego przycięcia — bez tego wywołania
+		// odpowiedź modelu dłuższa niż MAX_QUESTION_CHARS/MAX_ANSWER_CHARS trafiała
+		// nieograniczona w obie strony.
+		$pairs  = ( isset( $result['pairs'] ) && is_array( $result['pairs'] ) ) ? Exporter::normalize( $result['pairs'] ) : array();
 
 		// Błąd providera — nie ujawniamy surowego komunikatu (jak /ask).
 		if ( 'error' === $status ) {

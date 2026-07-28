@@ -143,7 +143,7 @@ check( KnowledgeRepository::hash( '  krowa  ' ) === KnowledgeRepository::hash( '
 echo "\n=== B. save_chunk() ===\n";
 reset_db();
 $id = $repo->save_chunk( array( 'post_id' => 5, 'chunk_index' => 0, 'content' => 'Krowy dają mleko.', 'embedding' => array( 0.1, 0.2 ), 'tokens' => 4 ) );
-check( $id > 0, "zwraca ID > 0" );
+check( 1 === $id, "zwraca ID dokładnie 1 (pierwszy insert po reset_db(), auto-increment atrapy startuje od 0)" );
 $row = $wpdb->rows[0];
 check( '[0.1,0.2]' === $row['embedding'], "embedding zapisany jako JSON" );
 check( KnowledgeRepository::hash( 'Krowy dają mleko.' ) === $row['content_hash'], "content_hash policzony automatycznie" );

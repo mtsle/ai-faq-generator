@@ -357,7 +357,7 @@ if ( class_exists( $Q ) ) {
 	check( '' !== (string) get_post_meta( 33, '_aifaq_rendered', true ), 'wpis 33 zapisany normalnie' );
 	$st = get_option( constant( $Q . '::OPTION' ), array() );
 	check( array() === ( $st['queue'] ?? null ), 'kolejka opróżniona — błędny URL oznaczony done, nie zapętlony' );
-	check( ! empty( $st['warnings'] ), 'błąd odnotowany w warnings[]' );
+	check( 1 === count( $st['warnings'] ), 'dokładnie 1 błąd odnotowany w warnings[] (tylko URL 31 padł)' );
 	check( true === ( $st['needs_reindex'] ?? false ), 'po opróżnieniu kolejki needs_reindex === true' );
 } else {
 	check( false, 'sekcja H pominięta' );

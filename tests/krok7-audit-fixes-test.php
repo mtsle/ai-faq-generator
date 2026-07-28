@@ -171,7 +171,7 @@ check( $before > 0, "przygotowano bazę ($before fragm.)" );
 $src->docs = array(); // źródło nagle puste (np. wszystko w szkicach / filtr wtyczki).
 $rEmpty = $idx->run();
 check( 0 === $rEmpty['pruned'], "pruned=0 przy pustym źródle (brak wipe)" );
-check( ! empty( $rEmpty['warnings'] ), "raport ma ostrzeżenie o pominiętym pruningu" );
+check( 1 === count( $rEmpty['warnings'] ), "raport ma dokładnie 1 ostrzeżenie o pominiętym pruningu" );
 check( $before === count( $repo->all_with_embeddings() ), "baza wiedzy NIETKNIĘTA (nie skasowana)" );
 check( 0 === $repo->delete_missing( array() ), "delete_missing([]) = no-op (0), nie clear_all" );
 
@@ -184,7 +184,7 @@ $idx2  = new Indexer( $src2, new Chunker( 40, 10 ), new EmbeddingBatcher( new AF
 $wpdb->fail_insert = true; // każdy insert pada → replace_for_post = 0 (ROLLBACK).
 $rFail = $idx2->run();
 check( 0 === $rFail['indexed'], "indexed=0 przy nieudanym zapisie" );
-check( ! empty( $rFail['errors'] ), "błąd zapisu trafia do errors (nie cichy sukces)" );
+check( 1 === count( $rFail['errors'] ), "błąd zapisu trafia do errors dokładnie 1 raz (jeden dokument, nie cichy sukces)" );
 check( 0 === count( $repo2->all_with_embeddings() ), "nic nie zapisane w bazie" );
 
 echo "\n=== M1. Zmiana podpisu embeddingów wymusza ponowne embedowanie ===\n";

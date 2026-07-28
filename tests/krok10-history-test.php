@@ -223,7 +223,7 @@ $req2->set_param( 'status', "refused'; DROP TABLE x; --" );
 $res2  = $ctl->handle_history( $req2 );
 $data2 = $res2->get_data();
 check( 100 === $data2['per_page'], 'per_page 9999 → 100' );
-check( $data2['page'] >= 1, 'ujemna strona → co najmniej 1' );
+check( 1 === $data2['page'], 'ujemna strona (-3) → clamp dokładnie do 1 (max(1, -3))' );
 $sqls = implode( ' || ', $wpdb->queries );
 check( false === strpos( $sqls, 'DROP TABLE' ), 'ANTI-SQLi: śmieciowy status nie dociera do SQL' );
 
