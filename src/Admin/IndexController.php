@@ -231,7 +231,23 @@ class IndexController {
 			$sig
 		);
 
-		$report = $indexer->run();
+		// K23 audyt RWA etap 2, P1: run() woła CompositeContentSource::documents()
+		// (dedup, BoilerplateFilter, źródła wstrzyknięte filtrem aifaq_content_sources)
+		// — wyjątek z DOWOLNEGO z nich propagował się bez przechwycenia aż do
+		// REST/AJAX, dając administratorowi surowy fatal error zamiast czytelnego
+		// komunikatu. Lock zwalniamy tu wprost (backstop na shutdown i tak by go
+		// zdjął przy fatalu, ale wyjątek złapany TUTAJ nigdy nie jest fatalem).
+		try {
+			$report = $indexer->run();
+		} catch ( \Throwable $e ) {
+			unset( $e );
+			delete_transient( self::LOCK );
+			return array(
+				'ok'      => false,
+				'status'  => 500,
+				'message' => __( 'Indeksowanie napotkało nieoczekiwany błąd i zostało przerwane. Spróbuj ponownie za chwilę.', 'ai-faq-generator' ),
+			);
+		}
 
 		// KONTRAKT k19-v3 §6.3. BEZPIECZNA STRONA: brak klucza => traktuj jak NIEPEŁNY
 		// (`?? 1`, nigdy `?? 0`) — inaczej niezaimplementowany licznik wygląda jak sukces

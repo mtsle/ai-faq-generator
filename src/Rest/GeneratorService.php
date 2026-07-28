@@ -14,8 +14,10 @@ namespace AIFAQ\Rest;
 
 use AIFAQ\Core\Settings;
 use AIFAQ\Data\GenerationRepository;
+use AIFAQ\Faq\Exporter;
 use AIFAQ\Faq\FaqGenerator;
 use AIFAQ\Providers\ProviderFactory;
+use AIFAQ\Rag\RagService;
 use AIFAQ\Rag\RateLimiter;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -45,6 +47,22 @@ class GeneratorService {
 		if ( null !== $limited ) {
 			return $limited;
 		}
+
+		// K23 audyt RWA etap 2, P1: dobowy sufit CAŁEJ witryny, dzielony z `/ask`
+		// (RagService::site_budget_allows()) — throttle() wyżej jest OSOBNYM,
+		// per-użytkownik limitem godzinowym, nie sufitem providera. Bez tej
+		// bramki Autor/Redaktor generujący FAQ mógł wyczerpać wspólną, darmową
+		// pulę Gemini i zablokować `/ask` gościom do końca doby.
+		if ( ! RagService::site_budget_allows() ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Wyczerpano dzienny limit zapytań do dostawcy AI (wspólny z asystentem strony). Spróbuj jutro.', 'ai-faq-generator' ),
+				),
+				429
+			);
+		}
+		RagService::site_budget_hit();
 
 		$params = $this->read_params( $request );
 		$topic  = $params['topic'];
@@ -149,6 +167,15 @@ class GeneratorService {
 		$desc  = (string) $request->get_param( 'description' );
 		$count = (int) $request->get_param( 'count' );
 		$lang  = (string) $request->get_param( 'language' );
+
+		// K23 audyt RWA etap 2, P1: przycięcie SERWEROWE PRZED zapisem do bazy.
+		// FaqGenerator przycina temat/opis dopiero WEWNĄTRZ build_prompt() — to
+		// ogranicza tylko to, co idzie do modelu. Surowa (nieograniczona) wersja
+		// leciała bez zmian do wp_aifaq_generations.extra_desc (longtext): Autor
+		// (najniższa rola z dostępem do tej trasy) mógł wysłać `description`
+		// rzędu megabajtów i puchnąć historię generowań bez ograniczeń.
+		$topic = Exporter::clip( $topic, FaqGenerator::MAX_TOPIC_CHARS );
+		$desc  = Exporter::clip( $desc, FaqGenerator::MAX_DESC_CHARS );
 
 		// Liczba pytań: brak/0 → domyślna z ustawień; potem twardy clamp 5..20.
 		if ( $count <= 0 ) {

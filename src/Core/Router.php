@@ -97,6 +97,17 @@ class Router {
 
 		status_header( 200 );
 		nocache_headers();
+
+		// K23 audyt RWA etap 2, P1: pas i szelki jak w Shortcode::maybe_nocache() —
+		// nocache_headers() bywa ignorowane przez agresywne wtyczki/CDN cache
+		// (WP Super Cache, W3TC), które patrzą na tę stałą. Trasa niesie nonce
+		// wp_rest KAŻDEGO zalogowanego użytkownika (GeneratorPage::config()),
+		// więc bez tego pierwszy zalogowany gość mógłby zamrozić swój nonce
+		// w publicznym cache'u.
+		if ( ! defined( 'DONOTCACHEPAGE' ) ) {
+			define( 'DONOTCACHEPAGE', true );
+		}
+
 		GeneratorPage::render_standalone();
 		exit;
 	}

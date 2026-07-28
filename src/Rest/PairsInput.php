@@ -129,6 +129,15 @@ class PairsInput {
 				'question' => sanitize_textarea_field( wp_unslash( (string) $q ) ),
 				'answer'   => sanitize_textarea_field( wp_unslash( (string) $a ) ),
 			);
+
+			// K23 audyt RWA etap 2, P1: wcześniejszy break jak w from_request() —
+			// bez niego żądanie z wieloma tysiącami elementów `pairs` sanityzowało
+			// CAŁĄ tablicę, zanim Exporter::normalize() niżej dopiero przycinał
+			// wynik do MAX_PAIRS. Cap liczby par działał jako filtr WYNIKU, nie
+			// ogranicznik KOSZTU przetwarzania pojedynczego żądania.
+			if ( count( $sanitized ) >= Exporter::MAX_PAIRS ) {
+				break;
+			}
 		}
 
 		// Trim/odrzucenie pustych/przycięcie długości/cap MAX_PAIRS — ta sama reguła

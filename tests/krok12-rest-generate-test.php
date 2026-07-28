@@ -81,8 +81,20 @@ require __DIR__ . '/../src/Data/GenerationRepository.php';
 require __DIR__ . '/../src/Providers/ProviderInterface.php';
 require __DIR__ . '/../src/Providers/ProviderFactory.php';
 require __DIR__ . '/../src/Faq/FaqGenerator.php';
+// K23 audyt RWA etap 2, P1: read_params() teraz przycina topic/description
+// przez Exporter::clip() PRZED zapisem (patrz komentarz przy RagService niżej).
+require __DIR__ . '/../src/Faq/Exporter.php';
 require __DIR__ . '/../src/Core/Settings.php';
 require __DIR__ . '/../src/Rag/RateLimiter.php';
+// K23 audyt RWA etap 2, P1: GeneratorService::generate() teraz woła
+// RagService::site_budget_allows()/site_budget_hit() (dobowy sufit witryny
+// dzielony z /ask) — plik musi być załadowany ręcznie jak reszta (brak
+// autoloadera w tym zestawie). Same dwie statyczne metody używają wyłącznie
+// Settings (już wyżej) i RateLimiter::CACHE_GROUP (już wyżej), więc nie
+// wymaga to KnowledgeRepository/CacheRepository/QaLogRepository/Retriever/
+// TopicGuard/Answerer/ProviderFactory — PHP nie rozwiązuje type-hintów
+// niewywoływanych metod.
+require __DIR__ . '/../src/Rag/RagService.php';
 require __DIR__ . '/../src/Rest/RestController.php';
 // Krok 23 (czysty refaktor): RestController rozbity na warstwy — routing w
 // RouteRegistrar, logika w klasach usługowych. Zestaw ładuje pliki RĘCZNIE

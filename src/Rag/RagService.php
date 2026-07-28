@@ -627,6 +627,87 @@ class RagService {
 	}
 
 	/**
+	 * Bramka dobowego sufitu witryny DLA WYWOŁUJĄCYCH SPOZA `ask()` — dziś jedyny
+	 * konsument to `GeneratorService::generate()` (K23 audyt RWA etap 2, P1:
+	 * generator FAQ w kokpicie w ogóle nie dotykał tego licznika, więc Autor/
+	 * Redaktor generujący FAQ mógł wyczerpać wspólną, darmową pulę Gemini i
+	 * zablokować `/ask` gościom do końca doby — `throttle()` w `GeneratorService`
+	 * to OSOBNY, per-użytkownik limit godzinowy, nie sufit providera).
+	 *
+	 * Logika jest ŚWIADOMIE zduplikowana z {@see budget_enabled()}/{@see budget_active()}/
+	 * {@see budget_allows()} (instancyjne, prywatne) zamiast refaktoryzowana na
+	 * wspólny rdzeń: tamte obsługują gorący, wielokrotnie testowany potok `/ask`,
+	 * a dotykanie ich dla nowego wywołującego podnosiłoby ryzyko regresji bez
+	 * potrzeby — sama bramka to kilkanaście linii czystej logiki na tych samych
+	 * ustawieniach (`rag_daily_budget`) i tym samym liczniku ({@see usage_snapshot()}).
+	 *
+	 * Administrator (manage_options) jest wyłączony z ODBIJANIA, tak jak w `/ask`
+	 * — ale nadal zużywa jednostkę, patrz {@see site_budget_hit()}.
+	 *
+	 * @return bool
+	 */
+	public static function site_budget_allows(): bool {
+		$budget = (int) Settings::get_field( 'rag_daily_budget', 12 );
+		if ( $budget <= 0 ) {
+			return true;
+		}
+		if ( defined( 'AIFAQ_TESTING' ) ) {
+			return true;
+		}
+		if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' )
+			|| ! function_exists( 'current_time' ) ) {
+			return true;
+		}
+		if ( function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) {
+			return true;
+		}
+		$usage = self::usage_snapshot();
+		if ( $usage['n'] < $budget ) {
+			return true;
+		}
+		update_option( 'aifaq_budget_hit', (string) current_time( 'Y-m-d' ), false );
+		return false;
+	}
+
+	/**
+	 * Zużywa jedną jednostkę dobowego sufitu witryny — wołane PO
+	 * {@see site_budget_allows()}, NIEZALEŻNIE od jej wyniku (administrator
+	 * zwolniony z odbijania też płaci — ta sama zasada co `budget_hit()` przy
+	 * `/ask`, §13.12). Reużywa {@see budget_cache_available()}/{@see budget_cache_key()}
+	 * (prywatne statyczne, bezstanowe) — tylko DECYZJA jest zduplikowana, nie
+	 * mechanika atomowego licznika.
+	 */
+	public static function site_budget_hit(): void {
+		$budget = (int) Settings::get_field( 'rag_daily_budget', 12 );
+		if ( $budget <= 0 || defined( 'AIFAQ_TESTING' )
+			|| ! function_exists( 'get_option' ) || ! function_exists( 'update_option' )
+			|| ! function_exists( 'current_time' ) ) {
+			return;
+		}
+
+		$usage = self::usage_snapshot();
+		$next  = $usage['n'] + 1;
+
+		if ( self::budget_cache_available() ) {
+			$key = self::budget_cache_key( $usage['d'] );
+			wp_cache_add( $key, $usage['n'], RateLimiter::CACHE_GROUP, 86400 );
+			$incremented = wp_cache_incr( $key, 1, RateLimiter::CACHE_GROUP );
+			if ( false !== $incremented ) {
+				$next = (int) $incremented;
+			}
+		}
+
+		update_option(
+			'aifaq_daily_usage',
+			array(
+				'd' => $usage['d'],
+				'n' => $next,
+			),
+			false
+		);
+	}
+
+	/**
 	 * Bramka sufitu. Przy przekroczeniu zostawia właścicielowi ślad `aifaq_budget_hit`
 	 * (data `RRRR-MM-DD`, ten sam zegar co licznik) — bez niego sufit byłby
 	 * niewidzialną awarią: gość widzi 429, a klient nie wie dlaczego.
