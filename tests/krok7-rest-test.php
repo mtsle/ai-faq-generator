@@ -79,6 +79,16 @@ function is_wp_error_local( $t ) { return $t instanceof WP_Error; }
 require __DIR__ . '/../src/Rag/RagService.php';
 require __DIR__ . '/../src/App/HistoryPanel.php';
 require __DIR__ . '/../src/Rest/RestController.php';
+// Krok 23 (czysty refaktor): RestController rozbity na warstwy — routing w
+// RouteRegistrar, logika w klasach usługowych. Zestaw ładuje pliki RĘCZNIE
+// (bez autoloadera wtyczki), więc doklejamy resztę warstwy REST.
+require __DIR__ . '/../src/Rest/RouteRegistrar.php';
+require __DIR__ . '/../src/Rest/GuestIdentity.php';
+require __DIR__ . '/../src/Rest/PairsInput.php';
+require __DIR__ . '/../src/Rest/AskService.php';
+require __DIR__ . '/../src/Rest/AdminService.php';
+require __DIR__ . '/../src/Rest/GeneratorService.php';
+require __DIR__ . '/../src/Rest/PublishService.php';
 
 use AIFAQ\Rag\RagService;
 use AIFAQ\Rest\RestController;
@@ -100,10 +110,15 @@ check( 'POST' === ( $by_route['/admin/export']['args']['methods'] ?? '' ), '/adm
 check( isset( $by_route['/admin/generations/detail'] ), 'trasa szczegółu historii (K15): /admin/generations/detail' );
 check( isset( $by_route['/admin/faq/publish'], $by_route['/admin/faq/unpublish'] ), 'trasy publikacji FAQ: /admin/faq/{publish,unpublish}' );
 check( 'POST' === ( $by_route['/admin/faq/publish']['args']['methods'] ?? '' ), '/admin/faq/publish metoda POST' );
-// Cap narzędzia, nie admina — kto generuje i eksportuje pary, ten może je opublikować.
+// Krok 23: cap PUBLIKACJI, wyżej niż cap narzędzia — publish/unpublish mają WŁASNĄ
+// bramkę, różną od /admin/export (Autor generuje/eksportuje, ale nie publikuje).
 check(
-	( $by_route['/admin/faq/publish']['args']['permission_callback'] ?? null ) === ( $by_route['/admin/export']['args']['permission_callback'] ?? false ),
-	'/admin/faq/publish ma tę samą bramkę co /admin/export (cap narzędzia)'
+	( $by_route['/admin/faq/publish']['args']['permission_callback'] ?? null ) !== ( $by_route['/admin/export']['args']['permission_callback'] ?? false ),
+	'/admin/faq/publish ma INNĄ bramkę niż /admin/export (Krok 23: cap publikacji, nie cap narzędzia)'
+);
+check(
+	( $by_route['/admin/faq/publish']['args']['permission_callback'] ?? null ) === ( $by_route['/admin/faq/unpublish']['args']['permission_callback'] ?? false ),
+	'/admin/faq/publish ma TĘ SAMĄ bramkę co /admin/faq/unpublish'
 );
 
 $all_ns = array_unique( array_map( static function ( $r ) { return $r['ns']; }, $routes ) );
@@ -144,6 +159,12 @@ foreach ( array( '/admin/generate-faq', '/admin/export' ) as $ar ) {
 	$pc = $by_route[ $ar ]['args']['permission_callback'] ?? null;
 	$ok = is_array( $pc ) && $pc[0] instanceof RestController && 'require_tool_user' === $pc[1];
 	check( $ok, "$ar permission_callback = require_tool_user (K20: cap narzedzia)" );
+}
+// Krok 23: publish/unpublish schodzą do WŁASNEJ bramki (cap publikacji, wyżej niż narzędzia).
+foreach ( array( '/admin/faq/publish', '/admin/faq/unpublish' ) as $ar ) {
+	$pc = $by_route[ $ar ]['args']['permission_callback'] ?? null;
+	$ok = is_array( $pc ) && $pc[0] instanceof RestController && 'require_publish_user' === $pc[1];
+	check( $ok, "$ar permission_callback = require_publish_user (K23: cap publikacji)" );
 }
 
 echo "\n== require_admin (uprawnienia) ==\n";

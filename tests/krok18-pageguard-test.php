@@ -373,6 +373,16 @@ $aifaq_files = array(
 	'src/Core/Settings.php',
 	'src/Core/Router.php',
 	'src/Rest/RestController.php',
+	// Krok 23 (czysty refaktor): RestController rozbity na warstwy — routing w
+	// RouteRegistrar, logika w klasach usługowych. Zestawy ładują pliki RĘCZNIE
+	// (bez autoloadera wtyczki), więc doklejamy resztę warstwy REST.
+	'src/Rest/RouteRegistrar.php',
+	'src/Rest/GuestIdentity.php',
+	'src/Rest/PairsInput.php',
+	'src/Rest/AskService.php',
+	'src/Rest/AdminService.php',
+	'src/Rest/GeneratorService.php',
+	'src/Rest/PublishService.php',
 	'src/PublicUi/GeneratorPage.php',
 	'src/PublicUi/Shortcode.php',
 	'src/PublicUi/PageGuard.php',
@@ -1075,15 +1085,28 @@ if ( $has_notice ) {
 echo "\n== L. Plugin — wpięcie hooków ==\n";
 if ( $has_plugin ) {
 	// #61 — Plugin NIGDY nie jest instancjonowany (konstruktor private + dbDelta).
-	foreach ( array( 'render_page_notice', 'handle_page_fix', 'audit_page', 'on_page_event', 'on_page_deleted' ) as $mth ) {
+	foreach ( array( 'render_page_notice', 'handle_page_fix', 'audit_page', 'on_page_event', 'on_page_deleted', 'on_knowledge_post_removed' ) as $mth ) {
 		check( true === method_exists( 'AIFAQ\Core\Plugin', $mth ), '#61 Plugin::' . $mth . '() istnieje [NOWE]' );
 	}
 
-	// #62 — literały hooków w źródle.
-	$src_path = __DIR__ . '/../src/Core/Plugin.php';
-	$src      = file_exists( $src_path ) ? (string) file_get_contents( $src_path ) : '';
-	foreach ( array( "'admin_notices'", "'admin_post_aifaq_page_fix'", "'trashed_post'", "'untrashed_post'", "'deleted_post'" ) as $lit ) {
-		check( 1 === substr_count( $src, $lit ), '#62 Plugin.php zawiera ' . $lit . ' dokładnie raz [NOWE]' );
+	// #62 — literały hooków w źródle. Domyślnie dokładnie raz (guard przeciwko
+	// przypadkowej podwójnej rejestracji TEGO SAMEGO callbacku); `trashed_post`
+	// i `deleted_post` mają DWA celowe wystąpienia od K23 etap 1 (znalezisko
+	// A2) — drugi callback (`on_knowledge_post_removed`) czyści bazę wiedzy
+	// RAG niezależnie od PageGuard, na tym samym hooku WP (normalne w WP:
+	// wiele callbacków na jednym hooku). `untrashed_post` zostaje przy jednym
+	// wystąpieniu — przywrócony wpis świadomie NIE wraca do RAG automatycznie.
+	$src_path      = __DIR__ . '/../src/Core/Plugin.php';
+	$src           = file_exists( $src_path ) ? (string) file_get_contents( $src_path ) : '';
+	$expected_hits = array(
+		"'admin_notices'"               => 1,
+		"'admin_post_aifaq_page_fix'"   => 1,
+		"'trashed_post'"                => 2,
+		"'untrashed_post'"              => 1,
+		"'deleted_post'"                => 2,
+	);
+	foreach ( $expected_hits as $lit => $want ) {
+		check( $want === substr_count( $src, $lit ), '#62 Plugin.php zawiera ' . $lit . ' dokładnie ' . $want . ' raz(y) [NOWE]' );
 	}
 
 	// #63 — pozycja: trashed_post POZA is_admin(), admin_notices WEWNĄTRZ.
@@ -1093,6 +1116,17 @@ if ( $has_plugin ) {
 	$p2 = strpos( $src, 'if ( is_admin() )' );
 	$p3 = strpos( $src, "'admin_notices'" );
 	check( false !== $p1 && false !== $p2 && false !== $p3 && $p1 < $p2 && $p3 > $p2, '#63 trashed_post PRZED if ( is_admin() ), admin_notices PO (osłony false !==) [NOWE]' );
+
+	// #63b — K23 etap 1: 'on_knowledge_post_removed' jest wpięty POZA is_admin()
+	// (dokładnie jak PageGuard — sprzątanie RAG nie jest kontekstem admina: kosz
+	// bywa obsługiwany też z REST/WP-CLI) i wołany zarówno na trashed_post, jak
+	// i na deleted_post.
+	$p4 = strpos( $src, "'on_knowledge_post_removed'" );
+	$p5 = strrpos( $src, "'on_knowledge_post_removed'" );
+	check(
+		false !== $p4 && false !== $p5 && $p4 !== $p5 && $p4 < $p2,
+		'#63b on_knowledge_post_removed wpięty DWA razy (trashed_post + deleted_post), POZA is_admin() [NOWE]'
+	);
 
 	// #64 — bramki taniości admin_init (metoda STATYCZNA, wołana wprost).
 	if ( method_exists( 'AIFAQ\Core\Plugin', 'audit_page' ) ) {

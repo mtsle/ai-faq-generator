@@ -223,27 +223,41 @@ class FaqGenerator {
 	/**
 	 * Neutralizuje granice sekcji w danych użytkownika (K20 §6.1 pkt 3).
 	 *
-	 * KAŻDE wystąpienie trzech lub więcej `#` — niezależnie od pozycji w linii
-	 * i od poprzedzających białych znaków. Reguła „na początku linii" byłaby
-	 * pozorna: `topic` przechodzi przez `sanitize_text_field()`, które usuwa
-	 * znaki nowej linii, więc temat jest ZAWSZE jedną linią; w opisie regułę
-	 * omijała spacja przed znacznikiem. Zamiennik to trzy zwykłe krzyżyki
-	 * rozdzielone spacjami — ZERO znaków niewidzialnych (taki znak poszedłby
-	 * w promptcie prosto do modelu).
+	 * KAŻDE wystąpienie dwóch lub więcej `#`/pełnoszerokościowych `＃` —
+	 * niezależnie od pozycji w linii i od poprzedzających białych znaków.
+	 * Reguła „na początku linii" byłaby pozorna: `topic` przechodzi przez
+	 * `sanitize_text_field()`, które usuwa znaki nowej linii, więc temat jest
+	 * ZAWSZE jedną linią; w opisie regułę omijała spacja przed znacznikiem.
+	 * Zamiennik to zwykłe krzyżyki rozdzielone spacjami — ZERO znaków
+	 * niewidzialnych (taki znak poszedłby w promptcie prosto do modelu).
+	 * Dodatkowo neutralizujemy linie-separatory (`---`/`***`/`===`), którymi
+	 * model równie dobrze mógłby potraktować granicę sekcji (K23 etap 1;
+	 * ta sama reguła co w {@see \AIFAQ\Rag\Answerer::neutralize_structure()} —
+	 * skopiowana, bo klasy nie mają wspólnego przodka, a wydzielanie go pod
+	 * dwie metody byłoby przerostem formy).
 	 *
 	 * @param string $s Dane od użytkownika.
 	 * @return string
 	 */
 	private function harden( string $s ): string {
-		$out = preg_replace( '/#{3,}/u', '# # #', $s );
+		$out = preg_replace( '/[#＃]{2,}/u', '# # #', $s );
 
 		// Niepoprawne UTF-8 wywraca tryb /u na null — wtedy zamiast kasować dane
 		// użytkownika (rzutowanie null → '') powtarzamy bajtowo, bez modyfikatora.
 		if ( null === $out ) {
-			$out = preg_replace( '/#{3,}/', '# # #', $s );
+			$out = preg_replace( '/[#＃]{2,}/', '# # #', $s );
 		}
 
-		return is_string( $out ) ? $out : $s;
+		$out = is_string( $out ) ? $out : $s;
+
+		// Linia złożona wyłącznie z `-`/`*`/`=` (3+) — separator Markdown/YAML,
+		// którym model mógłby potraktować granicę sekcji przy wstrzyknięciu.
+		$sep = preg_replace( '/^[-*=]{3,}\s*$/mu', '- - -', $out );
+		if ( null === $sep ) {
+			$sep = preg_replace( '/^[-*=]{3,}\s*$/m', '- - -', $out );
+		}
+
+		return is_string( $sep ) ? $sep : $out;
 	}
 
 	/**
@@ -322,7 +336,7 @@ class FaqGenerator {
 				continue;
 			}
 
-			$key = mb_strtolower( $question );
+			$key = function_exists( 'mb_strtolower' ) ? mb_strtolower( $question ) : strtolower( $question );
 			if ( isset( $seen[ $key ] ) ) {
 				continue;
 			}
@@ -423,8 +437,18 @@ class FaqGenerator {
 		}
 
 		// Fallback 2: od pierwszego „[" do ostatniego „]" (model dołożył prozę).
-		$start = strpos( $text, '[' );
-		$end   = strrpos( $text, ']' );
+		// Kontrakt (self::response_schema()) wymusza na Gemini ZAWSZE tablicę
+		// obiektów `[{...}]` — więc najpierw szukamy „[" po którym (po białych
+		// znakach) idzie „{", żeby nie złapać literalnego „[wersja robocza]"
+		// w prozie modelu zamiast realnej tablicy. Gdy taki wzorzec nie
+		// wystąpi (pusta tablica `[]`, tablica skalarów) — wracamy do starego,
+		// łagodniejszego strpos(), żeby nie pogorszyć tamtych przypadków.
+		if ( preg_match( '/\[\s*\{/', $text, $bracket_m, PREG_OFFSET_CAPTURE ) ) {
+			$start = $bracket_m[0][1];
+		} else {
+			$start = strpos( $text, '[' );
+		}
+		$end = strrpos( $text, ']' );
 		if ( false !== $start && false !== $end && $end > $start ) {
 			$decoded = json_decode( substr( $text, $start, $end - $start + 1 ), true );
 			if ( null !== $decoded ) {

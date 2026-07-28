@@ -378,6 +378,15 @@ final class Plugin {
 		add_action( 'untrashed_post', array( $this, 'on_page_event' ), 10, 1 );
 		add_action( 'deleted_post', array( $this, 'on_page_deleted' ), 10, 1 );
 
+		// K23 etap 1, znalezisko A2: kosz/skasowanie wpisu MUSI usunąć jego
+		// fragmenty z bazy wiedzy RAG — inaczej Retriever dalej serwuje gościom
+		// treść (np. cenę), której na stronie już nie ma, z linkiem do 404.
+		// Bez `untrashed_post`: przywrócony wpis wraca BEZ embeddingów do
+		// najbliższego RĘCZNEGO reindeksu — to ten sam koszt co dodanie nowej
+		// treści, nie automatyczne (płatne) wywołanie API bez zgody właściciela.
+		add_action( 'trashed_post', array( $this, 'on_knowledge_post_removed' ), 10, 1 );
+		add_action( 'deleted_post', array( $this, 'on_knowledge_post_removed' ), 10, 1 );
+
 		if ( is_admin() ) {
 			$this->settings = new Settings();
 			add_action( 'admin_init', array( $this->settings, 'register' ) );
@@ -654,6 +663,34 @@ final class Plugin {
 
 		try {
 			\AIFAQ\PublicUi\PageGuard::on_post_deleted( $post_id );
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+	}
+
+	/**
+	 * Wpis trafił do kosza albo został skasowany na trwałe — jego fragmenty
+	 * w bazie wiedzy RAG znikają razem z nim (K23 etap 1, znalezisko A2).
+	 *
+	 * Kasujemy też CAŁY cache odpowiedzi: `CacheRepository` nie wie, z jakich
+	 * postów pochodzi zapamiętana odpowiedź (klucz to hash pytania, nie
+	 * post_id), więc częściowa inwalidacja nie jest możliwa — a bez tego gość,
+	 * który wcześniej trafił w cache, dostawałby nieaktualną odpowiedź mimo
+	 * usuniętego embeddingu. `clear_all()` to tania operacja (TRUNCATE, zero
+	 * wywołań API) — koszt to utracone trafienia cache, nie pieniądze.
+	 *
+	 * @param int|mixed $post_id ID wpisu, którego dotyczy zdarzenie.
+	 */
+	public function on_knowledge_post_removed( $post_id ): void {
+		if ( ! class_exists( '\AIFAQ\Data\KnowledgeRepository' ) ) {
+			return;
+		}
+
+		try {
+			$removed = ( new \AIFAQ\Data\KnowledgeRepository() )->delete_by_post( (int) $post_id );
+			if ( $removed > 0 && class_exists( '\AIFAQ\Data\CacheRepository' ) ) {
+				( new \AIFAQ\Data\CacheRepository() )->clear_all();
+			}
 		} catch ( \Throwable $e ) {
 			unset( $e );
 		}

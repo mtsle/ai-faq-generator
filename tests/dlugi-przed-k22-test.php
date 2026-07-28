@@ -230,7 +230,12 @@ check(
 echo "\n=== R1: komunikat weryfikacji klucza scalony w Settings::verify_error_message() ===\n";
 
 $settings_src = (string) file_get_contents( $root . '/src/Core/Settings.php' );
-$rest_src     = (string) file_get_contents( $root . '/src/Rest/RestController.php' );
+// Krok 23 (czysty refaktor): handle_verify() jest już cienkim wywołaniem zwrotnym,
+// a samo składanie odpowiedzi /admin/verify siedzi w AdminService. Sklejamy oba pliki
+// warstwy REST — obie asercje niżej (wołanie verify_error_message() ORAZ brak
+// zduplikowanej ternary) zostają dosłownie takie same i tak samo mocne.
+$rest_src     = (string) file_get_contents( $root . '/src/Rest/RestController.php' )
+	. ( is_file( $root . '/src/Rest/AdminService.php' ) ? (string) file_get_contents( $root . '/src/Rest/AdminService.php' ) : '' );
 
 check(
 	1 === preg_match( '/public static function verify_error_message\(\s*\\\\WP_Error \$result\s*\)\s*:\s*string/', $settings_src ),

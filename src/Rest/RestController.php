@@ -2,16 +2,24 @@
 /**
  * Kontroler REST `aifaq/v1` — warstwa HTTP nad rdzeniem RAG i indekserem.
  *
- * NIE zawiera logiki biznesowej: opakowuje gotowe kontrakty w HTTP, uprawnienia
- * i mapowanie wyniku na kody stanu.
+ * NIE zawiera logiki biznesowej. Po Kroku 23 zostały tu wyłącznie trzy rzeczy:
+ * uprawnienia (stałe capów + bramki), walidacja parametrów wejściowych i cienkie
+ * wywołania zwrotne tras. Deklaracja samych tras siedzi w {@see RouteRegistrar},
+ * a składanie odpowiedzi w klasach usługowych tej samej przestrzeni nazw
+ * ({@see AskService}, {@see AdminService}, {@see GeneratorService},
+ * {@see PublishService}). Kontroler pozostaje publicznym API wtyczki — kod i testy
+ * z poprzednich kroków wołają go bez zmian.
+ *
+ * Zarejestrowanych jest 15 tras (stan po Kroku 23; pełna lista w `RouteRegistrar`):
  *  - `POST /aifaq/v1/ask` — publiczne, woła {@see RagService::ask()} (cache,
  *    rate-limit, odmowa off-topic i dziennik są już w środku). Rate-limit → 429,
  *    błąd generacji → 502 (bez surowych komunikatów providera, GR4).
- *  - `GET  /aifaq/v1/admin/status`  — stan bazy wiedzy (cap `manage_options`).
- *  - `POST /aifaq/v1/admin/reindex` — indeksowanie (rdzeń {@see IndexController::run_reindex()}).
- *  - `POST /aifaq/v1/admin/clear`   — czyszczenie bazy wiedzy.
- *  - `GET  /aifaq/v1/admin/history` — dziennik pytań gości (strona + podsumowanie).
- *  - `POST /aifaq/v1/admin/history/clear` — kasowanie całego dziennika.
+ *  - `/aifaq/v1/admin/{status,reindex,clear,settings,verify,history,history/clear}`
+ *    — panel właściciela (cap `manage_options`).
+ *  - `/aifaq/v1/admin/{generate-faq,export}` — narzędzie generatora (cap `publish_posts`).
+ *  - `/aifaq/v1/admin/generations{,/detail,/delete}` — historia generowań (admin).
+ *  - `/aifaq/v1/admin/faq/{publish,unpublish}` — publikacja na podstronie
+ *    (cap `edit_others_posts`).
  *
  * Uwierzytelnianie panelu: REST cookie-auth WordPressa wymaga ważnego
  * `X-WP-Nonce` (akcja `wp_rest`), by `current_user_can()` przeszło — nonce jest
@@ -24,16 +32,7 @@
 
 namespace AIFAQ\Rest;
 
-use AIFAQ\Admin\IndexController;
-use AIFAQ\App\HistoryPanel;
-use AIFAQ\Core\Settings;
-use AIFAQ\Data\GenerationRepository;
-use AIFAQ\Data\QaLogRepository;
-use AIFAQ\Faq\Exporter;
-use AIFAQ\Faq\FaqGenerator;
-use AIFAQ\Providers\ProviderFactory;
 use AIFAQ\Rag\RagService;
-use AIFAQ\Rag\RateLimiter;
 use WP_Error;
 use WP_REST_Request;
 use WP_REST_Response;
@@ -68,6 +67,17 @@ class RestController {
 	const CAPABILITY_TOOL = 'publish_posts';
 
 	/**
+	 * Uprawnienie wymagane do publikacji/cofnięcia publikacji FAQ na publicznej
+	 * podstronie generatora (Krok 23, decyzja usera po audycie etapu 1).
+	 *
+	 * Wyżej niż {@see self::CAPABILITY_TOOL}: publikacja pokazuje treść
+	 * wyszukiwarce i jest nieodwracalna bez ręcznego przywrócenia snapshotu,
+	 * więc Autor (ma `publish_posts`, nie ma `edit_others_posts`) generuje i
+	 * eksportuje pary, ale ich nie publikuje — potrzebny Redaktor.
+	 */
+	const CAPABILITY_PUBLISH = 'edit_others_posts';
+
+	/**
 	 * Bezpiecznik generatora FAQ: max wywołań na godzinę (dług sprzed Kroku 22
 	 * — „brak limitowania ścieżki admina"). Pula dostawcy jest wspólna z `/ask`
 	 * (ta sama darmowa doba, ~20 żądań), więc bez tego jedna testowa sesja
@@ -75,6 +85,8 @@ class RestController {
 	 * gość zadał pytanie. Osobny od `rag_daily_budget` (ten liczy WYŁĄCZNIE
 	 * `/ask`) i od per-gość RateLimitera w RagService — to jest bramka dla
 	 * NARZĘDZIA, nie dla gościa.
+	 *
+	 * Egzekwuje go {@see GeneratorService}.
 	 */
 	const GENERATE_FAQ_HOURLY_LIMIT = 10;
 
@@ -97,332 +109,13 @@ class RestController {
 	 * Rejestruje wszystkie trasy przestrzeni `aifaq/v1`.
 	 */
 	public function register_routes(): void {
-		// Publiczne: pytanie gościa → odpowiedź zawężona do tematu strony.
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/ask',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_ask' ),
-				'permission_callback' => '__return_true',
-				'args'                => array(
-					'question' => array(
-						'required'          => true,
-						'type'              => 'string',
-						'description'       => __( 'Pytanie gościa dotyczące treści strony.', 'ai-faq-generator' ),
-						'validate_callback' => array( $this, 'validate_question' ),
-						'sanitize_callback' => 'sanitize_textarea_field',
-					),
-				),
-			)
-		);
-
-		// Panel: stan bazy wiedzy.
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/status',
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( $this, 'handle_status' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-			)
-		);
-
-		// Panel: indeksowanie treści.
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/reindex',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_reindex' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-			)
-		);
-
-		// Panel: czyszczenie bazy wiedzy.
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/clear',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_clear' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-			)
-		);
-
-		// Panel: zapis ustawień (front dzieli kontrakt sanityzacji z kokpitem).
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/settings',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_settings_save' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-			)
-		);
-
-		// Panel: test połączenia (realny ping klucza).
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/verify',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_verify' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-			)
-		);
-
-		// Panel: dziennik pytań gości (strona + podsumowanie).
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/history',
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( $this, 'handle_history' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-				'args'                => array(
-					'page'     => array(
-						'type'    => 'integer',
-						'default' => 1,
-					),
-					'per_page' => array(
-						'type'    => 'integer',
-						'default' => HistoryPanel::PER_PAGE,
-					),
-					'status'   => array(
-						'type'    => 'string',
-						'default' => '',
-					),
-				),
-			)
-		);
-
-		// Panel: kasowanie całego dziennika (dane gości — RODO).
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/history/clear',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_history_clear' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-			)
-		);
-
-		// Panel: generowanie par FAQ z tematu (narzędzie generatora, Krok 12).
-		// Krok 20: jedna z DWÓCH tras dostępnych także dla Redaktora/Autora.
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/generate-faq',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_generate_faq' ),
-				'permission_callback' => array( $this, 'require_tool_user' ),
-				'args'                => array(
-					'topic'       => array(
-						'required'          => true,
-						'type'              => 'string',
-						'description'       => __( 'Temat, na który wygenerować FAQ.', 'ai-faq-generator' ),
-						'validate_callback' => array( $this, 'validate_topic' ),
-						'sanitize_callback' => 'sanitize_text_field',
-					),
-					'description' => array(
-						'type'              => 'string',
-						'default'           => '',
-						'sanitize_callback' => 'sanitize_textarea_field',
-					),
-					'count'       => array(
-						'type'    => 'integer',
-						'default' => 0,
-					),
-					'language'    => array(
-						'type'    => 'string',
-						'default' => '',
-					),
-				),
-			)
-		);
-
-		// Panel: lista historii generowań (Krok 12).
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/generations',
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( $this, 'handle_generations' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-				'args'                => array(
-					'page'     => array(
-						'type'    => 'integer',
-						'default' => 1,
-					),
-					'per_page' => array(
-						'type'    => 'integer',
-						'default' => 20,
-					),
-				),
-			)
-		);
-
-		// Panel: szczegół jednego wpisu historii generowań — z parami (Krok 15).
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/generations/detail',
-			array(
-				'methods'             => 'GET',
-				'callback'            => array( $this, 'handle_generation_detail' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-				'args'                => array(
-					'id' => array(
-						'required' => true,
-						'type'     => 'integer',
-					),
-				),
-			)
-		);
-
-		// Panel: usunięcie jednego wpisu historii generowań (Krok 12).
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/generations/delete',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_generations_delete' ),
-				'permission_callback' => array( $this, 'require_admin' ),
-				'args'                => array(
-					'id' => array(
-						'required' => true,
-						'type'     => 'integer',
-					),
-				),
-			)
-		);
-
-		// Panel: eksport bieżących par do 5 formatów (Krok 14).
-		// Krok 20: druga z DWÓCH tras narzędzia — `handle_export()` jest czysta
-		// (nie czyta bazy, ustawień ani klucza API), więc poluzowanie jest bezpieczne.
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/export',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_export' ),
-				'permission_callback' => array( $this, 'require_tool_user' ),
-			)
-		);
-
-		// Publikacja par na podstronie generatora — jedyna treść tej strony, którą
-		// widzi wyszukiwarka. Cap narzędzia (nie admina): kto może wygenerować pary
-		// i je wyeksportować, ten może je też pokazać na stronie.
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/faq/publish',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_faq_publish' ),
-				'permission_callback' => array( $this, 'require_tool_user' ),
-			)
-		);
-
-		register_rest_route(
-			self::REST_NAMESPACE,
-			'/admin/faq/unpublish',
-			array(
-				'methods'             => 'POST',
-				'callback'            => array( $this, 'handle_faq_unpublish' ),
-				'permission_callback' => array( $this, 'require_tool_user' ),
-			)
-		);
+		( new RouteRegistrar( $this ) )->register();
 	}
 
-	/**
-	 * `POST /admin/faq/publish` — pokazuje pary na podstronie generatora.
-	 *
-	 * Przyjmuje `pairs` (bieżąca tabela w narzędziu, także po ręcznych poprawkach
-	 * właściciela) albo `id` zapisanej generacji. Pierwszeństwo ma `pairs`: to,
-	 * co właściciel widzi na ekranie, jest tym, co publikuje.
-	 *
-	 * @param \WP_REST_Request $request Żądanie.
-	 * @return \WP_REST_Response
-	 */
-	public function handle_faq_publish( $request ) {
-		$pairs = $this->normalize_pairs( $request->get_param( 'pairs' ) );
-		$id    = (int) $request->get_param( 'id' );
-
-		// Sięgnięcie po ZAPISANĄ generację jest zawężone do administratora.
-		// Trasa stoi na capie NARZĘDZIA (Redaktor/Autor), a cała historia generowań
-		// — `/admin/generations`, `/admin/generations/detail` — jest świadomie
-		// admin-only. Bez tego warunku Autor odczytywał cudze pary przez samo `id`
-		// (kolejne liczby całkowite), publikując je sobie na podstronie: obejście
-		// bramki historii i jednocześnie podmiana publicznej treści i `FAQPage`.
-		// UI ZAWSZE wysyła `pairs` (assets/js/faq-tool.js), więc dla produktu
-		// to zawężenie jest niewidoczne.
-		if ( array() === $pairs && $id > 0 && current_user_can( self::CAPABILITY ) ) {
-			$row = ( new GenerationRepository() )->find( $id );
-
-			if ( null === $row ) {
-				return new \WP_REST_Response(
-					array(
-						'status'  => 'error',
-						'message' => __( 'Nie znaleziono generacji.', 'ai-faq-generator' ),
-					),
-					404
-				);
-			}
-
-			$pairs = $this->normalize_pairs( $row['pairs'] ?? array() );
-		}
-
-		if ( array() === $pairs ) {
-			return new \WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => __( 'Brak par do opublikowania.', 'ai-faq-generator' ),
-				),
-				400
-			);
-		}
-
-		$count = \AIFAQ\Faq\PublicFaq::publish( $pairs, $id );
-
-		if ( $count < 1 ) {
-			return new \WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => __( 'Nie udało się zapisać par.', 'ai-faq-generator' ),
-				),
-				500
-			);
-		}
-
-		return new \WP_REST_Response(
-			array(
-				'status' => 'ok',
-				'count'  => $count,
-				'url'    => esc_url_raw( \AIFAQ\PublicUi\PageGuard::page_url() ),
-			),
-			200
-		);
-	}
-
-	/**
-	 * `POST /admin/faq/unpublish` — zdejmuje pary z podstrony.
-	 *
-	 * @param \WP_REST_Request $request Żądanie (bez parametrów).
-	 * @return \WP_REST_Response
-	 */
-	public function handle_faq_unpublish( $request ) {
-		unset( $request );
-
-		\AIFAQ\Faq\PublicFaq::unpublish();
-
-		return new \WP_REST_Response(
-			array(
-				'status' => 'ok',
-				'count'  => 0,
-			),
-			200
-		);
-	}
+	// -----------------------------------------------------------------------
+	// Bramki uprawnień — zostają na kontrolerze, bo to one są `permission_callback`
+	// każdej trasy (i jedyne źródło capa narzędzia dla UI kokpitu).
+	// -----------------------------------------------------------------------
 
 	/**
 	 * Bramka uprawnień tras panelu.
@@ -465,6 +158,23 @@ class RestController {
 	public function require_tool_user(): bool {
 		return current_user_can( self::CAPABILITY ) || current_user_can( self::tool_capability() );
 	}
+
+	/**
+	 * Bramka uprawnień DWÓCH tras publikacji (`/admin/faq/publish`, `/admin/faq/unpublish`).
+	 *
+	 * Cap wyższy niż {@see self::require_tool_user()} — Krok 23, patrz
+	 * {@see self::CAPABILITY_PUBLISH}. Administrator przechodzi zawsze.
+	 *
+	 * @return bool
+	 */
+	public function require_publish_user(): bool {
+		return current_user_can( self::CAPABILITY ) || current_user_can( self::CAPABILITY_PUBLISH );
+	}
+
+	// -----------------------------------------------------------------------
+	// Walidacja parametrów — `validate_callback` tras, uruchamiana przez rdzeń WP
+	// PRZED wywołaniem `callback`, więc nie schodzi do warstwy usługowej.
+	// -----------------------------------------------------------------------
 
 	/**
 	 * Waliduje pytanie gościa (niepuste po sanityzacji, w granicy długości).
@@ -527,6 +237,10 @@ class RestController {
 		return true;
 	}
 
+	// -----------------------------------------------------------------------
+	// Wywołania zwrotne tras — cienkie, cała robota w klasach usługowych.
+	// -----------------------------------------------------------------------
+
 	/**
 	 * `POST /ask` — odpowiada na pytanie gościa (lub odmawia poza tematem).
 	 *
@@ -541,149 +255,15 @@ class RestController {
 	}
 
 	/**
-	 * Mapuje wynik {@see RagService::ask()} na odpowiedź HTTP.
-	 *
-	 * answered|refused → 200; limit własny LUB limit dostawcy → 429; błąd → 502
-	 * (komunikat ogólny, bez surowego błędu providera).
-	 *
-	 * KOLEJNOŚĆ GAŁĘZI JEST CZĘŚCIĄ KONTRAKTU: gałąź 429 stoi PRZED ogólną gałęzią 502.
-	 * Postawiona po niej byłaby martwym kodem — gość dalej dostawałby 502 „awaria"
-	 * zamiast 429 „odczekaj chwilę", a testy niższych warstw świeciłyby na zielono.
-	 *
-	 * @param array<string,mixed> $result Wynik potoku RAG.
-	 * @return WP_REST_Response
-	 */
-	private function ask_response( array $result ): WP_REST_Response {
-		$status = (string) ( $result['status'] ?? 'error' );
-		$source = (string) ( $result['source'] ?? 'ai' );
-
-		if ( 'error' === $status
-			&& in_array( $source, array( 'rate_limit', 'provider_rate_limit' ), true ) ) {
-			return new WP_REST_Response(
-				$this->with_debug(
-					array(
-						'status'  => 'rate_limited',
-						'message' => __( 'Za dużo zapytań. Spróbuj ponownie za chwilę.', 'ai-faq-generator' ),
-					),
-					$result
-				),
-				429
-			);
-		}
-
-		if ( 'error' === $status ) {
-			return new WP_REST_Response(
-				$this->with_debug(
-					array(
-						'status'  => 'error',
-						'message' => __( 'Nie udało się teraz wygenerować odpowiedzi. Spróbuj ponownie później.', 'ai-faq-generator' ),
-					),
-					$result
-				),
-				502
-			);
-		}
-
-		return new WP_REST_Response(
-			$this->with_debug(
-				array(
-					'status' => $status, // answered | refused
-					'answer' => (string) ( $result['answer'] ?? '' ),
-					'score'  => round( (float) ( $result['score'] ?? 0 ), 4 ),
-					'source' => $source, // ai | cache
-					'cached' => ( 'cache' === $source ),
-				),
-				$result
-			),
-			200
-		);
-	}
-
-	/**
-	 * Dokleja diagnostykę do body — wyłącznie dla właściciela i wyłącznie gdy jest co doklejać.
-	 *
-	 * Gość nie zobaczy jej NIGDY: `top_k` niesie id, post_id i wyniki podobieństwa
-	 * wszystkich fragmentów, czyli strukturę bazy wiedzy. Doklejamy do wszystkich trzech
-	 * gałęzi (200, 429, 502), bo właściciel diagnozujący awarię potrzebuje jej najbardziej
-	 * właśnie wtedy, gdy odpowiedzi nie ma.
-	 *
-	 * @param array<string,mixed> $body   Body odpowiedzi.
-	 * @param array<string,mixed> $result Wynik RagService::ask().
-	 * @return array<string,mixed>
-	 */
-	private function with_debug( array $body, array $result ): array {
-		$debug = ( isset( $result['debug'] ) && is_array( $result['debug'] ) ) ? $result['debug'] : array();
-		if ( array() === $debug ) {
-			return $body;
-		}
-		if ( ! function_exists( 'current_user_can' ) || ! current_user_can( 'manage_options' ) ) {
-			return $body;
-		}
-		$body['debug'] = $debug;
-		return $body;
-	}
-
-	/**
 	 * `GET /admin/status` — statystyki bazy wiedzy i gotowość do indeksowania.
-	 *
-	 * Krok 17: dokłada klucz `crawl` z postępem pobierania stron. Świadomie ROZSZERZA
-	 * istniejącą trasę zamiast dokładać nową — kontrakt trzyma liczbę tras na 13.
 	 *
 	 * @param WP_REST_Request $request Żądanie (nieużywane).
 	 * @return WP_REST_Response
 	 */
 	public function handle_status( WP_REST_Request $request ): WP_REST_Response {
-		return new WP_REST_Response(
-			array(
-				'status'      => 'ok',
-				'stats'       => IndexController::stats(),
-				'indexing'    => (bool) get_transient( IndexController::LOCK ),
-				'api_key_set' => '' !== (string) Settings::get_field( 'api_key', '' ),
-				'crawl'       => self::crawl_progress(),
-			),
-			200
-		);
-	}
+		unset( $request );
 
-	/**
-	 * Postęp pobierania stron — bezpieczny odczyt z kolejki innego etapu.
-	 *
-	 * Brak klasy albo wyjątek w kolejce nie może wywalić statusu panelu (to jedyne
-	 * miejsce, w którym właściciel widzi stan bazy wiedzy), więc degradujemy do
-	 * stanu „nic nie trwa”.
-	 *
-	 * @return array{total:int,done:int,running:bool,needs_reindex:bool,warnings:array<int,string>}
-	 */
-	private static function crawl_progress(): array {
-		$out = array(
-			'total'         => 0,
-			'done'          => 0,
-			'running'       => false,
-			'needs_reindex' => false,
-			'warnings'      => array(),
-		);
-
-		if ( ! class_exists( '\AIFAQ\Index\CrawlQueue' ) ) {
-			return $out;
-		}
-
-		try {
-			$progress = ( new \AIFAQ\Index\CrawlQueue() )->progress();
-		} catch ( \Throwable $e ) {
-			return $out;
-		}
-
-		if ( ! is_array( $progress ) ) {
-			return $out;
-		}
-
-		return array(
-			'total'         => (int) ( $progress['total'] ?? 0 ),
-			'done'          => (int) ( $progress['done'] ?? 0 ),
-			'running'       => (bool) ( $progress['running'] ?? false ),
-			'needs_reindex' => (bool) ( $progress['needs_reindex'] ?? false ),
-			'warnings'      => is_array( $progress['warnings'] ?? null ) ? array_values( $progress['warnings'] ) : array(),
-		);
+		return ( new AdminService() )->status();
 	}
 
 	/**
@@ -693,26 +273,9 @@ class RestController {
 	 * @return WP_REST_Response
 	 */
 	public function handle_reindex( WP_REST_Request $request ): WP_REST_Response {
-		$result = ( new IndexController() )->run_reindex();
+		unset( $request );
 
-		if ( empty( $result['ok'] ) ) {
-			return new WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => (string) ( $result['message'] ?? '' ),
-				),
-				(int) ( $result['status'] ?? 500 )
-			);
-		}
-
-		return new WP_REST_Response(
-			array(
-				'status' => 'ok',
-				'report' => $result['report'] ?? array(),
-				'stats'  => $result['stats'] ?? array(),
-			),
-			200
-		);
+		return ( new AdminService() )->reindex();
 	}
 
 	/**
@@ -722,142 +285,39 @@ class RestController {
 	 * @return WP_REST_Response
 	 */
 	public function handle_clear( WP_REST_Request $request ): WP_REST_Response {
-		$result = ( new IndexController() )->run_clear();
+		unset( $request );
 
-		if ( empty( $result['ok'] ) ) {
-			return new WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => (string) ( $result['message'] ?? '' ),
-				),
-				(int) ( $result['status'] ?? 500 )
-			);
-		}
-
-		return new WP_REST_Response(
-			array(
-				'status'  => 'ok',
-				'removed' => (int) ( $result['removed'] ?? 0 ),
-				'stats'   => $result['stats'] ?? array(),
-			),
-			200
-		);
+		return ( new AdminService() )->clear();
 	}
 
 	/**
 	 * `POST /admin/settings` — zapisuje ustawienia (whitelistowany podzbiór z frontu).
 	 *
-	 * Front (apka `/faqgenerator`) edytuje tylko rdzeń: klucz, model, temperatura,
-	 * język. Przekazujemy wyłącznie te pola do {@see Settings::save()} — reszta
-	 * (RAG, slug) zostaje nietknięta, a sanityzacja i clamp są wspólne z kokpitem.
-	 *
 	 * @param WP_REST_Request $request Żądanie.
 	 * @return WP_REST_Response
 	 */
 	public function handle_settings_save( WP_REST_Request $request ): WP_REST_Response {
-		$input = array();
-		foreach ( array( 'api_key', 'model', 'temperature', 'language' ) as $field ) {
-			$value = $request->get_param( $field );
-			if ( null !== $value ) {
-				$input[ $field ] = $value;
-			}
-		}
-
-		$saved = Settings::save( $input );
-
-		// Odsyłamy tylko bezpieczne pola (NIGDY klucza) — do potwierdzenia w UI.
-		return new WP_REST_Response(
-			array(
-				'status'   => 'ok',
-				'settings' => array(
-					'model'       => (string) ( $saved['model'] ?? '' ),
-					'temperature' => (float) ( $saved['temperature'] ?? 0 ),
-					'language'    => (string) ( $saved['language'] ?? '' ),
-					'has_key'     => '' !== (string) ( $saved['api_key'] ?? '' ),
-				),
-			),
-			200
-		);
+		return ( new AdminService() )->save_settings( $request );
 	}
 
 	/**
 	 * `POST /admin/verify` — test połączenia (realny ping klucza do Gemini).
 	 *
-	 * Pusty `api_key` → sprawdzany jest klucz zapisany (pole bywa zamaskowane).
-	 * Wynik informacyjny: zawsze HTTP 200 z `status` ok|error + komunikatem
-	 * (bramka uprawnień i tak odcina niezalogowanych kodem 401).
-	 *
 	 * @param WP_REST_Request $request Żądanie.
 	 * @return WP_REST_Response
 	 */
 	public function handle_verify( WP_REST_Request $request ): WP_REST_Response {
-		$api_key = (string) $request->get_param( 'api_key' );
-		$result  = Settings::verify_key( $api_key );
-
-		if ( is_wp_error( $result ) ) {
-			return new WP_REST_Response( array( 'status' => 'error', 'message' => Settings::verify_error_message( $result ) ), 200 );
-		}
-
-		return new WP_REST_Response(
-			array( 'status' => 'ok', 'message' => __( 'Połączenie OK — klucz działa.', 'ai-faq-generator' ) ),
-			200
-		);
+		return ( new AdminService() )->verify( $request );
 	}
 
 	/**
 	 * `GET /admin/history` — strona dziennika pytań + podsumowanie.
 	 *
-	 * Odsyłamy TYLKO to, co panel pokazuje: treść, status, źródło, trafność i datę.
-	 * `ip_hash` i `user_id` zostają w bazie — nie ma powodu wypuszczać
-	 * pseudonimowego identyfikatora gościa do przeglądarki (GR7, minimalizacja).
-	 *
 	 * @param WP_REST_Request $request Żądanie.
 	 * @return WP_REST_Response
 	 */
 	public function handle_history( WP_REST_Request $request ): WP_REST_Response {
-		$page     = max( 1, (int) $request->get_param( 'page' ) );
-		$per_page = max( 1, min( 100, (int) $request->get_param( 'per_page' ) ) );
-		$status   = (string) $request->get_param( 'status' );
-		$status   = in_array( $status, QaLogRepository::STATUSES, true ) ? $status : '';
-
-		$repo  = new QaLogRepository();
-		$total = $repo->count_by( $status );
-		$pages = (int) ceil( $total / $per_page );
-
-		// Strona poza zakresem (np. po wyczyszczeniu) → cofamy do ostatniej istniejącej.
-		if ( $pages > 0 && $page > $pages ) {
-			$page = $pages;
-		}
-
-		$rows   = $repo->page( $per_page, ( $page - 1 ) * $per_page, $status );
-		$format = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
-
-		$items = array();
-		foreach ( $rows as $row ) {
-			$items[] = array(
-				'id'      => (int) ( $row['id'] ?? 0 ),
-				'date'    => mysql2date( $format, (string) ( $row['created_at'] ?? '' ) ),
-				'iso'     => (string) ( $row['created_at'] ?? '' ),
-				'question' => (string) ( $row['question'] ?? '' ),
-				'answer'  => (string) ( $row['answer'] ?? '' ),
-				'status'  => (string) ( $row['status'] ?? '' ),
-				'source'  => (string) ( $row['source'] ?? '' ),
-				'score'   => round( (float) ( $row['score'] ?? 0 ), 2 ),
-			);
-		}
-
-		return new WP_REST_Response(
-			array(
-				'status'   => 'ok',
-				'items'    => $items,
-				'total'    => $total,
-				'page'     => $page,
-				'pages'    => $pages,
-				'per_page' => $per_page,
-				'stats'    => $repo->stats(),
-			),
-			200
-		);
+		return ( new AdminService() )->history( $request );
 	}
 
 	/**
@@ -867,209 +327,39 @@ class RestController {
 	 * @return WP_REST_Response
 	 */
 	public function handle_history_clear( WP_REST_Request $request ): WP_REST_Response {
-		$repo    = new QaLogRepository();
-		$removed = $repo->purge();
+		unset( $request );
 
-		return new WP_REST_Response(
-			array(
-				'status'  => 'ok',
-				'removed' => $removed,
-				'stats'   => $repo->stats(),
-			),
-			200
-		);
+		return ( new AdminService() )->history_clear();
 	}
 
 	/**
 	 * `POST /admin/generate-faq` — generuje pary FAQ z tematu i zapisuje historię.
 	 *
-	 * Kreatywna generacja przez {@see FaqGenerator} (NIE przez RAG). Liczba pytań
-	 * klampowana do reguły produktu 5..20 (domyślnie z ustawień). Błąd providera →
-	 * 502 (bez surowego komunikatu); brak użytecznych par → 200 ze statusem `empty`;
-	 * sukces → 200 z parami + zapis snapshotu w `wp_aifaq_generations`.
-	 *
 	 * @param WP_REST_Request $request Żądanie.
 	 * @return WP_REST_Response
 	 */
 	public function handle_generate_faq( WP_REST_Request $request ): WP_REST_Response {
-		// Bezpiecznik: pula dostawcy wspólna z /ask, więc rwąca sesja klikania
-		// „Generuj” (dubel, skrypt, pomyłka) nie może jej wyczerpać samodzielnie.
-		$gen_limiter = new RateLimiter( self::GENERATE_FAQ_HOURLY_LIMIT, null, 3600 );
-		if ( ! $gen_limiter->allow( self::GENERATE_FAQ_LIMIT_BUCKET ) ) {
-			return new WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => __( 'Zbyt wiele generacji w tej godzinie — poczekaj chwilę (chroni to wspólny dzienny limit API).', 'ai-faq-generator' ),
-				),
-				429
-			);
-		}
-		$gen_limiter->hit( self::GENERATE_FAQ_LIMIT_BUCKET );
-
-		$topic = trim( (string) $request->get_param( 'topic' ) );
-		$desc  = (string) $request->get_param( 'description' );
-		$count = (int) $request->get_param( 'count' );
-		$lang  = (string) $request->get_param( 'language' );
-
-		// Liczba pytań: brak/0 → domyślna z ustawień; potem twardy clamp 5..20.
-		if ( $count <= 0 ) {
-			$count = (int) Settings::get_field( 'max_questions', 20 );
-		}
-		$count = max( 5, min( 20, $count ) );
-
-		// Język: tylko z whitelisty; w innym razie z ustawień.
-		if ( ! in_array( $lang, array( 'pl', 'en', 'de' ), true ) ) {
-			$lang = (string) Settings::get_field( 'language', 'pl' );
-		}
-
-		$temperature = (float) Settings::get_field( 'temperature', 0.7 );
-
-		$generator = new FaqGenerator( ProviderFactory::make() );
-		$result    = $generator->generate( $topic, $desc, $count, $lang, array( 'temperature' => $temperature ) );
-
-		$status = (string) ( $result['status'] ?? 'error' );
-		$pairs  = ( isset( $result['pairs'] ) && is_array( $result['pairs'] ) ) ? $result['pairs'] : array();
-
-		// Błąd providera — nie ujawniamy surowego komunikatu (jak /ask).
-		if ( 'error' === $status ) {
-			return new WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => __( 'Nie udało się teraz wygenerować FAQ. Spróbuj ponownie później.', 'ai-faq-generator' ),
-				),
-				502
-			);
-		}
-
-		// Model nie zwrócił użytecznych par — to nie błąd, informujemy łagodnie.
-		if ( 'ok' !== $status || empty( $pairs ) ) {
-			return new WP_REST_Response(
-				array(
-					'status'  => 'empty',
-					'message' => __( 'Model nie zwrócił par dla tego tematu. Doprecyzuj temat lub opis.', 'ai-faq-generator' ),
-					'pairs'   => array(),
-				),
-				200
-			);
-		}
-
-		// Zapis snapshotu generowania (historia + „Ponownie wygeneruj").
-		$repo = new GenerationRepository();
-		$id   = $repo->log(
-			array(
-				'topic'         => $topic,
-				'extra_desc'    => $desc,
-				'num_questions' => count( $pairs ),
-				'language'      => $lang,
-				'user_id'       => get_current_user_id(),
-				'pairs'         => $pairs,
-			)
-		);
-
-		return new WP_REST_Response(
-			array(
-				'status' => 'ok',
-				'id'     => $id,
-				'topic'  => $topic,
-				'count'  => count( $pairs ),
-				'pairs'  => $pairs,
-			),
-			200
-		);
+		return ( new GeneratorService() )->generate( $request );
 	}
 
 	/**
 	 * `GET /admin/generations` — strona historii generowań (metadane, bez par).
 	 *
-	 * Lista pokazuje tylko metadane (data/temat/liczba/język/użytkownik) + `extra_desc`
-	 * (potrzebny do „Ponownie wygeneruj"). Same pary zostają w snapshotcie i doczytuje
-	 * je dopiero widok szczegółu — nie pompujemy ich do każdego wiersza listy.
-	 *
 	 * @param WP_REST_Request $request Żądanie.
 	 * @return WP_REST_Response
 	 */
 	public function handle_generations( WP_REST_Request $request ): WP_REST_Response {
-		$page     = max( 1, (int) $request->get_param( 'page' ) );
-		$per_page = max( 1, min( 100, (int) $request->get_param( 'per_page' ) ) );
-
-		$repo  = new GenerationRepository();
-		$total = $repo->count();
-		$pages = (int) ceil( $total / $per_page );
-
-		// Strona poza zakresem (np. po usunięciu) → cofamy do ostatniej istniejącej.
-		if ( $pages > 0 && $page > $pages ) {
-			$page = $pages;
-		}
-
-		$rows   = $repo->page( $per_page, ( $page - 1 ) * $per_page );
-		$format = $this->datetime_format();
-
-		$items = array();
-		foreach ( $rows as $row ) {
-			$items[] = $this->generation_item( $row, $format );
-		}
-
-		return new WP_REST_Response(
-			array(
-				'status'   => 'ok',
-				'items'    => $items,
-				'total'    => $total,
-				'page'     => $page,
-				'pages'    => $pages,
-				'per_page' => $per_page,
-			),
-			200
-		);
+		return ( new GeneratorService() )->listing( $request );
 	}
 
 	/**
 	 * `GET /admin/generations/detail` — jeden wpis historii generowań RAZEM z parami.
 	 *
-	 * Kształt `item` jest IDENTYCZNY z elementem `items[]` z {@see handle_generations()}
-	 * (wspólny builder {@see generation_item()}) plus dodatkowy klucz `pairs` — dzięki
-	 * temu front renderuje wiersz listy i wiersz szczegółu jednym kodem.
-	 * Brak/niepoprawne `id` → 400, brak wiersza → 404 (bez ujawniania czegokolwiek
-	 * o zawartości bazy poza samym faktem nieistnienia wpisu).
-	 *
 	 * @param WP_REST_Request $request Żądanie.
 	 * @return WP_REST_Response
 	 */
 	public function handle_generation_detail( WP_REST_Request $request ): WP_REST_Response {
-		$id = (int) $request->get_param( 'id' );
-
-		if ( $id <= 0 ) {
-			return new WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => __( 'Brak poprawnego identyfikatora.', 'ai-faq-generator' ),
-				),
-				400
-			);
-		}
-
-		// find() z GenerationRepository dokłada zdekodowany klucz `pairs`.
-		$row = ( new GenerationRepository() )->find( $id );
-
-		if ( null === $row ) {
-			return new WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => __( 'Nie znaleziono tego wpisu historii.', 'ai-faq-generator' ),
-				),
-				404
-			);
-		}
-
-		$item          = $this->generation_item( $row, $this->datetime_format() );
-		$item['pairs'] = $this->normalize_pairs( $row['pairs'] ?? array() );
-
-		return new WP_REST_Response(
-			array(
-				'status' => 'ok',
-				'item'   => $item,
-			),
-			200
-		);
+		return ( new GeneratorService() )->detail( $request );
 	}
 
 	/**
@@ -1079,270 +369,59 @@ class RestController {
 	 * @return WP_REST_Response
 	 */
 	public function handle_generations_delete( WP_REST_Request $request ): WP_REST_Response {
-		$id = (int) $request->get_param( 'id' );
-
-		if ( $id <= 0 ) {
-			return new WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => __( 'Brak poprawnego identyfikatora.', 'ai-faq-generator' ),
-				),
-				400
-			);
-		}
-
-		$deleted = ( new GenerationRepository() )->delete( $id );
-
-		return new WP_REST_Response(
-			array(
-				'status'  => 'ok',
-				'deleted' => $deleted,
-			),
-			200
-		);
+		return ( new GeneratorService() )->delete( $request );
 	}
 
 	/**
 	 * `POST /admin/export` — formatuje bieżące pary Q&A do 5 formatów eksportu.
 	 *
-	 * Pary przychodzą z UI (stan lokalny po edycjach/usunięciach). Walidujemy i
-	 * sanityzujemy je tutaj (kontrola po stronie klienta ma temu tylko zapobiegać),
-	 * a formatowanie robi czysta klasa {@see Exporter}. Pusta/niepoprawna lista →
-	 * 400 (bez zgadywania). Sukces → 200 z pięcioma stringami gotowymi do wyświetlenia.
-	 *
 	 * @param WP_REST_Request $request Żądanie.
 	 * @return WP_REST_Response
 	 */
 	public function handle_export( WP_REST_Request $request ): WP_REST_Response {
-		$raw = $request->get_param( 'pairs' );
-
-		$pairs = array();
-		if ( is_array( $raw ) ) {
-			foreach ( $raw as $item ) {
-				if ( ! is_array( $item ) ) {
-					continue;
-				}
-
-				$q = $item['question'] ?? '';
-				$a = $item['answer'] ?? '';
-				if ( ! is_scalar( $q ) || ! is_scalar( $a ) ) {
-					continue;
-				}
-
-				$q = trim( sanitize_textarea_field( wp_unslash( (string) $q ) ) );
-				$a = trim( sanitize_textarea_field( wp_unslash( (string) $a ) ) );
-				if ( '' === $q || '' === $a ) {
-					continue;
-				}
-
-				$pairs[] = array(
-					'question' => $q,
-					'answer'   => $a,
-				);
-
-				if ( count( $pairs ) >= Exporter::MAX_PAIRS ) {
-					break;
-				}
-			}
-		}
-
-		if ( empty( $pairs ) ) {
-			return new WP_REST_Response(
-				array(
-					'status'  => 'error',
-					'message' => __( 'Brak par do eksportu.', 'ai-faq-generator' ),
-				),
-				400
-			);
-		}
-
-		$formats = ( new Exporter() )->export( $pairs );
-
-		return new WP_REST_Response(
-			array(
-				'status'    => 'ok',
-				'html'      => (string) ( $formats['html'] ?? '' ),
-				'gutenberg' => (string) ( $formats['gutenberg'] ?? '' ),
-				'elementor' => (string) ( $formats['elementor'] ?? '' ),
-				'json'      => (string) ( $formats['json'] ?? '' ),
-				'jsonld'    => (string) ( $formats['jsonld'] ?? '' ),
-			),
-			200
-		);
+		return ( new PublishService() )->export( $request );
 	}
 
 	/**
-	 * Format daty i godziny wg ustawień WordPressa (jedno miejsce dla obu tras).
+	 * `POST /admin/faq/publish` — pokazuje pary na podstronie generatora.
 	 *
-	 * @return string
+	 * @param \WP_REST_Request $request Żądanie.
+	 * @return \WP_REST_Response
 	 */
-	private function datetime_format(): string {
-		return get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
+	public function handle_faq_publish( $request ) {
+		return ( new PublishService() )->publish( $request );
 	}
 
 	/**
-	 * Buduje element historii generowań w kształcie oczekiwanym przez front.
+	 * `POST /admin/faq/unpublish` — zdejmuje pary z podstrony.
 	 *
-	 * Wspólny dla listy (`/admin/generations`) i szczegółu (`/admin/generations/detail`)
-	 * — jeden kształt, jedno miejsce (wzorzec DRY z `run_reindex`/`run_clear`, K7).
-	 * Świadomie NIE odsyłamy `user_id` ani surowego `pairs_json` (minimalizacja, GR7):
-	 * front dostaje gotową etykietę `user`, a pary tylko tam, gdzie są potrzebne.
-	 *
-	 * @param array<string,mixed> $row    Surowy wiersz z repozytorium.
-	 * @param string              $format Format daty (patrz {@see datetime_format()}).
-	 * @return array<string,mixed>
+	 * @param \WP_REST_Request $request Żądanie (bez parametrów).
+	 * @return \WP_REST_Response
 	 */
-	private function generation_item( array $row, string $format ): array {
-		return array(
-			'id'            => (int) ( $row['id'] ?? 0 ),
-			'date'          => mysql2date( $format, (string) ( $row['created_at'] ?? '' ) ),
-			'iso'           => (string) ( $row['created_at'] ?? '' ),
-			'topic'         => (string) ( $row['topic'] ?? '' ),
-			'extra_desc'    => (string) ( $row['extra_desc'] ?? '' ),
-			'num_questions' => (int) ( $row['num_questions'] ?? 0 ),
-			'language'      => (string) ( $row['language'] ?? '' ),
-			'user'          => $this->user_label( (int) ( $row['user_id'] ?? 0 ) ),
-		);
+	public function handle_faq_unpublish( $request ) {
+		unset( $request );
+
+		return ( new PublishService() )->unpublish();
 	}
 
 	/**
-	 * Normalizuje snapshot par ze zdekodowanego `pairs_json` do listy {question, answer}.
+	 * Mapuje wynik {@see RagService::ask()} na odpowiedź HTTP.
 	 *
-	 * Snapshot to JSON sprzed wielu wersji — nie zakładamy nic o jego kształcie.
-	 * Elementy niebędące tablicą oraz nieskalarne `question`/`answer` odrzucamy
-	 * (rzutowanie tablicy na string dałoby ostrzeżenie „Array to string conversion"
-	 * i śmieci w odpowiedzi — realny błąd złapany w K11), a listę klampujemy do
-	 * {@see Exporter::MAX_PAIRS}, tak samo jak eksport.
+	 * Reguła kodów stanu mieszka w {@see AskService::map_result()}.
 	 *
-	 * @param mixed $raw Zdekodowana zawartość `pairs_json`.
-	 * @return array<int,array<string,string>>
+	 * @param array<string,mixed> $result Wynik potoku RAG.
+	 * @return WP_REST_Response
 	 */
-	private function normalize_pairs( $raw ): array {
-		$pairs = array();
-
-		if ( ! is_array( $raw ) ) {
-			return $pairs;
-		}
-
-		foreach ( $raw as $item ) {
-			if ( ! is_array( $item ) ) {
-				continue;
-			}
-
-			$q = $item['question'] ?? '';
-			$a = $item['answer'] ?? '';
-			if ( ! is_scalar( $q ) || ! is_scalar( $a ) ) {
-				continue;
-			}
-
-			// Puste po przycięciu odrzucamy tak samo jak Exporter::normalize() —
-			// inaczej para bez pytania wyrenderowałaby się w podglądzie jako pusty wiersz.
-			$q = trim( (string) $q );
-			$a = trim( (string) $a );
-			if ( '' === $q || '' === $a ) {
-				continue;
-			}
-
-			$pairs[] = array(
-				'question' => $q,
-				'answer'   => $a,
-			);
-
-			if ( count( $pairs ) >= Exporter::MAX_PAIRS ) {
-				break;
-			}
-		}
-
-		return $pairs;
+	private function ask_response( array $result ): WP_REST_Response {
+		return ( new AskService() )->map_result( $result );
 	}
 
 	/**
-	 * Etykieta autora generacji do listy (nazwa wyświetlana albo ID, '' dla gościa).
-	 *
-	 * @param int $user_id Identyfikator użytkownika.
-	 * @return string
-	 */
-	private function user_label( int $user_id ): string {
-		if ( $user_id <= 0 ) {
-			return '';
-		}
-		$user = get_userdata( $user_id );
-		return ( $user && '' !== $user->display_name ) ? $user->display_name : (string) $user_id;
-	}
-
-	/**
-	 * Identyfikator gościa: sha256(sól | adres) — nie przechowujemy IP (GR7).
-	 *
-	 * DOMYŚLNIE (`rag_trusted_proxy` wyłączone) źródłem jest wyłącznie `REMOTE_ADDR`:
-	 * nagłówki proxy są podszywalne, a bez odwrotnego proxy przed witryną każdy gość
-	 * mógłby sobie sam wystawić świeży kubełek limitera.
-	 *
-	 * Po WŁĄCZENIU przełącznika (witryna naprawdę stoi za Cloudflare/nginx) bierzemy
-	 * pierwszego dostępnego kandydata: `CF-Connecting-IP`, potem OSTATNI element
-	 * `X-Forwarded-For`. Ostatni, nie pierwszy — Cloudflare i typowy
-	 * `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for` DOKLEJAJĄ obserwowany
-	 * adres na koniec łańcucha, więc początek listy pochodzi od klienta i jest dowolny.
-	 *
-	 * Włączenie przełącznika zmienia hash wszystkich gości — bieżące limity resetują się
-	 * jednorazowo (świadoma nieciągłość, opisana w README).
+	 * Identyfikator gościa dla kubełka limitera — patrz {@see GuestIdentity::ip_hash()}.
 	 *
 	 * @return string
 	 */
 	private function ip_hash(): string {
-		$remote = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
-		$ip     = $remote;
-
-		// `class_exists` w konwencji projektu (por. Deactivator → MenuGuard): w izolowanym
-		// harnessie testowym klasa ustawień bywa nieładowana, a brak przełącznika ma
-		// oznaczać zachowanie DOMYŚLNE (samo REMOTE_ADDR), nigdy błąd krytyczny.
-		$trusted = class_exists( Settings::class )
-			&& '1' === (string) Settings::get_field( 'rag_trusted_proxy', '0' );
-
-		if ( $trusted ) {
-			$candidate = '';
-
-			if ( isset( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) {
-				$candidate = trim( sanitize_text_field( wp_unslash( $_SERVER['HTTP_CF_CONNECTING_IP'] ) ) );
-			}
-
-			if ( '' === $candidate && isset( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
-				$chain     = explode( ',', sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) );
-				$candidate = trim( (string) end( $chain ) );
-			}
-
-			// Wartość spoza formatu adresu IP (albo pusta) → cofamy się do REMOTE_ADDR.
-			if ( '' !== $candidate && false !== filter_var( $candidate, FILTER_VALIDATE_IP ) ) {
-				$ip = $candidate;
-			}
-		} else {
-			$this->flag_proxy_seen();
-		}
-
-		$salt = function_exists( 'wp_salt' ) ? wp_salt( 'nonce' ) : 'aifaq';
-		return hash( 'sha256', $salt . '|' . $ip );
-	}
-
-	/**
-	 * Sygnalizacja: witryna dostaje nagłówki proxy, a przełącznik jest WYŁĄCZONY.
-	 *
-	 * Bez tego klient za Cloudflare ma jeden kubełek limitera dla całego świata
-	 * (`REMOTE_ADDR` to adres proxy, identyczny dla wszystkich gości) i nikt mu tego
-	 * nie mówi. Zapisujemy zwykłą opcję bez autoload, jeden raz — komunikat w kokpicie
-	 * czyta ją osobno.
-	 */
-	private function flag_proxy_seen(): void {
-		if ( ! isset( $_SERVER['HTTP_CF_CONNECTING_IP'] ) && ! isset( $_SERVER['HTTP_X_FORWARDED_FOR'] ) ) {
-			return;
-		}
-
-		if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' ) ) {
-			return;
-		}
-
-		if ( '1' === (string) get_option( 'aifaq_proxy_seen', '' ) ) {
-			return;
-		}
-
-		update_option( 'aifaq_proxy_seen', '1', false );
+		return ( new GuestIdentity() )->ip_hash();
 	}
 }

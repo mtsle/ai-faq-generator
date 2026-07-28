@@ -472,7 +472,8 @@ class Settings {
 		// a pole nieprzysłane ma zostać nietknięte. Przycięcie idzie PO
 		// `sanitize_text_field()`, bo ta funkcja sama potrafi skrócić string.
 		if ( isset( $input['rag_contact_hint'] ) ) {
-			$out['rag_contact_hint'] = mb_substr( sanitize_text_field( (string) $input['rag_contact_hint'] ), 0, 120 );
+			$hint                     = sanitize_text_field( (string) $input['rag_contact_hint'] );
+			$out['rag_contact_hint']  = function_exists( 'mb_substr' ) ? mb_substr( $hint, 0, 120 ) : substr( $hint, 0, 120 );
 		}
 
 		// --- Kaskada źródeł treści (Krok 17). ---
@@ -540,7 +541,8 @@ class Settings {
 		// Pusta wraca do domyślnej: pozycja menu BEZ tytułu jest w kokpicie nieklikalna,
 		// a gość widziałby pusty odstęp w nawigacji.
 		if ( isset( $input['menu_label'] ) ) {
-			$label = mb_substr( sanitize_text_field( wp_unslash( $input['menu_label'] ) ), 0, 60 );
+			$raw_label         = sanitize_text_field( wp_unslash( $input['menu_label'] ) );
+			$label             = function_exists( 'mb_substr' ) ? mb_substr( $raw_label, 0, 60 ) : substr( $raw_label, 0, 60 );
 			$out['menu_label'] = ( '' !== trim( $label ) ) ? $label : (string) self::defaults()['menu_label'];
 		}
 

@@ -188,6 +188,7 @@ Zasady, które warto znać:
 | element | wymagane uprawnienie |
 |---|---|
 | narzędzie „Narzędzie FAQ", metabox „AI FAQ" w edytorze, `POST /admin/generate-faq`, `POST /admin/export` | **`publish_posts`** (Redaktor, Autor) |
+| Publikacja/cofnięcie publikacji FAQ na publicznej podstronie: `POST /admin/faq/publish`, `POST /admin/faq/unpublish` | **`edit_others_posts`** (Redaktor — Autor generuje/eksportuje, ale nie publikuje) |
 | Ustawienia, klucz API, indeksowanie, dziennik pytań gości, historia generowań i **wszystkie pozostałe trasy `/admin/*`** | `manage_options` (Administrator) |
 | `POST /ask` (pytanie gościa) | publiczne |
 

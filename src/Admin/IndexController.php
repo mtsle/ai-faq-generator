@@ -309,6 +309,18 @@ class IndexController {
 			);
 		}
 
+		// K23 etap 1, znalezisko A2: run_clear() dotąd tylko SPRAWDZAŁ lock F5, nie
+		// ZAKŁADAŁ go — ochrona działała jednokierunkowo (reindeks widział trwające
+		// czyszczenie, ale nie odwrotnie), więc mogły się przeplatać. Ten sam lock
+		// i ten sam backstop na shutdown co w run_reindex().
+		set_transient( self::LOCK, 1, 15 * MINUTE_IN_SECONDS );
+		$lock = self::LOCK;
+		register_shutdown_function(
+			static function () use ( $lock ) {
+				delete_transient( $lock );
+			}
+		);
+
 		$removed = ( new KnowledgeRepository() )->clear_all();
 
 		// Cache odpowiedzi to funkcja bazy wiedzy — znika razem z nią.
@@ -326,6 +338,8 @@ class IndexController {
 		if ( class_exists( '\AIFAQ\Seo\SiteProfile' ) ) {
 			\AIFAQ\Seo\SiteProfile::forget();
 		}
+
+		delete_transient( self::LOCK );
 
 		return array(
 			'ok'      => true,

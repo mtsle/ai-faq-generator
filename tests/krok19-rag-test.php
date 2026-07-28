@@ -165,6 +165,16 @@ $aifaq_files = array(
 	'src/Rag/Answerer.php',
 	'src/Rag/RagService.php',
 	'src/Rest/RestController.php',
+	// Krok 23 (czysty refaktor): RestController rozbity na warstwy — routing w
+	// RouteRegistrar, logika w klasach usługowych. Zestawy ładują pliki RĘCZNIE
+	// (bez autoloadera wtyczki), więc doklejamy resztę warstwy REST.
+	'src/Rest/RouteRegistrar.php',
+	'src/Rest/GuestIdentity.php',
+	'src/Rest/PairsInput.php',
+	'src/Rest/AskService.php',
+	'src/Rest/AdminService.php',
+	'src/Rest/GeneratorService.php',
+	'src/Rest/PublishService.php',
 	// SPOZA listy §8.3: B38b/B73/B74/B75 idą przez RagService::make(), które woła
 	// ProviderFactory. Bez tych trzech plików cztery asercje są nieosiągalne.
 	// Zgłoszone w ODCHYLENIA.md jako niekompletność listy require dla sekcji B.

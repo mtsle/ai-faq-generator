@@ -40,6 +40,17 @@ class Exporter {
 	const MAX_PAIRS = 50;
 
 	/**
+	 * Twardy limit długości POJEDYNCZEGO pytania/odpowiedzi (K23 etap 1,
+	 * znalezisko B8) — dotąd ograniczana była wyłącznie LICZBA par, nie
+	 * długość pojedynczego pola. 50 par × MAX_ANSWER_CHARS × 5 formatów to
+	 * ~1 MB w najgorszym razie — bezpieczne, a mieszczące dowolną realną
+	 * odpowiedź FAQ. Współdzielone z {@see \AIFAQ\Rest\PairsInput::from_snapshot()},
+	 * bo ta ścieżka (publikacja) nie przechodzi przez `normalize()` niżej.
+	 */
+	const MAX_QUESTION_CHARS = 400;
+	const MAX_ANSWER_CHARS   = 4000;
+
+	/**
 	 * Zamienia pary na pięć formatów eksportu.
 	 *
 	 * @param array<int,array{question?:mixed,answer?:mixed}> $pairs Pary Q&A (bieżący stan z UI).
@@ -48,7 +59,7 @@ class Exporter {
 	 * @throws InvalidArgumentException Gdy po normalizacji nie ma żadnej użytecznej pary.
 	 */
 	public function export( array $pairs ): array {
-		$clean = $this->normalize( $pairs );
+		$clean = self::normalize( $pairs );
 
 		if ( empty( $clean ) ) {
 			throw new InvalidArgumentException( 'Brak par do eksportu.' );
@@ -66,10 +77,17 @@ class Exporter {
 	/**
 	 * Normalizuje pary: tylko skalarne, niepuste po przycięciu; cap MAX_PAIRS.
 	 *
+	 * Publiczna i statyczna (K23 etap 1, znalezisko B9) — kontrakt jest IDENTYCZNY
+	 * z tym, co dotąd duplikowała pętla w {@see \AIFAQ\Rest\PairsInput::from_snapshot()}
+	 * (odrzucanie nie-tablic/nieskalarnych, trim, odrzucanie pustych, `clip()`, cap
+	 * MAX_PAIRS) — ta metoda jest teraz jedynym miejscem tej logiki; `from_snapshot()`
+	 * i `PairsInput::from_request_for_publish()` (sanityzacja przed wywołaniem tej
+	 * metody) tylko ją wywołują.
+	 *
 	 * @param array<int,mixed> $pairs Surowe pary.
 	 * @return array<int,array{question:string,answer:string}>
 	 */
-	private function normalize( array $pairs ): array {
+	public static function normalize( array $pairs ): array {
 		$out = array();
 
 		foreach ( $pairs as $pair ) {
@@ -92,6 +110,9 @@ class Exporter {
 				continue;
 			}
 
+			$q = self::clip( $q, self::MAX_QUESTION_CHARS );
+			$a = self::clip( $a, self::MAX_ANSWER_CHARS );
+
 			$out[] = array(
 				'question' => $q,
 				'answer'   => $a,
@@ -103,6 +124,23 @@ class Exporter {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Twarde, serwerowe przycięcie do sufitu znaków — rail bezpieczeństwa,
+	 * nie precyzji. Publiczna i statyczna, żeby {@see \AIFAQ\Rest\PairsInput::from_snapshot()}
+	 * (ścieżka publikacji, poza `normalize()` wyżej) mogła użyć TEJ SAMEJ reguły
+	 * zamiast duplikować limit.
+	 *
+	 * @param string $text  Tekst do przycięcia.
+	 * @param int    $limit Sufit długości.
+	 * @return string
+	 */
+	public static function clip( string $text, int $limit ): string {
+		if ( function_exists( 'mb_strlen' ) && function_exists( 'mb_substr' ) ) {
+			return mb_strlen( $text ) > $limit ? mb_substr( $text, 0, $limit ) : $text;
+		}
+		return strlen( $text ) > $limit ? substr( $text, 0, $limit ) : $text;
 	}
 
 	/**
@@ -219,7 +257,11 @@ class Exporter {
 	 * @return string
 	 */
 	private function to_json( array $pairs ): string {
-		return (string) wp_json_encode( array_values( $pairs ), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		// JSON_HEX_TAG/JSON_HEX_AMP zamiast JSON_UNESCAPED_SLASHES — tak samo jak
+		// PageSchema::emit(). Treść par pochodzi od modelu (niezaufana); bez tego
+		// `</script>` we wklejonym JSON-ie mogłoby zamknąć element, do którego
+		// właściciel go wklei.
+		return (string) wp_json_encode( array_values( $pairs ), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP );
 	}
 
 	/**
@@ -247,7 +289,11 @@ class Exporter {
 			'mainEntity' => $entities,
 		);
 
-		return (string) wp_json_encode( $doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES );
+		// Ten format jest przeznaczony do wklejenia w `<script type="application/ld+json">`
+		// (patrz docblock klasy) — JSON_HEX_TAG/JSON_HEX_AMP zamiast JSON_UNESCAPED_SLASHES,
+		// dokładnie jak PageSchema::emit(). Bez tego `</script>` w treści od modelu
+		// zamykałoby element i wstrzykiwało HTML na stronie klienta po wklejeniu.
+		return (string) wp_json_encode( $doc, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP );
 	}
 
 	/**

@@ -568,7 +568,25 @@ class RagService {
 	 */
 	public static function usage_snapshot(): array {
 		$today = (string) current_time( 'Y-m-d' );
-		$raw   = get_option( 'aifaq_daily_usage', array() );
+
+		// K23 etap 1, znalezisko B3: `aifaq_daily_usage` samo w sobie jest
+		// read-modify-write bez atomowości (równoległe `/ask` mogły przebić
+		// sufit). Trwały cache obiektowy (Redis/Memcached), gdy jest skonfigurowany,
+		// daje TU realną atomowość przez `wp_cache_incr()` w {@see budget_hit()} —
+		// więc jest źródłem prawdy, ilekroć jest dostępny. Bez niego (typowy tani
+		// hosting docelowy tego produktu) zachowanie jest DOKŁADNIE takie jak
+		// wcześniej: best-effort na opcji, ta sama granica co w {@see RateLimiter}.
+		if ( self::budget_cache_available() ) {
+			$cached = wp_cache_get( self::budget_cache_key( $today ), RateLimiter::CACHE_GROUP );
+			if ( false !== $cached ) {
+				return array(
+					'd' => $today,
+					'n' => max( 0, (int) $cached ),
+				);
+			}
+		}
+
+		$raw = get_option( 'aifaq_daily_usage', array() );
 
 		if ( ! is_array( $raw ) || (string) ( $raw['d'] ?? '' ) !== $today ) {
 			return array(
@@ -580,6 +598,32 @@ class RagService {
 			'd' => $today,
 			'n' => max( 0, (int) ( $raw['n'] ?? 0 ) ),
 		);
+	}
+
+	/**
+	 * Czy dostępna jest szybka, atomowa ścieżka trwałego cache obiektowego dla
+	 * licznika sufitu — ten sam warunek co {@see RateLimiter::use_object_cache()}.
+	 *
+	 * @return bool
+	 */
+	private static function budget_cache_available(): bool {
+		return function_exists( 'wp_using_ext_object_cache' )
+			&& wp_using_ext_object_cache()
+			&& function_exists( 'wp_cache_add' )
+			&& function_exists( 'wp_cache_incr' )
+			&& function_exists( 'wp_cache_decr' )
+			&& function_exists( 'wp_cache_get' );
+	}
+
+	/**
+	 * Klucz cache obiektowego dla licznika danej doby (data w kluczu — nowa
+	 * doba to nowy klucz, licznik startuje sam, bez osobnej logiki resetu).
+	 *
+	 * @param string $date Data w formacie `RRRR-MM-DD`.
+	 * @return string
+	 */
+	private static function budget_cache_key( string $date ): string {
+		return 'aifaq_daily_usage_' . $date;
 	}
 
 	/**
@@ -612,11 +656,29 @@ class RagService {
 			return;
 		}
 		$usage = $this->budget_usage();
+		$next  = $usage['n'] + 1;
+
+		// K23 etap 1, znalezisko B3: przy trwałym cache obiektowym `wp_cache_incr()`
+		// jest ATOMOWY na backendzie (Redis/Memcached) — dwa równoległe żądania
+		// dostają DWIE różne, poprawne wartości zamiast czytać ten sam stan i
+		// obie zapisywać `n+1`. `wp_cache_add()` seeduje klucz tylko, gdy go nie
+		// ma (wartością z opcji, dla ciągłości po wygaśnięciu cache) — nie ma
+		// znaczenia, czy wygra, bo `wp_cache_incr()` i tak liczy od aktualnej
+		// wartości klucza, kimkolwiek został zapisany.
+		if ( self::budget_cache_available() ) {
+			$key = self::budget_cache_key( $usage['d'] );
+			wp_cache_add( $key, $usage['n'], RateLimiter::CACHE_GROUP, 86400 );
+			$incremented = wp_cache_incr( $key, 1, RateLimiter::CACHE_GROUP );
+			if ( false !== $incremented ) {
+				$next = (int) $incremented;
+			}
+		}
+
 		update_option(
 			'aifaq_daily_usage',
 			array(
 				'd' => $usage['d'],
-				'n' => $usage['n'] + 1,
+				'n' => $next,
 			),
 			false
 		);
@@ -635,11 +697,23 @@ class RagService {
 		if ( $usage['n'] <= 0 ) {
 			return;
 		}
+		$next = $usage['n'] - 1;
+
+		// Symetryczne do budget_hit(): dekrement też idzie przez atomowy licznik
+		// cache, gdy jest dostępny (patrz komentarz w budget_hit()).
+		if ( self::budget_cache_available() ) {
+			$key         = self::budget_cache_key( $usage['d'] );
+			$decremented = wp_cache_decr( $key, 1, RateLimiter::CACHE_GROUP );
+			if ( false !== $decremented ) {
+				$next = max( 0, (int) $decremented );
+			}
+		}
+
 		update_option(
 			'aifaq_daily_usage',
 			array(
 				'd' => $usage['d'],
-				'n' => $usage['n'] - 1,
+				'n' => $next,
 			),
 			false
 		);

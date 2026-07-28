@@ -83,8 +83,9 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 		delete_option( 'aifaq_autoload_hardened' );
 
 		// SEO podstrony (Krok 21 / v0.24.0).
-		delete_option( 'aifaq_site_profile' ); // Temat witryny wyprowadzony z bazy wiedzy (SiteProfile).
-		delete_option( 'aifaq_public_faq' );   // Pary Q&A opublikowane na podstronie (PublicFaq).
+		delete_option( 'aifaq_site_profile' );      // Temat witryny wyprowadzony z bazy wiedzy (SiteProfile).
+		delete_option( 'aifaq_public_faq' );        // Pary Q&A opublikowane na podstronie (PublicFaq).
+		delete_option( 'aifaq_public_faq_prev' );   // K23 etap 1: ostatnia wersja sprzed nadpisania/zdjęcia (PublicFaq::OPTION_PREV).
 
 		// --- Menu nawigacji (Krok 20) ------------------------------------
 		//

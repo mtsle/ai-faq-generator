@@ -106,6 +106,16 @@ require __DIR__ . '/../src/Data/QaLogRepository.php';
 require __DIR__ . '/../src/Rag/RagService.php';
 require __DIR__ . '/../src/App/HistoryPanel.php';
 require __DIR__ . '/../src/Rest/RestController.php';
+// Krok 23 (czysty refaktor): RestController rozbity na warstwy — routing w
+// RouteRegistrar, logika w klasach usługowych. Zestaw ładuje pliki RĘCZNIE
+// (bez autoloadera wtyczki), więc doklejamy resztę warstwy REST.
+require __DIR__ . '/../src/Rest/RouteRegistrar.php';
+require __DIR__ . '/../src/Rest/GuestIdentity.php';
+require __DIR__ . '/../src/Rest/PairsInput.php';
+require __DIR__ . '/../src/Rest/AskService.php';
+require __DIR__ . '/../src/Rest/AdminService.php';
+require __DIR__ . '/../src/Rest/GeneratorService.php';
+require __DIR__ . '/../src/Rest/PublishService.php';
 
 use AIFAQ\App\HistoryPanel;
 use AIFAQ\Data\QaLogRepository;

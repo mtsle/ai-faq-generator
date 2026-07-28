@@ -183,6 +183,16 @@ $aifaq_files = array(
 	'src/Core/Settings.php',
 	'src/Rag/RagService.php',
 	'src/Rest/RestController.php',
+	// Krok 23 (czysty refaktor): RestController rozbity na warstwy — routing w
+	// RouteRegistrar, logika w klasach usługowych. Zestawy ładują pliki RĘCZNIE
+	// (bez autoloadera wtyczki), więc doklejamy resztę warstwy REST.
+	'src/Rest/RouteRegistrar.php',
+	'src/Rest/GuestIdentity.php',
+	'src/Rest/PairsInput.php',
+	'src/Rest/AskService.php',
+	'src/Rest/AdminService.php',
+	'src/Rest/GeneratorService.php',
+	'src/Rest/PublishService.php',
 	'src/Admin/Menu.php',
 	'src/Admin/IndexController.php',
 	'src/PublicUi/GeneratorPage.php',

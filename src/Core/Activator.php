@@ -75,7 +75,26 @@ class Activator {
 			}
 		}
 
-		// 7. Zapis wersji bazy.
+		// 7. Wznowienie crawla przerwanego wyłączeniem wtyczki (Krok 23, dług).
+		//    `Deactivator::deactivate()` kasuje zaplanowane zdarzenie
+		//    `CrawlQueue::CRON_HOOK` (crawl jest CELOWO odwracalny — kolejka i
+		//    pobrana treść zostają), więc kolejka niepusta w chwili wyłączenia
+		//    nigdy by się sama nie ruszyła: `progress()['running']` zostawałoby
+		//    `true` NA ZAWSZE, a każde „Zaindeksuj" kończyłoby się 409 (patrz
+		//    IndexController::run_reindex()). `CrawlQueue::schedule()` jest już
+		//    idempotentne (sprawdza `wp_next_scheduled()` samo) i to ONO definiuje
+		//    „kolejka niepusta" — wołamy JE zamiast duplikować tę definicję tutaj.
+		//    Klasa należy do innego etapu, więc `class_exists` + `try/catch`,
+		//    identycznie jak kroki 5-6 wyżej.
+		if ( class_exists( '\AIFAQ\Index\CrawlQueue' ) ) {
+			try {
+				( new \AIFAQ\Index\CrawlQueue() )->schedule();
+			} catch ( \Throwable $e ) {
+				unset( $e );
+			}
+		}
+
+		// 8. Zapis wersji bazy.
 		update_option( 'aifaq_db_version', AIFAQ_DB_VERSION );
 	}
 }

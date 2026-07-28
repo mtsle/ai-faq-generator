@@ -255,7 +255,12 @@ class WpContentSource implements ContentSource {
 		try {
 			$result = self::compute_indexable( $post_id );
 		} catch ( \Throwable $e ) {
-			$result = true; // awaria warunku nie może wygaszać całego indeksu.
+			// FAIL-CLOSED (Krok 23, dług) — spójnie z resztą klasy (`is_own_page()`,
+			// `is_excluded_slug()` zwracają `false` na wyjątek). Wyjątek rzucony przez
+			// obcą wtyczkę (np. filtr SEO na wpisie prywatnym/chronionym hasłem) nie
+			// może wciągać niepublicznej treści do publicznej bazy RAG — pominięty
+			// wpis to najwyżej luka w indeksie, wciągnięty to WYCIEK treści.
+			$result = false;
 		}
 
 		self::$indexable_cache[ $post_id ] = $result;

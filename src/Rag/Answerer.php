@@ -417,13 +417,16 @@ class Answerer {
 	/**
 	 * Neutralizuje w pytaniu gościa to, co mogłoby udawać strukturę promptu.
 	 *
-	 * Dwie rzeczy, obie wyłącznie w danych gościa:
-	 *  1. ciągi trzech i więcej `#` — granice sekcji `### KONTEKST/PYTANIE/ODPOWIEDŹ`;
-	 *  2. wewnętrzny znacznik odmowy {@see NO_ANSWER} — gość nie ma prawa wstawiać
+	 * Trzy rzeczy, wszystkie wyłącznie w danych gościa:
+	 *  1. ciągi dwóch i więcej `#`/pełnoszerokościowych `＃` — granice sekcji
+	 *     `### KONTEKST/PYTANIE/ODPOWIEDŹ`;
+	 *  2. linie-separatory `---`/`***`/`===` (3+), którymi model równie dobrze
+	 *     mógłby potraktować granicę sekcji (K23 etap 1);
+	 *  3. wewnętrzny znacznik odmowy {@see NO_ANSWER} — gość nie ma prawa wstawiać
 	 *     do promptu sentinela, którym sterowana jest decyzja o odmowie.
-	 * Zamiennik `# # #` jest widzialny (zero znaków niewidzialnych — taki poszedłby
-	 * do modelu), a dla zwykłego pytania obie podmiany są bezczynne, więc zachowanie
-	 * bramki tematu i treść odpowiedzi pozostają bez zmian.
+	 * Zamiennik `# # #` / `- - -` jest widzialny (zero znaków niewidzialnych — taki
+	 * poszedłby do modelu), a dla zwykłego pytania wszystkie podmiany są bezczynne,
+	 * więc zachowanie bramki tematu i treść odpowiedzi pozostają bez zmian.
 	 *
 	 * @param string $question Pytanie gościa (już zsanityzowane w RagService).
 	 * @return string
@@ -443,17 +446,46 @@ class Answerer {
 	 * @return string
 	 */
 	private function neutralize_structure( string $text ): string {
-		$out = preg_replace( '/#{3,}/u', '# # #', $text );
+		$out = preg_replace( '/[#＃]{2,}/u', '# # #', $text );
 
 		// Niepoprawne UTF-8 wywraca tryb /u na null — powtarzamy bajtowo, zamiast
 		// skasować tekst rzutowaniem null → '' (ta sama zasada co w FaqGenerator).
 		if ( null === $out ) {
-			$out = preg_replace( '/#{3,}/', '# # #', $text );
+			$out = preg_replace( '/[#＃]{2,}/', '# # #', $text );
 		}
 
 		$clean = is_string( $out ) ? $out : $text;
 
-		return str_replace( self::NO_ANSWER, '', $clean );
+		// Linia złożona wyłącznie z `-`/`*`/`=` (3+) — separator Markdown/YAML,
+		// którym model mógłby potraktować granicę sekcji przy wstrzyknięciu.
+		$sep = preg_replace( '/^[-*=]{3,}\s*$/mu', '- - -', $clean );
+		if ( null === $sep ) {
+			$sep = preg_replace( '/^[-*=]{3,}\s*$/m', '- - -', $clean );
+		}
+		$clean = is_string( $sep ) ? $sep : $clean;
+
+		// Nagłówek źródła, który SAM dokleja niżej format_context() (kształt
+		// `[N] (Źródło: …)`), musi być niepodrabialny w DANYCH — inaczej dowolna
+		// treść (pytanie gościa albo zaindeksowana strona) mogłaby udawać
+		// prawdziwe źródło i podsunąć modelowi sfabrykowany link. Rozbijamy
+		// dokładny kształt wzorca (spacje w nawiasach) — ta sama filozofia co
+		// zamiana `###` na `# # #` wyżej. Fail-safe: nieprawidłowy UTF-8 zostawia
+		// tekst bez zmian zamiast fatalować (preg_replace zwraca wtedy null).
+		$header_neutral = preg_replace( '/\[(\d+)\]\s*\(\s*Źródło\s*:/iu', '[ $1 ] ( Źródło :', $clean );
+		if ( is_string( $header_neutral ) ) {
+			$clean = $header_neutral;
+		}
+
+		// Sentinel odmowy — pętla DO PUNKTU STAŁEGO, nie jeden przebieg (K21): payload
+		// `__NO_ANSW` + `__NO_ANSWER__` + `ER__` po usunięciu środkowego dopasowania
+		// sklejał resztki z powrotem w kompletny `__NO_ANSWER__`. Długość stringa
+		// ściśle maleje przy każdym trafieniu, więc pętla jest skończona.
+		do {
+			$before = $clean;
+			$clean  = str_replace( self::NO_ANSWER, '', $clean );
+		} while ( $clean !== $before );
+
+		return $clean;
 	}
 
 	/**

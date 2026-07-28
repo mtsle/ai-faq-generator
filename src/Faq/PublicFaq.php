@@ -38,6 +38,14 @@ class PublicFaq {
 	public const OPTION = 'aifaq_public_faq';
 
 	/**
+	 * Ostatnia wersja SPRZED nadpisania/zdjęcia (K23 etap 1, znalezisko B6) —
+	 * `publish()`/`unpublish()` dotąd nadpisywały/kasowały jedyną kopię par bez
+	 * żadnego śladu. To NIE jest pełna historia ani UI przywracania (poza
+	 * zakresem tej poprawki) — jedna sieć bezpieczeństwa na poziomie bazy.
+	 */
+	public const OPTION_PREV = 'aifaq_public_faq_prev';
+
+	/**
 	 * Sufit liczby par — ten sam co w {@see Exporter::MAX_PAIRS}.
 	 */
 	public const MAX_PAIRS = 50;
@@ -60,6 +68,8 @@ class PublicFaq {
 			return 0;
 		}
 
+		self::snapshot_previous();
+
 		update_option(
 			self::OPTION,
 			array(
@@ -78,8 +88,27 @@ class PublicFaq {
 	 */
 	public static function unpublish(): void {
 		if ( function_exists( 'delete_option' ) ) {
+			self::snapshot_previous();
 			delete_option( self::OPTION );
 		}
+	}
+
+	/**
+	 * Zapamiętuje bieżący stan {@see OPTION} PRZED nadpisaniem/skasowaniem —
+	 * jedna, ostatnia wersja (nie stos), wystarczająca żeby publikacja/zdjęcie
+	 * nie było nieodwracalne w jednym kliknięciu (K23 etap 1, znalezisko B6).
+	 */
+	private static function snapshot_previous(): void {
+		if ( ! function_exists( 'get_option' ) || ! function_exists( 'update_option' ) ) {
+			return;
+		}
+
+		$current = get_option( self::OPTION, null );
+		if ( ! is_array( $current ) || array() === ( $current['pairs'] ?? array() ) ) {
+			return; // nic realnego do zachowania.
+		}
+
+		update_option( self::OPTION_PREV, $current, false );
 	}
 
 	/**

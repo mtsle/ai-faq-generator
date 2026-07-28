@@ -160,7 +160,14 @@
 	function readTitle() {
 		if ( isBlock() ) {
 			try {
-				return String( wp.data.select( 'core/editor' ).getEditedPostAttribute( 'title' ) || '' );
+				var blockTitle = String( wp.data.select( 'core/editor' ).getEditedPostAttribute( 'title' ) || '' );
+				// Pusty wynik NIE jest wyjątkiem — obca wtyczka potrafi zarejestrować
+				// wp.data na Classic Editorze, gdzie getEditedPostAttribute zwraca ''.
+				// Bez tego sprawdzenia readTitle() zwróciłby pustkę zamiast spaść
+				// do pola #title.
+				if ( '' !== blockTitle.trim() ) {
+					return blockTitle;
+				}
 			} catch ( e ) {
 				// spadamy do ścieżki klasycznej
 			}
@@ -172,7 +179,13 @@
 	function readContent() {
 		if ( isBlock() ) {
 			try {
-				return String( wp.data.select( 'core/editor' ).getEditedPostContent() || '' );
+				var blockContent = String( wp.data.select( 'core/editor' ).getEditedPostContent() || '' );
+				// Jak wyżej: pusty string z magazynu core/editor na Classic Editorze
+				// (fałszywie rozpoznanym jako blokowy) nie jest wyjątkiem — bez tego
+				// sprawdzenia zwrócilibyśmy '' zamiast spaść do tinymce.get( 'content' ).
+				if ( '' !== blockContent.trim() ) {
+					return blockContent;
+				}
 			} catch ( e ) {
 				// spadamy do ścieżki klasycznej
 			}

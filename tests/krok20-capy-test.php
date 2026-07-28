@@ -202,11 +202,14 @@ function k20_identity( array $caps ) {
 	$GLOBALS['__cap_calls'] = array();
 }
 
-// Cztery tożsamości z §5.1/§5.2.
+// Cztery tożsamości z §5.1/§5.2 + piąta dołożona w Kroku 23 (patrz sekcja B-K23 niżej).
 $ADMIN       = array( 'manage_options', 'publish_posts', 'edit_posts', 'edit_others_posts', 'read' );
 $REDAKTOR    = array( 'publish_posts', 'edit_posts', 'edit_others_posts', 'read' );   // Redaktor/Autor
 $WSPOLPRAC   = array( 'edit_posts', 'read' );                                          // Współpracownik — ŚWIADOMIE BEZ dostępu
 $GOSC        = array();
+// Krok 23: Autor — MA publish_posts, NIE MA edit_others_posts. Do K20 nierozróżnialny
+// od Redaktora (oba przechodziły na $TOOL_ROUTES); teraz cap PUBLIKACJI go rozdziela.
+$AUTOR       = array( 'publish_posts', 'edit_posts', 'read' );
 
 // ---------------------------------------------------------------------------
 // Ładowanie kodu — ręczne require w kolejności, każdy pod file_exists()
@@ -217,6 +220,16 @@ $k20_files = array(
 	'src/Rag/RagService.php',      // stała MAX_QUESTION_LEN
 	'src/App/HistoryPanel.php',
 	'src/Rest/RestController.php',
+	// Krok 23 (czysty refaktor): RestController rozbity na warstwy — routing w
+	// RouteRegistrar, logika w klasach usługowych. Zestawy ładują pliki RĘCZNIE
+	// (bez autoloadera wtyczki), więc doklejamy resztę warstwy REST.
+	'src/Rest/RouteRegistrar.php',
+	'src/Rest/GuestIdentity.php',
+	'src/Rest/PairsInput.php',
+	'src/Rest/AskService.php',
+	'src/Rest/AdminService.php',
+	'src/Rest/GeneratorService.php',
+	'src/Rest/PublishService.php',
 	'src/Admin/Menu.php',
 	'src/Admin/PostMetaBox.php',
 );
@@ -247,6 +260,9 @@ check( false === current_user_can( 'publish_posts' ), 'ATRAPA: [manage_options] 
 echo "\n=== B/C. Rejestracja tras + MACIERZ TOŻSAMOŚĆ × TRASA (§5.2) ===\n";
 // ===========================================================================
 $TOOL_ROUTES  = array( '/admin/generate-faq', '/admin/export', '/admin/faq/publish', '/admin/faq/unpublish' );
+// Krok 23: dwie z czterech tras narzędzia mają teraz WYŻSZY cap (publikacja gościom).
+$GEN_ROUTES   = array( '/admin/generate-faq', '/admin/export' );
+$PUB_ROUTES   = array( '/admin/faq/publish', '/admin/faq/unpublish' );
 $ADMIN_ROUTES = array(
 	'/admin/status', '/admin/reindex', '/admin/clear', '/admin/settings', '/admin/verify',
 	'/admin/history', '/admin/history/clear', '/admin/generations', '/admin/generations/detail',
@@ -312,6 +328,32 @@ if ( $has_rest ) {
 	check( false === $verdict( '/admin/history/clear' ), 'B (RODO): /admin/history/clear + Redaktor → ODRZUCA — kasowanie dziennika gości' );
 	check( false === $verdict( '/admin/reindex' ), 'B: /admin/reindex + Redaktor → ODRZUCA — reindeks zjada pulę embeddingów' );
 	check( false === $verdict( '/admin/clear' ), 'B: /admin/clear + Redaktor → ODRZUCA — kasowanie bazy wiedzy' );
+
+	// --- Krok 23: Autor (publish_posts, BEZ edit_others_posts) ---
+	// generuje/eksportuje jak Redaktor, ale NIE publikuje na publicznej podstronie —
+	// to jest rdzeń zmiany uprawnień z etapu 1 (decyzja usera: zawęzić do Redaktora).
+	k20_identity( $AUTOR );
+	foreach ( $GEN_ROUTES as $r ) {
+		check( true === $verdict( $r ), 'B-K23: ' . $r . ' + Autor (publish_posts, BEZ edit_others_posts) → PRZEPUSZCZA' );
+	}
+	foreach ( $PUB_ROUTES as $r ) {
+		check( false === $verdict( $r ), 'B-K23: ' . $r . ' + Autor (BEZ edit_others_posts) → ODRZUCA (Krok 23: cap publikacji)' );
+	}
+
+	// --- Krok 23: Redaktor (MA edit_others_posts) — jedyna rola poza adminem, która publikuje ---
+	k20_identity( $REDAKTOR );
+	foreach ( $PUB_ROUTES as $r ) {
+		check( true === $verdict( $r ), 'B-K23: ' . $r . ' + Redaktor (edit_others_posts) → PRZEPUSZCZA' );
+	}
+
+	// --- Stała i metoda źródłowa capa publikacji (Krok 23) ---
+	check( defined( 'AIFAQ\Rest\RestController::CAPABILITY_PUBLISH' ), 'B-K23: stała RestController::CAPABILITY_PUBLISH istnieje' );
+	if ( defined( 'AIFAQ\Rest\RestController::CAPABILITY_PUBLISH' ) ) {
+		check( 'edit_others_posts' === (string) constant( 'AIFAQ\Rest\RestController::CAPABILITY_PUBLISH' ), 'B-K23: CAPABILITY_PUBLISH === edit_others_posts' );
+	} else {
+		check( false, 'B-K23: CAPABILITY_PUBLISH === edit_others_posts — pominięte, brak stałej' );
+	}
+	check( method_exists( 'AIFAQ\Rest\RestController', 'require_publish_user' ), 'B-K23: metoda require_publish_user() istnieje' );
 
 	// --- Współpracownik (edit_posts, BEZ publish_posts): odbity WSZĘDZIE ---
 	// To jest asercja przeciw wyborowi `edit_posts` zamiast `publish_posts` (§5.1,

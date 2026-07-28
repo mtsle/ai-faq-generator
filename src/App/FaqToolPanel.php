@@ -363,16 +363,28 @@ class FaqToolPanel {
 					<pre id="aifaq-ft-exp-output" class="aifaq-ft__exp-output" tabindex="0"></pre>
 				</div>
 
-				<?php // Publikacja na podstronie — jedyna droga, żeby te pary zobaczyła wyszukiwarka. ?>
-				<div id="aifaq-ft-publish" class="aifaq-ft__export">
-					<h3 class="aifaq-ft__exp-h"><?php echo esc_html( $t['pubH'] ); ?></h3>
-					<p class="aifaq-ft__exp-hint"><?php echo esc_html( $t['pubHint'] ); ?></p>
-					<div class="aifaq-ft__exp-bar">
-						<button type="button" id="aifaq-ft-pub" class="aifaq-ft__btn"><?php echo esc_html( $t['pubDo'] ); ?></button>
-						<button type="button" id="aifaq-ft-unpub" class="aifaq-ft__btn"><?php echo esc_html( $t['pubUndo'] ); ?></button>
-						<span id="aifaq-ft-pub-status" class="aifaq-ft__status" role="status" aria-live="polite"></span>
+				<?php
+				// Publikacja na podstronie — jedyna droga, żeby te pary zobaczyła
+				// wyszukiwarka. Krok 23: cap PUBLIKACJI (Redaktor), wyżej niż cap
+				// narzędzia (Autor) — ukryte tutaj, żeby Autor nie widział przycisku,
+				// na którym REST i tak odda 403 (RestController::require_publish_user()
+				// jest jedynym źródłem prawdy, to tylko UI zgodne z nim).
+				$can_publish = current_user_can( RestController::CAPABILITY )
+					|| current_user_can( RestController::CAPABILITY_PUBLISH );
+				if ( $can_publish ) :
+					?>
+					<div id="aifaq-ft-publish" class="aifaq-ft__export">
+						<h3 class="aifaq-ft__exp-h"><?php echo esc_html( $t['pubH'] ); ?></h3>
+						<p class="aifaq-ft__exp-hint"><?php echo esc_html( $t['pubHint'] ); ?></p>
+						<div class="aifaq-ft__exp-bar">
+							<button type="button" id="aifaq-ft-pub" class="aifaq-ft__btn"><?php echo esc_html( $t['pubDo'] ); ?></button>
+							<button type="button" id="aifaq-ft-unpub" class="aifaq-ft__btn"><?php echo esc_html( $t['pubUndo'] ); ?></button>
+							<span id="aifaq-ft-pub-status" class="aifaq-ft__status" role="status" aria-live="polite"></span>
+						</div>
 					</div>
-				</div>
+					<?php
+				endif;
+				?>
 			</div>
 		</div>
 		<?php

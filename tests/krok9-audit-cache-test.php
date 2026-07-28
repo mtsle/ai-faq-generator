@@ -16,6 +16,9 @@
 
 if ( ! defined( 'ABSPATH' ) ) { define( 'ABSPATH', __DIR__ . '/' ); }
 if ( ! defined( 'ARRAY_A' ) ) { define( 'ARRAY_A', 'ARRAY_A' ); }
+// K23 etap 1: run_clear() teraz zakłada TEN SAM lock co run_reindex() (znalezisko
+// A2), więc realnie wykonuje set_transient() z tą stałą.
+if ( ! defined( 'MINUTE_IN_SECONDS' ) ) { define( 'MINUTE_IN_SECONDS', 60 ); }
 
 if ( ! function_exists( '__' ) ) { function __( $s, $d = null ) { return $s; } }
 if ( ! function_exists( 'get_transient' ) ) { function get_transient( $k ) { return false; } }

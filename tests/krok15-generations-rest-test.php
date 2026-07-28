@@ -78,9 +78,20 @@ require __DIR__ . '/../src/Faq/Exporter.php';
 require __DIR__ . '/../src/App/HistoryPanel.php';
 require __DIR__ . '/../src/App/GenerationsPanel.php';
 require __DIR__ . '/../src/Rest/RestController.php';
+// Krok 23 (czysty refaktor): RestController rozbity na warstwy — routing w
+// RouteRegistrar, logika w klasach usługowych. Zestaw ładuje pliki RĘCZNIE
+// (bez autoloadera wtyczki), więc doklejamy resztę warstwy REST.
+require __DIR__ . '/../src/Rest/RouteRegistrar.php';
+require __DIR__ . '/../src/Rest/GuestIdentity.php';
+require __DIR__ . '/../src/Rest/PairsInput.php';
+require __DIR__ . '/../src/Rest/AskService.php';
+require __DIR__ . '/../src/Rest/AdminService.php';
+require __DIR__ . '/../src/Rest/GeneratorService.php';
+require __DIR__ . '/../src/Rest/PublishService.php';
 
 use AIFAQ\App\GenerationsPanel;
 use AIFAQ\Faq\Exporter;
+use AIFAQ\Rest\GeneratorService;
 use AIFAQ\Rest\RestController;
 
 $fail = 0;
@@ -160,10 +171,14 @@ check( 'Ile mleka daje krowa?' === ( $item['pairs'][0]['question'] ?? '' ), 'pie
 check( 'Około 25 litrów.' === ( $item['pairs'][0]['answer'] ?? '' ), 'pierwsza para: answer' );
 
 echo "\n=== D. Kształt item = kształt elementu listy + `pairs` (KONTRAKT §1) ===\n";
-// Element listy budowany tym samym prywatnym builderem — porównujemy zestawy kluczy.
-$ref  = new ReflectionMethod( RestController::class, 'generation_item' );
+// Element listy budowany tym samym builderem — porównujemy zestawy kluczy.
+// Krok 23 (czysty refaktor): builder przeniósł się z prywatnej metody RestController
+// do AIFAQ\Rest\GeneratorService (kontroler został fasadą routingu i uprawnień).
+// Asercja się NIE zmienia — dalej porównujemy kształt elementu listy z kształtem
+// szczegółu; zmienia się tylko klasa, na której go wywołujemy.
+$ref  = new ReflectionMethod( GeneratorService::class, 'generation_item' );
 $ref->setAccessible( true );
-$list_item = $ref->invoke( $controller, gh_row( wp_json_encode( $pairs ) ), 'd.m.Y' );
+$list_item = $ref->invoke( new GeneratorService(), gh_row( wp_json_encode( $pairs ) ), 'd.m.Y' );
 
 $only_in_detail = array_diff( array_keys( $item ), array_keys( $list_item ) );
 $only_in_list   = array_diff( array_keys( $list_item ), array_keys( $item ) );

@@ -26,9 +26,15 @@ function check( $cond, $label ) { global $fail; echo ( $cond ? '  OK   ' : '  FA
 
 $js_path  = __DIR__ . '/../assets/js/faq-tool.js';
 $php_path = __DIR__ . '/../src/Rest/RestController.php';
+// Krok 23 (czysty refaktor): deklaracje `register_rest_route` przeniosły się z
+// RestController do RouteRegistrar. Asercja jest ta sama co przedtem — szukamy
+// bloku `args` trasy /admin/generate-faq; zmienia się tylko to, że przeszukujemy
+// OBA pliki warstwy REST (skleja je $php niżej), żeby test nie był ślepy na to,
+// w którym z nich stoi rejestracja.
+$routes_path = __DIR__ . '/../src/Rest/RouteRegistrar.php';
 
 $js  = file_get_contents( $js_path );
-$php = file_get_contents( $php_path );
+$php = file_get_contents( $php_path ) . ( is_file( $routes_path ) ? file_get_contents( $routes_path ) : '' );
 
 echo "=== A. Pliki wczytane ===\n";
 check( false !== $js && '' !== $js, 'assets/js/faq-tool.js wczytany' );
