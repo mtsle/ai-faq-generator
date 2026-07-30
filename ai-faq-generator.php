@@ -23,7 +23,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // --- Stałe wtyczki ---------------------------------------------------------
 define( 'AIFAQ_VERSION', '0.33.0' );
-define( 'AIFAQ_DB_VERSION', '5' );
+define( 'AIFAQ_DB_VERSION', '6' );
 define( 'AIFAQ_PLUGIN_FILE', __FILE__ );
 define( 'AIFAQ_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIFAQ_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

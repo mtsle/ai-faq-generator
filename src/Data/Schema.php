@@ -91,6 +91,11 @@ class Schema {
 		) ENGINE=InnoDB {$charset_collate};";
 
 		// Dziennik pytań gości.
+		// `created_id` (Krok 23 etap 4, test L5, DB_VERSION 5->6): `page()` sortuje
+		// `ORDER BY created_at DESC, id DESC` — z samym `KEY created_at` MySQL robił
+		// PEŁNY SKAN + filesort (potwierdzone EXPLAIN na realnym MySQL, 20 000 wierszy:
+		// 25-71 ms wg offsetu). Indeks złożony dopasowany do sortowania: 0,82-48 ms
+		// (offset=0 ~31x szybciej, offset=19000 ~1,5x szybciej) — zmierzone, nie zgadywane.
 		$out[] = "CREATE TABLE {$qa_log} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			created_at datetime NOT NULL,
@@ -103,7 +108,8 @@ class Schema {
 			ip_hash char(64) NOT NULL DEFAULT '',
 			PRIMARY KEY  (id),
 			KEY created_at (created_at),
-			KEY status (status)
+			KEY status (status),
+			KEY created_id (created_at,id)
 		) ENGINE=InnoDB {$charset_collate};";
 
 		// Cache odpowiedzi (dedup po hashu pytania).
@@ -136,6 +142,9 @@ class Schema {
 		) ENGINE=InnoDB {$charset_collate};";
 
 		// Historia generowań FAQ (kokpit) + snapshot par jako JSON (Krok 11).
+		// `created_id`: TA SAMA paginacja `ORDER BY created_at DESC, id DESC` co
+		// `qa_log` (`GenerationRepository::page()`) — ten sam indeks złożony z tego
+		// samego powodu (Krok 23 etap 4, test L5).
 		$out[] = "CREATE TABLE {$generations} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			created_at datetime NOT NULL,
@@ -146,7 +155,8 @@ class Schema {
 			user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			pairs_json longtext NULL,
 			PRIMARY KEY  (id),
-			KEY created_at (created_at)
+			KEY created_at (created_at),
+			KEY created_id (created_at,id)
 		) ENGINE=InnoDB {$charset_collate};";
 
 		return $out;

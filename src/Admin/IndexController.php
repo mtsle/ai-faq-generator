@@ -42,9 +42,14 @@ class IndexController {
 	const NONCE        = 'aifaq_index';
 
 	/**
-	 * Transient-lock chroniący przed równoczesnym reindeksem/czyszczeniem (F5).
+	 * Nazwa opcji-zamka chroniącego przed równoczesnym reindeksem/czyszczeniem (F5).
 	 */
 	const LOCK = 'aifaq_indexing_lock';
+
+	/**
+	 * Ważność zamka w sekundach — po tym czasie uznajemy proces za martwy i przejmujemy zamek.
+	 */
+	const LOCK_TTL = 15 * MINUTE_IN_SECONDS;
 
 	/**
 	 * Wymagane uprawnienie.
@@ -129,21 +134,23 @@ class IndexController {
 		// F5: lock na równoczesny reindeks — drugie żądanie (inna karta, drugi
 		// admin, bezpośredni POST/REST) nie odpali drugiego, płatnego przebiegu
 		// ani nie przeplecie się z czyszczeniem bazy.
-		if ( get_transient( self::LOCK ) ) {
+		//
+		// L3 (Krok 23 etap 4, testy obciążeniowe): dawny `get_transient()` +
+		// `set_transient()` był TOCTOU (dwa oddzielne wywołania bez atomowości
+		// między nimi) — realny multi-proces test (10 równoległych żądań)
+		// wykazał 3/10 procesów jednocześnie uznających, że zdobyły lock.
+		// `acquire_lock()` używa TEGO SAMEGO wzorca co `CrawlQueue::acquire_lock()`
+		// (add_option() na UNIQUE KEY option_name — atomowe w każdym MySQL, bez
+		// wymogu trwałego cache obiektowego).
+		if ( ! $this->acquire_lock() ) {
 			return array(
 				'ok'      => false,
 				'status'  => 409,
 				'message' => __( 'Indeksowanie już trwa — poczekaj na zakończenie.', 'ai-faq-generator' ),
 			);
 		}
-		set_transient( self::LOCK, 1, 15 * MINUTE_IN_SECONDS );
 		// Backstop: zwolnij lock nawet przy fatalu w trakcie run() (exit pomija finally).
-		$lock = self::LOCK;
-		register_shutdown_function(
-			static function () use ( $lock ) {
-				delete_transient( $lock );
-			}
-		);
+		register_shutdown_function( array( $this, 'release_lock' ) );
 
 		// Indeksowanie może potrwać (embeddingi) — zdejmujemy limit czasu, jeśli wolno.
 		if ( function_exists( 'set_time_limit' ) ) {
@@ -160,7 +167,7 @@ class IndexController {
 		if ( $crawl_on && null !== $queue ) {
 			$progress = $queue->progress();
 			if ( ! empty( $progress['running'] ) ) {
-				delete_transient( self::LOCK );
+				$this->release_lock();
 				return array(
 					'ok'      => false,
 					'status'  => 409,
@@ -241,7 +248,7 @@ class IndexController {
 			$report = $indexer->run();
 		} catch ( \Throwable $e ) {
 			unset( $e );
-			delete_transient( self::LOCK );
+			$this->release_lock();
 			return array(
 				'ok'      => false,
 				'status'  => 500,
@@ -300,7 +307,7 @@ class IndexController {
 
 		$stats = ( new KnowledgeRepository() )->stats();
 
-		delete_transient( self::LOCK );
+		$this->release_lock();
 
 		return array(
 			'ok'     => true,
@@ -316,26 +323,19 @@ class IndexController {
 	 * @return array{ok:bool,status:int,message?:string,removed?:int,stats?:array}
 	 */
 	public function run_clear(): array {
-		// Nie czyść w trakcie indeksowania — inaczej clear i zapis przeplotą się (F5).
-		if ( get_transient( self::LOCK ) ) {
+		// K23 etap 1, znalezisko A2: run_clear() dotąd tylko SPRAWDZAŁ lock F5, nie
+		// ZAKŁADAŁ go — ochrona działała jednokierunkowo (reindeks widział trwające
+		// czyszczenie, ale nie odwrotnie), więc mogły się przeplatać. Ten sam lock
+		// i ten sam backstop na shutdown co w run_reindex() — teraz atomowy (L3,
+		// Krok 23 etap 4), patrz komentarz przy `acquire_lock()`.
+		if ( ! $this->acquire_lock() ) {
 			return array(
 				'ok'      => false,
 				'status'  => 409,
 				'message' => __( 'Indeksowanie w toku — spróbuj wyczyścić po jego zakończeniu.', 'ai-faq-generator' ),
 			);
 		}
-
-		// K23 etap 1, znalezisko A2: run_clear() dotąd tylko SPRAWDZAŁ lock F5, nie
-		// ZAKŁADAŁ go — ochrona działała jednokierunkowo (reindeks widział trwające
-		// czyszczenie, ale nie odwrotnie), więc mogły się przeplatać. Ten sam lock
-		// i ten sam backstop na shutdown co w run_reindex().
-		set_transient( self::LOCK, 1, 15 * MINUTE_IN_SECONDS );
-		$lock = self::LOCK;
-		register_shutdown_function(
-			static function () use ( $lock ) {
-				delete_transient( $lock );
-			}
-		);
+		register_shutdown_function( array( $this, 'release_lock' ) );
 
 		$removed = ( new KnowledgeRepository() )->clear_all();
 
@@ -355,7 +355,7 @@ class IndexController {
 			\AIFAQ\Seo\SiteProfile::forget();
 		}
 
-		delete_transient( self::LOCK );
+		$this->release_lock();
 
 		return array(
 			'ok'      => true,
@@ -363,6 +363,61 @@ class IndexController {
 			'removed' => $removed,
 			'stats'   => ( new KnowledgeRepository() )->stats(),
 		);
+	}
+
+	/**
+	 * Zajmuje zamek indeksowania w sposób ATOMOWY.
+	 *
+	 * Świadomie NIE `get_transient()` + `set_transient()`: to klasyczny TOCTOU —
+	 * dwa procesy odczytują „brak zamka" w tej samej milisekundzie i oba ruszają
+	 * (zmierzone testem obciążeniowym L3, Krok 23 etap 4: 3/10 równoległych
+	 * żądań reindeksu jednocześnie uznawało, że zdobyło lock). `add_option()`
+	 * opiera się o UNIQUE KEY na `option_name`, więc wygrywa dokładnie jeden
+	 * proces — ten sam wzorzec co {@see \AIFAQ\Index\CrawlQueue::acquire_lock()}.
+	 *
+	 * @return bool Czy zamek został zajęty.
+	 */
+	protected function acquire_lock(): bool {
+		if ( ! function_exists( 'add_option' ) || ! function_exists( 'get_option' ) ) {
+			return true; // czyste PHP CLI — brak współbieżności do pilnowania.
+		}
+
+		$now = time();
+
+		// Szybka ścieżka dla trwałego cache obiektowego (Redis/Memcached).
+		if ( function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache() && function_exists( 'wp_cache_add' ) ) {
+			if ( ! wp_cache_add( self::LOCK, $now, 'aifaq', self::LOCK_TTL ) ) {
+				return false;
+			}
+		}
+
+		if ( add_option( self::LOCK, (string) $now, '', 'no' ) ) {
+			return true;
+		}
+
+		$held = (int) get_option( self::LOCK, 0 );
+		if ( $held > 0 && ( $now - $held ) < self::LOCK_TTL ) {
+			return false;
+		}
+
+		// Zamek przeterminowany (proces padł w trakcie przebiegu) — przejmujemy go, znowu atomowo.
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( self::LOCK );
+		}
+
+		return (bool) add_option( self::LOCK, (string) $now, '', 'no' );
+	}
+
+	/**
+	 * Zwalnia zamek indeksowania.
+	 */
+	public function release_lock(): void {
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( self::LOCK );
+		}
+		if ( function_exists( 'wp_cache_delete' ) ) {
+			wp_cache_delete( self::LOCK, 'aifaq' );
+		}
 	}
 
 	/**
