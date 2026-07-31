@@ -641,8 +641,12 @@ if ( file_exists( $uninstall ) ) {
 	if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) { define( 'WP_UNINSTALL_PLUGIN', 'ai-faq-generator/ai-faq-generator.php' ); }
 	include $uninstall;
 	$deleted = $GLOBALS['__optc']->deleted;
-	check( array() === array_diff( array( 'aifaq_index_signature', 'aifaq_cache_flushed_for', 'aifaq_autoload_hardened', 'aifaq_public_faq_prev' ), $deleted ), 'NOWE — C24: obie nowe opcje ORAZ znacznik utwardzenia autoloadu faktycznie SKASOWANE przez uninstall.php (nie substr_count na źródle)' );
-	check( 29 === $GLOBALS['__optc']->deletes, 'NOWE — C24: DOKŁADNIE 29 wywołań delete_option (16 + 9 opcji K20 + 2 opcje v0.24.0: aifaq_site_profile, aifaq_public_faq + 1 opcja audytu: aifaq_autoload_hardened + 1 opcja K23 etap 1: aifaq_public_faq_prev; jest: ' . $GLOBALS['__optc']->deletes . ')' );
+	check( array() === array_diff( array( 'aifaq_index_signature', 'aifaq_cache_flushed_for', 'aifaq_autoload_hardened', 'aifaq_public_faq_prev', 'aifaq_public_faq_lock' ), $deleted ), 'NOWE — C24: obie nowe opcje, znacznik utwardzenia autoloadu ORAZ zamek publikacji faktycznie SKASOWANE przez uninstall.php (nie substr_count na źródle)' );
+	// 29 → 30: K23 etap 5 dołożył `aifaq_public_faq_lock` (PublicFaq::LOCK, zamek
+	// publikacji przeciw cichej utracie równoległych publikacji — znalezisko D1).
+	// Liczba jest ZAMROŻONA świadomie: każdy nowy klucz ma przejść przez tę asercję,
+	// żeby nie dało się dołożyć opcji i zapomnieć o sprzątaniu.
+	check( 30 === $GLOBALS['__optc']->deletes, 'NOWE — C24: DOKŁADNIE 30 wywołań delete_option (16 + 9 opcji K20 + 2 opcje v0.24.0: aifaq_site_profile, aifaq_public_faq + 1 opcja audytu: aifaq_autoload_hardened + 1 opcja K23 etap 1: aifaq_public_faq_prev + 1 opcja K23 etap 5: aifaq_public_faq_lock; jest: ' . $GLOBALS['__optc']->deletes . ')' );
 } else {
 	check( false, 'NOWE — C24 pominięta: brak pliku uninstall.php' );
 }

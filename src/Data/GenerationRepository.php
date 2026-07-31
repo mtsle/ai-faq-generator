@@ -160,8 +160,15 @@ class GenerationRepository extends Repository {
 		$limit  = max( 1, min( 100, $limit ) );
 		$offset = max( 0, $offset );
 
+		// K23 etap 5, znalezisko S4: JAWNA lista kolumn zamiast `SELECT *`.
+		// `pairs_json` to `longtext` z całym snapshotem par (do kilku MB przy 50 parach),
+		// a lista historii pokazuje wyłącznie metadane — konsument
+		// {@see \AIFAQ\Rest\GeneratorService::generation_item()} czyta dokładnie te
+		// siedem kolumn i NIGDY nie sięga po `pairs_json`. Przy 20 wierszach na stronę
+		// `SELECT *` ciągnął z bazy do PHP dziesiątki megabajtów, żeby je natychmiast
+		// wyrzucić. Pary są potrzebne tylko w szczególe — i tam pobiera je `find()`.
 		$rows = $wpdb->get_results(
-			$wpdb->prepare( "SELECT * FROM {$table} ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d", $limit, $offset ), // phpcs:ignore WordPress.DB
+			$wpdb->prepare( "SELECT id, created_at, topic, extra_desc, num_questions, language, user_id FROM {$table} ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d", $limit, $offset ), // phpcs:ignore WordPress.DB
 			ARRAY_A
 		);
 

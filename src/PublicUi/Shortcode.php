@@ -149,13 +149,47 @@ class Shortcode {
 			return;
 		}
 
-		if ( ! function_exists( 'has_shortcode' )
-			|| ! has_shortcode( (string) $post->post_content, self::TAG ) ) {
+		// Bramka roli PRZED wykrywaniem shortcode'u — kolejność jest tu istotna,
+		// patrz uzasadnienie niżej. Gość wychodzi natychmiast i jego strona zostaje
+		// w pełni cache'owalna (to zachowanie się NIE zmienia).
+		if ( ! \AIFAQ\App\AppShell::is_owner() ) {
 			return;
 		}
 
-		if ( ! \AIFAQ\App\AppShell::is_owner() ) {
-			return;
+		// K23 etap 5, znalezisko S1. Dotąd stał tu warunek
+		// `has_shortcode( $post->post_content, TAG )` i miał ślepy punkt: `has_shortcode()`
+		// czyta WYŁĄCZNIE treść wpisu. Shortcode umieszczony w widgecie, w szablonie
+		// bloków albo w module page-buildera (Elementor/Divi/Beaver trzymają układ
+		// w postmeta, nie w `post_content`) nie był wykrywany, więc panel właściciela
+		// renderował się BEZ nagłówków `no-cache`. Brzegowy cache kluczujący po URL
+		// mógł zapisać tę odpowiedź i podać ją anonimowemu gościowi — razem z nonce
+		// `wp_rest`, adresami `/admin/*` i statystykami bazy wiedzy.
+		//
+		// Wykrycia nie da się naprawić „lepszym skanem": widgety i stopka renderują
+		// się DŁUGO po wysłaniu nagłówków, więc w momencie, w którym jeszcze można je
+		// ustawić, nie wiadomo, czy panel się pojawi. `DONOTCACHEPAGE` (ustawiane
+		// w `enqueue_assets()`) ratuje wtyczki cache czytające tę stałą, ale nie
+		// ratuje CDN-u, który widzi tylko nagłówki HTTP.
+		//
+		// Dlatego warunek na obecność shortcode'u ZNIKA: dla ZALOGOWANEGO WŁAŚCICIELA
+		// każda pojedyncza strona dostaje `no-cache`. Koszt jest żaden — odpowiedzi
+		// serwowane zalogowanemu redaktorowi i tak nie powinny lądować w publicznym
+		// cache'u (każda poważna wtyczka cache omija zalogowanych z tego samego
+		// powodu), a jedyny efekt uboczny to tyle, że właściciel przeglądający
+		// witrynę nie „nagrzewa" publicznego cache'u. To skutek POŻĄDANY.
+		//
+		// Filtr zostawiony dla integratorów, którzy mają nietypowy układ ról i chcą
+		// zawęzić zachowanie do stron faktycznie niosących shortcode.
+		$force = true;
+		if ( function_exists( 'apply_filters' ) ) {
+			$force = (bool) apply_filters( 'aifaq_nocache_for_owner', true, $post );
+		}
+
+		if ( ! $force ) {
+			if ( ! function_exists( 'has_shortcode' )
+				|| ! has_shortcode( (string) $post->post_content, self::TAG ) ) {
+				return;
+			}
 		}
 
 		if ( function_exists( 'nocache_headers' ) ) {

@@ -86,6 +86,7 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 		delete_option( 'aifaq_site_profile' );      // Temat witryny wyprowadzony z bazy wiedzy (SiteProfile).
 		delete_option( 'aifaq_public_faq' );        // Pary Q&A opublikowane na podstronie (PublicFaq).
 		delete_option( 'aifaq_public_faq_prev' );   // K23 etap 1: ostatnia wersja sprzed nadpisania/zdjęcia (PublicFaq::OPTION_PREV).
+		delete_option( 'aifaq_public_faq_lock' );   // K23 etap 5: zamek publikacji (PublicFaq::LOCK) — zwykle zwolniony, ale proces mógł paść w trakcie.
 
 		// --- Menu nawigacji (Krok 20) ------------------------------------
 		//
@@ -171,9 +172,15 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 		}
 
 		// --- Cron --------------------------------------------------------
-		// Zdejmij cron pobierania stron — bez tego zostałoby zadanie bez obsługi.
+		// Zdejmij OBA crony wtyczki — bez tego zostałoby zadanie bez obsługi.
+		// `aifaq_reindex_continue` (wznawianie reindeksu po wyczerpaniu budżetu)
+		// jest zdejmowany także w `Deactivator`, ale na tym polegać nie można:
+		// przy wtyczce aktywowanej dla całej SIECI hook deaktywacji odpala się
+		// raz, a crony siedzą osobno w każdym blogu — dlatego to sprzątanie
+		// biegnie w pętli `switch_to_blog()` niżej i musi znać komplet.
 		if ( function_exists( 'wp_unschedule_hook' ) ) {
 			wp_unschedule_hook( 'aifaq_crawl_tick' );
+			wp_unschedule_hook( 'aifaq_reindex_continue' );
 		}
 
 		// UWAGA: samej podstrony „Generator FAQ" NIE kasujemy — to treść w witrynie

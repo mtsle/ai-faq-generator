@@ -27,6 +27,24 @@ class QaLogRepository extends Repository {
 	const STATUSES = array( 'answered', 'refused', 'error' );
 
 	/**
+	 * Próg ostrzeżenia o rozmiarze dziennika (K23 etap 5, decyzja D6-B).
+	 *
+	 * Retencja jest i ZOSTAJE opt-in (domyślnie 0 = bez limitu). To świadoma
+	 * decyzja produktowa z wcześniejszych Kroków, zgodna z zasadą „nie kasujemy
+	 * danych klienta bez jego decyzji" — automatyczne włączenie czyszczenia po
+	 * aktualizacji skasowałoby komuś historię, o którą nikt nie pytał.
+	 *
+	 * Cena tej decyzji jest jednak realna: {@see stats()} robi `COUNT(*)` bez
+	 * `WHERE` (skan liniowy) na każde wejście na Dashboard, a tabela rośnie
+	 * bez sufitu. Dlatego zamiast kasować — OSTRZEGAMY, i zostawiamy decyzję
+	 * właścicielowi (ustawienie retencji jest w Ustawieniach).
+	 *
+	 * 50 000 wierszy: przy tym rozmiarze `stats()` jest jeszcze szybkie
+	 * (dziesiątki ms), więc komunikat pojawia się z zapasem, a nie po fakcie.
+	 */
+	const SIZE_WARN_ROWS = 50000;
+
+	/**
 	 * Zapisuje wpis w dzienniku i zwraca jego ID.
 	 *
 	 * @param array<string,mixed> $entry Dane wpisu (question wymagane).

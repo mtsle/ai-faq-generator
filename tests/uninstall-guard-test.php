@@ -405,6 +405,145 @@ check(
 	'nazwy tabel wyliczane WEWNATRZ funkcji (przezywaja switch_to_blog)'
 );
 
+// ---------------------------------------------------------------------------
+// 5b. CRON: każdy zaplanowany hook musi być zdejmowany przez uninstall.php.
+//
+// PROBLEM, KTÓRY ROZWIĄZUJE: 2026-07-31 (Krok 23 etap 5) zrzut żywej bazy
+// pokazał, że `uninstall.php` zdejmował TYLKO `aifaq_crawl_tick`, choć wtyczka
+// planuje dwa hooki — `aifaq_reindex_continue` zostawał w tablicy `cron`.
+// `Deactivator` zdejmował oba, więc w pojedynczej witrynie ratowała kolejność
+// (deaktywacja przed usunięciem), ale przy wtyczce aktywowanej dla SIECI hook
+// deaktywacji odpala się raz, a crony siedzą osobno w każdym blogu.
+// Sekcje 4-7 tego pliku pilnowały opcji, meta i transientów — crona nikt.
+// ---------------------------------------------------------------------------
+
+/**
+ * Zwraca argumenty wywołania funkcji jako listę list tokenów.
+ *
+ * @param array $tk  Tokeny pliku (bez białych znaków i komentarzy).
+ * @param int   $pos Indeks tokenu z nazwą funkcji (nawias musi być następny).
+ *
+ * @return array<int,array>
+ */
+function aifaq_call_args( $tk, $pos ) {
+	$n = count( $tk );
+	if ( ! isset( $tk[ $pos + 1 ] ) || '(' !== aifaq_tt( $tk[ $pos + 1 ] ) ) {
+		return array();
+	}
+	$depth = 0;
+	$args  = array();
+	$cur   = array();
+	for ( $j = $pos + 1; $j < $n; $j++ ) {
+		$txt = aifaq_tt( $tk[ $j ] );
+		if ( in_array( $txt, array( '(', '[' ), true ) ) {
+			$depth++;
+			if ( 1 === $depth ) {
+				continue;
+			}
+		} elseif ( in_array( $txt, array( ')', ']' ), true ) ) {
+			$depth--;
+			if ( 0 === $depth ) {
+				$args[] = $cur;
+				break;
+			}
+		} elseif ( ',' === $txt && 1 === $depth ) {
+			$args[] = $cur;
+			$cur    = array();
+			continue;
+		}
+		$cur[] = $tk[ $j ];
+	}
+	return $args;
+}
+
+/**
+ * Rozwiązuje argument do literału: `'x'` albo `self::CONST` / `Klasa::CONST`.
+ *
+ * @param array  $arg  Tokeny argumentu.
+ * @param string $file Plik (dla stałych `self::`).
+ *
+ * @return string|null
+ */
+function aifaq_resolve_arg( $arg, $file ) {
+	global $const_by_class, $const_by_file;
+	if ( ! $arg ) {
+		return null;
+	}
+	$lit = aifaq_str( $arg[0] );
+	if ( null !== $lit ) {
+		return $lit;
+	}
+	$expr = '';
+	foreach ( $arg as $tok ) {
+		$expr .= aifaq_tt( $tok );
+	}
+	if ( 1 !== preg_match( '/(?:^|\\\\)(\w+)::(\w+)$/', $expr, $m ) ) {
+		return null;
+	}
+	if ( in_array( $m[1], array( 'self', 'static' ), true ) ) {
+		return $const_by_file[ $file . '|' . $m[2] ] ?? null;
+	}
+	return $const_by_class[ $m[1] . '::' . $m[2] ] ?? null;
+}
+
+// Indeks argumentu, pod którym siedzi NAZWA HOOKA.
+$sched_targets = array(
+	'wp_schedule_event'        => 2, // ( timestamp, recurrence, hook ).
+	'wp_schedule_single_event' => 1, // ( timestamp, hook ).
+);
+
+$scheduled_hooks = array();
+foreach ( $files as $file ) {
+	$tk = $tokens_by_file[ $file ];
+	for ( $i = 0, $n = count( $tk ); $i < $n; $i++ ) {
+		$t = $tk[ $i ];
+		if ( ! is_array( $t ) || T_STRING !== $t[0] || ! isset( $sched_targets[ $t[1] ] ) ) {
+			continue;
+		}
+		$prev = $i > 0 ? aifaq_tt( $tk[ $i - 1 ] ) : '';
+		if ( in_array( $prev, array( '->', '::', 'function' ), true ) ) {
+			continue;
+		}
+		$args = aifaq_call_args( $tk, $i );
+		$idx  = $sched_targets[ $t[1] ];
+		if ( ! isset( $args[ $idx ] ) ) {
+			continue;
+		}
+		$hook = aifaq_resolve_arg( $args[ $idx ], $file );
+		if ( null !== $hook && 1 === preg_match( '/^_?aifaq/', $hook ) ) {
+			$scheduled_hooks[ $hook ][ basename( $file ) ] = true;
+		}
+	}
+}
+
+// Podłoga: gdyby skaner przestał cokolwiek widzieć, bramka niżej byłaby pusta
+// i świeciła na zielono. Dziś planowane są DWA hooki — asercja ilościowa `=== N`.
+check(
+	2 === count( $scheduled_hooks ),
+	'skaner widzi komplet planowanych cronow (znaleziono: ' . count( $scheduled_hooks )
+		. ' → ' . implode( ', ', array_keys( $scheduled_hooks ) ) . ')'
+);
+
+$cron_missing = array();
+foreach ( $scheduled_hooks as $hook => $where ) {
+	if ( ! isset( $un_literals[ $hook ] ) ) {
+		$cron_missing[] = $hook . ' ← ' . implode( ', ', array_keys( $where ) );
+	}
+}
+check(
+	0 === count( $cron_missing ),
+	'KAZDY planowany cron jest zdejmowany w uninstall.php'
+		. ( $cron_missing ? ( "\n         BRAK: " . implode( "\n         BRAK: ", $cron_missing ) ) : ' (sprawdzono: ' . count( $scheduled_hooks ) . ')' )
+);
+
+// Sam literał nie wystarcza — musi być realne wywołanie zdejmujące, po jednym
+// na hook. Bez tego dopisanie nazwy w komentarzu zaliczałoby bramkę wyżej.
+check(
+	( $un_calls['wp_unschedule_hook'] ?? 0 ) === count( $scheduled_hooks ),
+	'uninstall.php wola wp_unschedule_hook raz na hook (wywolan: '
+		. ( $un_calls['wp_unschedule_hook'] ?? 0 ) . ', hookow: ' . count( $scheduled_hooks ) . ')'
+);
+
 // ZASADA: w uninstall.php nie wolno używać stałych klas — nie ma autoloadera.
 // Sprawdzane na KODZIE, nie na źródle: komentarze wolno (i trzeba) wskazywać,
 // z której stałej pochodzi dany literał.

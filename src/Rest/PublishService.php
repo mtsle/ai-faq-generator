@@ -115,7 +115,42 @@ class PublishService {
 			);
 		}
 
-		$count = \AIFAQ\Faq\PublicFaq::publish( $pairs, $id );
+		// K23 etap 5, znalezisko S3: `$id` jest zapisywane jako `generation_id`
+		// opublikowanej wersji, ale sprawdzenie istnienia wiersza siedziało WYŁĄCZNIE
+		// w gałęzi wyżej (ta odpala się tylko, gdy `pairs` jest puste). Główna ścieżka
+		// UI zawsze wysyła `pairs`, więc dowolne `id` z żądania trafiało do bazy bez
+		// weryfikacji — metadana wskazująca na nieistniejącą generację. Nie jest to
+		// dziura bezpieczeństwa (sama liczba nic nie odblokowuje), tylko trwały rozjazd
+		// danych: „opublikowano z generacji #9999", której nigdy nie było.
+		// Nieznane `id` zerujemy zamiast odrzucać żądanie — pary są poprawne,
+		// a `generation_id` to informacja pomocnicza, nie warunek publikacji.
+		if ( $id > 0 && null === ( new GenerationRepository() )->find( $id ) ) {
+			$id = 0;
+		}
+
+		// K23 etap 5, znalezisko D1: publikacja to sekwencja ODCZYT→ZAPIS wewnątrz
+		// `PublicFaq` (snapshot poprzedniej wersji, potem nadpisanie). Bez zamka
+		// dwie równoczesne publikacje gubiły pracę jednej z nich BEZ ŚLADU — także
+		// z kopii zapasowej, bo snapshot nadpisywał się razem z danymi.
+		// Świadomie ODRZUCAMY drugie żądanie (409) zamiast cicho nadpisywać:
+		// właściciel ma się dowiedzieć, że ktoś publikuje w tej samej chwili.
+		if ( ! \AIFAQ\Faq\PublicFaq::acquire_lock() ) {
+			return new \WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Ktoś właśnie publikuje FAQ. Odśwież stronę i spróbuj ponownie.', 'ai-faq-generator' ),
+				),
+				409
+			);
+		}
+
+		try {
+			$count = \AIFAQ\Faq\PublicFaq::publish( $pairs, $id );
+		} finally {
+			// `finally`, nie zwykła kolejność: wyjątek w trakcie zapisu zostawiłby
+			// zamek zajęty do wygaśnięcia TTL, blokując właściciela bez powodu.
+			\AIFAQ\Faq\PublicFaq::release_lock();
+		}
 
 		if ( $count < 1 ) {
 			return new \WP_REST_Response(
@@ -143,7 +178,23 @@ class PublishService {
 	 * @return \WP_REST_Response
 	 */
 	public function unpublish() {
-		\AIFAQ\Faq\PublicFaq::unpublish();
+		// Ten sam zamek co przy publikacji (D1): `unpublish()` też robi snapshot
+		// przed skasowaniem, więc przeplot z równoczesną publikacją niszczy kopię.
+		if ( ! \AIFAQ\Faq\PublicFaq::acquire_lock() ) {
+			return new \WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Ktoś właśnie zmienia FAQ. Odśwież stronę i spróbuj ponownie.', 'ai-faq-generator' ),
+				),
+				409
+			);
+		}
+
+		try {
+			\AIFAQ\Faq\PublicFaq::unpublish();
+		} finally {
+			\AIFAQ\Faq\PublicFaq::release_lock();
+		}
 
 		return new \WP_REST_Response(
 			array(

@@ -32,7 +32,25 @@ class Schema {
 	const T_KNOWLEDGE   = 'aifaq_knowledge';
 	const T_QA_LOG      = 'aifaq_qa_log';
 	const T_CACHE       = 'aifaq_cache';
+
+	/**
+	 * NIEUŻYWANA (K23 etap 5, decyzja D4-B).
+	 *
+	 * Tabela powstała pod pierwotny pomysł trzymania gotowych par FAQ w bazie.
+	 * Produkt poszedł inną drogą: opublikowane pary żyją w opcji `aifaq_public_faq`
+	 * ({@see \AIFAQ\Faq\PublicFaq}), a snapshoty generacji w `aifaq_generations`.
+	 * Obsługujące ją `src/Data/FaqRepository.php` NIE miało ani jednego wywołania
+	 * w całym repo i zostało usunięte; przejście na żywo w etapie 5 potwierdziło,
+	 * że przez pełny cykl życia produktu tabela pozostaje PUSTA.
+	 *
+	 * Sama tabela zostaje ŚWIADOMIE do v1.0.0: jej skasowanie to migracja
+	 * z `DROP TABLE`, czyli nieodwracalna operacja na bazie klienta tuż przed
+	 * wydaniem — ryzyko nieproporcjonalne do zysku z jednej pustej tabeli.
+	 * `uninstall.php` i tak ją usuwa przy deinstalacji, więc śladu po sobie
+	 * nie zostawia. Do rozważenia po v1.0.0.
+	 */
 	const T_FAQ         = 'aifaq_faq';
+
 	const T_GENERATIONS = 'aifaq_generations';
 
 	/**

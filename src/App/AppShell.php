@@ -177,9 +177,26 @@ class AppShell {
 	 * Endpointy `/admin/*` i nonce trafiają do JS wyłącznie, gdy render dzieje się
 	 * dla zalogowanego właściciela — gość nie dostaje ich w ogóle.
 	 *
+	 * SAMOOBRONA (K23 etap 5, znalezisko S2). Metoda dotąd zwracała `isOwner => true`
+	 * BEZWARUNKOWO, a poprawność zależała wyłącznie od dyscypliny wołających: dziś
+	 * wszyscy trzej sprawdzają rolę przed wywołaniem ({@see \AIFAQ\PublicUi\Shortcode}
+	 * l. 219, {@see \AIFAQ\PublicUi\GeneratorPage} l. 290, {@see \AIFAQ\Admin\Menu}
+	 * przez kontekst kokpitu), więc DZIŚ nic nie przecieka. Ale metoda mennicuje
+	 * nonce `wp_rest` i wypisuje komplet adresów `/admin/*` — jeden nowy wołający
+	 * bez bramki wystarczyłby, żeby gość dostał je w źródle strony. Nonce sam w sobie
+	 * nie omija uprawnień (REST i tak sprawdza capability), ale nie ma powodu go
+	 * ujawniać. Bramka jest tutaj, przy danych, a nie tylko w komentarzu.
+	 *
+	 * Ścieżka właściciela zwraca DOKŁADNIE ten sam kształt co wcześniej (8 kluczy,
+	 * zamrożona kolejność — patrz `tests/krok18-faqtoolpanel-test.php` #30).
+	 *
 	 * @return array<string,mixed>
 	 */
 	public static function config(): array {
+		if ( ! self::is_owner() ) {
+			return array( 'isOwner' => false );
+		}
+
 		$lang = self::lang();
 		$base = rest_url( RestController::REST_NAMESPACE . '/admin/' );
 

@@ -387,12 +387,25 @@ final class Plugin {
 		add_action( 'trashed_post', array( $this, 'on_knowledge_post_removed' ), 10, 1 );
 		add_action( 'deleted_post', array( $this, 'on_knowledge_post_removed' ), 10, 1 );
 
+		// Skutki uboczne ZAPISU ustawień rejestrujemy BEZWARUNKOWO, poza bramką
+		// `is_admin()` niżej. Powód (K23 etap 5, dowód na żywo): `Settings::save()`
+		// ma świadomie wiele ścieżek — ekran Ustawień, REST, ale też WP-CLI
+		// (`wp option update`), przywracanie kopii bazy i każde wywołanie programowe.
+		// Rejestracja wewnątrz `is_admin()` znaczyła, że zmiana sluga poza kokpitem
+		// NIE podnosi flagi flush, a `Router::maybe_flush_rewrite()` reaguje wyłącznie
+		// na nią (zero samonaprawy) — nowy adres zwracał 404 do najbliższego ręcznego
+		// przebudowania reguł. To samo dotyczyło unieważniania bramki MenuGuarda
+		// i czyszczenia kolejki crawla.
+		//
+		// Koszt jest zerowy: `Settings` nie ma konstruktora, a callback odpala się
+		// wyłącznie przy faktycznej zmianie TEJ opcji.
+		$this->settings = new Settings();
+		// H2: po zmianie sluga trasy przebuduj reguły rewrite (inaczej nowy slug = 404).
+		add_action( 'update_option_' . Settings::OPTION, array( $this->settings, 'on_settings_updated' ), 10, 2 );
+
 		if ( is_admin() ) {
-			$this->settings = new Settings();
 			add_action( 'admin_init', array( $this->settings, 'register' ) );
 			add_action( 'wp_ajax_' . Settings::AJAX_TEST, array( $this->settings, 'ajax_test_connection' ) );
-			// H2: po zmianie sluga trasy przebuduj reguły rewrite (inaczej nowy slug = 404).
-			add_action( 'update_option_' . Settings::OPTION, array( $this->settings, 'on_settings_updated' ), 10, 2 );
 
 			$this->admin_menu = new Menu();
 			add_action( 'admin_menu', array( $this->admin_menu, 'register_menu' ) );

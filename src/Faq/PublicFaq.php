@@ -51,6 +51,76 @@ class PublicFaq {
 	public const MAX_PAIRS = 50;
 
 	/**
+	 * Zamek publikacji (K23 etap 5, znalezisko D1).
+	 *
+	 * PROBLEM: `publish()` i `unpublish()` to sekwencja ODCZYT→ZAPIS
+	 * ({@see snapshot_previous()} czyta bieżące pary, potem `update_option()` je
+	 * nadpisuje). Bez zamka dwie równoczesne publikacje przeplatają się tak, że
+	 * OBIE robią snapshot tej samej wersji, a druga nadpisuje wynik pierwszej —
+	 * praca pierwszego właściciela znika bez śladu, także z kopii `OPTION_PREV`,
+	 * bo snapshot też się nadpisał. Zmierzone w etapie 4: pięć równoczesnych
+	 * publikacji, **trzy przepadły bezpowrotnie**.
+	 *
+	 * TTL jest krótki, bo publikacja to jeden zapis opcji (milisekundy), a nie
+	 * przebieg jak indeksowanie — zamek trzyma się tylko na czas, w którym realnie
+	 * może dojść do przeplotu. Po TTL jest przejmowany (proces mógł paść).
+	 */
+	public const LOCK     = 'aifaq_public_faq_lock';
+	public const LOCK_TTL = 30;
+
+	/**
+	 * Zajmuje zamek publikacji — atomowo, przez `add_option()`.
+	 *
+	 * Ten sam wzorzec, co {@see \AIFAQ\Admin\IndexController::acquire_lock()} i
+	 * {@see \AIFAQ\Index\CrawlQueue::acquire_lock()}: `add_option()` opiera się na
+	 * UNIQUE KEY kolumny `option_name`, więc wyścig rozstrzyga baza, a nie PHP.
+	 *
+	 * @return bool Czy zamek został zajęty.
+	 */
+	public static function acquire_lock(): bool {
+		if ( ! function_exists( 'add_option' ) || ! function_exists( 'get_option' ) ) {
+			return true; // czyste PHP CLI / testy jednostkowe — brak współbieżności.
+		}
+
+		$now = time();
+
+		// Szybka ścieżka dla trwałego cache obiektowego (Redis/Memcached).
+		if ( function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache() && function_exists( 'wp_cache_add' ) ) {
+			if ( ! wp_cache_add( self::LOCK, $now, 'aifaq', self::LOCK_TTL ) ) {
+				return false;
+			}
+		}
+
+		if ( add_option( self::LOCK, (string) $now, '', 'no' ) ) {
+			return true;
+		}
+
+		$held = (int) get_option( self::LOCK, 0 );
+		if ( $held > 0 && ( $now - $held ) < self::LOCK_TTL ) {
+			return false;
+		}
+
+		// Zamek przeterminowany (proces padł w trakcie) — przejmujemy go, znowu atomowo.
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( self::LOCK );
+		}
+
+		return (bool) add_option( self::LOCK, (string) $now, '', 'no' );
+	}
+
+	/**
+	 * Zwalnia zamek publikacji.
+	 */
+	public static function release_lock(): void {
+		if ( function_exists( 'delete_option' ) ) {
+			delete_option( self::LOCK );
+		}
+		if ( function_exists( 'wp_cache_delete' ) ) {
+			wp_cache_delete( self::LOCK, 'aifaq' );
+		}
+	}
+
+	/**
 	 * Publikuje pary na podstronie.
 	 *
 	 * @param array<int,array<string,mixed>> $pairs         Pary `question`/`answer`.

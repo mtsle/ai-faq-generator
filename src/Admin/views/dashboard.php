@@ -141,6 +141,31 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 			?>
 		</p>
 
+		<?php
+		// K23 etap 5, decyzja D3-A: ostrzeżenie o skali bazy wiedzy.
+		// Retrieval liczy podobieństwo dla KAŻDEGO fragmentu (brak ANN), więc czas
+		// odpowiedzi rośnie liniowo. Nic nie blokujemy — właściciel ma dostać sygnał
+		// zanim zrobi się wolno, a nie dowiedzieć się od gościa, że generator „wisi".
+		$aifaq_scale_warn = class_exists( '\AIFAQ\Rag\Retriever' )
+			? (int) \AIFAQ\Rag\Retriever::SCALE_WARN_CHUNKS
+			: 5000;
+		?>
+		<?php if ( (int) $aifaq_stats['chunks'] > $aifaq_scale_warn ) : ?>
+			<div class="notice notice-warning inline">
+				<p>
+					<strong><?php esc_html_e( 'Baza wiedzy jest duża.', 'ai-faq-generator' ); ?></strong>
+					<?php
+					printf(
+						/* translators: 1: liczba fragmentów w bazie, 2: próg ostrzeżenia */
+						esc_html__( 'Masz %1$s fragmentów (próg ostrzeżenia: %2$s). Generator porównuje pytanie z każdym fragmentem, więc czas odpowiedzi rośnie wraz z rozmiarem bazy. Jeśli odpowiedzi zaczną się opóźniać, zawęź źródła treści w Ustawieniach — na przykład wyłączając z indeksowania archiwa i strony bez wartości merytorycznej.', 'ai-faq-generator' ),
+						'<strong>' . esc_html( number_format_i18n( (int) $aifaq_stats['chunks'] ) ) . '</strong>',
+						esc_html( number_format_i18n( $aifaq_scale_warn ) )
+					);
+					?>
+				</p>
+			</div>
+		<?php endif; ?>
+
 		<?php if ( $aifaq_crawl_notice ) : ?>
 			<div class="notice notice-warning inline">
 				<p>
@@ -396,6 +421,30 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 				);
 				?>
 			</p>
+		<?php endif; ?>
+
+		<?php
+		// K23 etap 5, decyzja D6-B: dziennik rośnie bez sufitu, bo retencja jest
+		// opt-in i TAKA ZOSTAJE („nie kasujemy danych klienta bez jego decyzji").
+		// Zamiast włączać czyszczenie za właściciela — mówimy mu, że pora zdecydować.
+		$aifaq_log_warn = class_exists( '\AIFAQ\Data\QaLogRepository' )
+			? (int) \AIFAQ\Data\QaLogRepository::SIZE_WARN_ROWS
+			: 50000;
+		?>
+		<?php if ( (int) $aifaq_qa['total'] > $aifaq_log_warn ) : ?>
+			<div class="notice notice-warning inline">
+				<p>
+					<strong><?php esc_html_e( 'Dziennik pytań mocno urósł.', 'ai-faq-generator' ); ?></strong>
+					<?php
+					printf(
+						/* translators: 1: liczba wpisów w dzienniku, 2: próg ostrzeżenia */
+						esc_html__( 'Masz %1$s wpisów (próg ostrzeżenia: %2$s). Wtyczka NIE kasuje ich sama — automatyczne czyszczenie jest wyłączone, dopóki sam go nie włączysz. Jeśli nie potrzebujesz pełnej historii, ustaw retencję w Ustawieniach; możesz też wyczyścić dziennik ręcznie.', 'ai-faq-generator' ),
+						'<strong>' . esc_html( number_format_i18n( (int) $aifaq_qa['total'] ) ) . '</strong>',
+						esc_html( number_format_i18n( $aifaq_log_warn ) )
+					);
+					?>
+				</p>
+			</div>
 		<?php endif; ?>
 
 		<p>

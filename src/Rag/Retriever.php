@@ -30,6 +30,26 @@ class Retriever {
 	const PAGE_SIZE = 200;
 
 	/**
+	 * Próg ostrzeżenia o rozmiarze bazy wiedzy (K23 etap 5, decyzja D3-A).
+	 *
+	 * `retrieve()` liczy cosinus dla KAŻDEGO fragmentu w bazie i sortuje wynik —
+	 * koszt rośnie LINIOWO z rozmiarem bazy, bez indeksu przybliżonego (ANN).
+	 * Zmierzone w etapie 4 (`plany/LOAD-TEST-REPORT.md`): czas na rekord jest
+	 * płaski aż do 50 000 fragmentów, ale przy tym poziomie całość zajmuje 5,8 s
+	 * na pytanie — czyli po stronie gościa to już awaria, nie spowolnienie.
+	 *
+	 * 5000 to próg OSTRZEGAWCZY, nie limit: przy tej wielkości retrieval mieści
+	 * się jeszcze w setkach milisekund, więc właściciel dostaje sygnał ZANIM
+	 * zrobi się nieprzyjemnie. Nic nie jest blokowane — realna witryna klienta
+	 * tej wtyczki ma kilkaset stron, a nie dziesiątki tysięcy, więc twardy limit
+	 * karałby przypadek, który praktycznie nie występuje.
+	 *
+	 * Świadomie NIE wdrażamy tu ANN: wymagałby rozszerzenia MySQL albo osobnej
+	 * bazy wektorowej, co łamie założenie „wtyczka działa na zwykłym hostingu".
+	 */
+	const SCALE_WARN_CHUNKS = 5000;
+
+	/**
 	 * @var KnowledgeRepository
 	 */
 	private $repo;
