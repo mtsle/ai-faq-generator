@@ -3,17 +3,29 @@
  * Plugin Name:       AI FAQ Generator
  * Plugin URI:        https://github.com/mtsle/ai-faq-generator
  * Description:       Generator FAQ zawężony do tematu strony (RAG + embeddingi Gemini): gość pyta i dostaje odpowiedź wyłącznie w temacie treści strony. Dane strukturalne JSON-LD (FAQPage) zgodne ze Schema.org.
- * Version:           0.33.0
+ * Version:           0.34.0
  * Requires at least: 6.4
  * Requires PHP:      8.0
  * Author:            mtsle
  * Author URI:        https://github.com/mtsle
- * License:           GPL-2.0-or-later
+ * License:           GPLv2
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       ai-faq-generator
  * Domain Path:       /languages
  *
  * @package AI_FAQ_Generator
+ *
+ * Copyright (C) 2026 mtsle
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the Free
+ * Software Foundation; version 2 of the License.
+ * Pełny tekst licencji: plik LICENSE w katalogu wtyczki.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
  */
 
 // Blokada bezpośredniego wywołania pliku.
@@ -22,7 +34,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // --- Stałe wtyczki ---------------------------------------------------------
-define( 'AIFAQ_VERSION', '0.33.0' );
+define( 'AIFAQ_VERSION', '0.34.0' );
 define( 'AIFAQ_DB_VERSION', '6' );
 define( 'AIFAQ_PLUGIN_FILE', __FILE__ );
 define( 'AIFAQ_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
