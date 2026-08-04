@@ -5,10 +5,10 @@ publicznej podstronie `/faqgenerator`, a odpowiedź powstaje **wyłącznie w tem
 treści tej strony** (RAG + embeddingi Gemini) — pytania off-topic są odrzucane.
 Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 
-> **Status:** **v0.34.0** · **Kroki 0–22 gotowe** (dwie połówki produktu) ·
-> **Krok 23 „domknięcie → v1.0.0" w toku: 8 etapów z 10 zrobionych.**
-> Zostały dwa: **audyt** (odłożony na sygnał właściciela projektu) i **domknięcie v1.0.0**.
-> **Zakres ze zlecenia (pkt 1–8) jest ZAMKNIĘTY** od Kroku 16.
+> **Status: v1.0.0 — produkt domknięty.** Wszystkie Kroki 0–23 zamknięte.
+> Zakres ze zlecenia (pkt 1–8) zamknięty od Kroku 16; Krok 23 („domknięcie") zakończony
+> 2026-08-03. Etap „audyt" **świadomie zdjęty z zakresu** decyzją właściciela projektu —
+> nie został wykonany i nie jest ukryty pod tym numerem wersji.
 >
 > **Połówka generator (kokpit)** — gotowa do oddania klientowi: `Faq\FaqGenerator` (temat→pary Q&A
 > jako structured JSON) · REST `/admin/generate-faq` · ekran „Narzędzie FAQ" · eksport do 5 formatów
@@ -42,11 +42,10 @@ Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 > WP-Cron, miernik zużycia sufitu na Dashboardzie, limiter na `/admin/generate-faq`, cache odmów
 > off-topic, realny `score` przy trafieniu cache (`AIFAQ_DB_VERSION` 4→5).
 >
-> **Krok 23 (v0.30.0 – v0.34.0, w toku):** etapy 1–8 z 10 — debug+split (dekompozycja
-> `RestController`) · RWA · testy segmenty · testy obciążeniowe (`DB_VERSION` 5→6) · testy while ·
-> dokumentacja · **Kompatybilność Batch** (README zderzone z kodem: 107 twierdzeń, 8 rozjazdów
-> naprawionych) · **LICENSE / `readme.txt`**. **Zostały: audyt → domknięcie v1.0.0.**
-> Szczegóły niżej, w sekcji „Kroki 21–23".
+> **Krok 23 (v0.30.0 – v1.0.0) — ZAMKNIĘTY:** debug+split (dekompozycja `RestController`) ·
+> RWA · testy segmenty · testy obciążeniowe (`DB_VERSION` 5→6) · testy while · dokumentacja ·
+> **Kompatybilność Batch** (README zderzone z kodem: 107 twierdzeń, 8 rozjazdów naprawionych) ·
+> **LICENSE / `readme.txt`** · **domknięcie v1.0.0**. Szczegóły niżej, w sekcji „Kroki 21–23".
 
 ## Założenia
 - **Dwa miejsca działania** — kokpit wp-admin (dla właściciela) oraz publiczna
@@ -268,7 +267,7 @@ pulę co `/ask`); **cache odmów off-topic** (powtórzone pytanie spoza tematu n
 drugi raz); **realny `score` przy trafieniu cache** (dotąd log zapisywał zmyślone `1.0`) —
 `AIFAQ_DB_VERSION` 4→5, migracja addytywna.
 
-### Domknięcie v1.0.0 (Krok 23, v0.30.0 – v0.34.0) — 8 etapów z 10
+### Domknięcie v1.0.0 (Krok 23, v0.30.0 – v1.0.0) — ZAMKNIĘTY
 
 | etap | co zrobił |
 |---|---|
@@ -280,8 +279,8 @@ drugi raz); **realny `score` przy trafieniu cache** (dotąd log zapisywał zmyś
 | 6. Dokumentacja ✅ | pięć dokumentów PDF dla klienta i informatyka (**poza tym repo**, w katalogu `instrukcje/` obok wtyczki) + 37 zrzutów ekranu i 5 diagramów Draw.io |
 | 7. Kompatybilność Batch ✅ | całe README zderzone z wykonywalnym kodem: **107 twierdzeń**, z tego 8 mijało się z implementacją — wszystkie naprawione. Najpoważniejsze: tabela uprawnień obiecywała Redaktorowi ekran „Narzędzie FAQ", który wymaga `manage_options`; README zaniżało liczbę filtrów (19 zamiast 24); zdanie „właściciel nie jest blokowany przez sufit" było nieprawdą |
 | 8. LICENSE / readme.txt ✅ | `LICENSE` z dosłownym tekstem GNU GPL v2 (339 linii) i `readme.txt` dla klienta — z ujawnieniem usługi zewnętrznej (Google Gemini), modelu BYOK i dziennika z hashem IP |
-| 9. Audyt ⏸️ | **odłożony na sygnał właściciela projektu** — świadoma decyzja, nie pominięcie |
-| 10. Domknięcie ⏳ | `AIFAQ_VERSION` → **v1.0.0**, po audycie |
+| 9. Audyt ❌ | **NIE WYKONANY — świadomie zdjęty z zakresu** decyzją właściciela projektu (2026-08-03). Nie jest to etap „zaliczony po cichu": osobnego audytu przed v1.0.0 nie było. Warto pamiętać, że pełny audyt bezpieczeństwa całej wtyczki przeszedł wcześniej, w **v0.26.0**, a etapy 1–5 tego Kroku były w praktyce ciągiem audytów (red team, wydajność, architektura, obciążenie, cykl życia na żywo) |
+| 10. Domknięcie ✅ | `AIFAQ_VERSION` → **1.0.0**, tag i release |
 
 **Testy.** W `tests/` leży **60 zestawów** spinanych własnym runnerem (`zasoby/run-tests.sh` —
 **poza tym repo**, w katalogu roboczym projektu obok wtyczki): **60/60 przechodzi**. Runner nie

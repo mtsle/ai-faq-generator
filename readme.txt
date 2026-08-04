@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Tested up to: 7.0.2
 Requires PHP: 8.0
-Stable tag: 0.34.0
+Stable tag: 1.0.0
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -154,6 +154,11 @@ narzędzia. Ekran „Narzędzie FAQ" w kokpicie pozostaje przy uprawnieniach adm
 == Changelog ==
 
 Skrót najważniejszych wydań. Pełna historia zmian znajduje się w repozytorium projektu.
+
+= 1.0.0 =
+* **Wydanie domykające produkt.** Zakres ze zlecenia zamknięty, wtyczka gotowa do oddania.
+* Bez zmian funkcjonalnych względem 0.34.0 — to domknięcie numeru wersji, a nie nowe funkcje.
+* Schemat bazy bez zmian; aktualizacja z każdej wersji 0.2x–0.34 nie wymaga żadnych działań.
 
 = 0.34.0 =
 * Pierwsze wydanie z plikami `LICENSE` (pełny tekst GNU GPL v2) i `readme.txt`.
