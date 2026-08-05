@@ -53,10 +53,12 @@ define( 'AINP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
  * Kolejnosc ma znaczenie tylko tyle, ze `Plugin` i `Admin` siegaja do
  * `Settings` dopiero w czasie wykonania, nie przy ladowaniu pliku.
  *
- * Krok 1 zamyka sie na trzech klasach. W Kroku 2 dojda kolejno: Http, Feed,
- * Dedup; dalej Article, Filter, Gemini, Validator, Publisher, Runner, Portal.
+ * Krok 1 zamknal sie na trzech klasach. W Kroku 2 dochodza kolejno: Http (2.1),
+ * Feed (2.2), Dedup (2.3); dalej Article, Filter, Gemini, Validator, Publisher,
+ * Runner, Portal.
  */
 require_once AINP_PLUGIN_DIR . 'src/Settings.php';
+require_once AINP_PLUGIN_DIR . 'src/Http.php';
 require_once AINP_PLUGIN_DIR . 'src/Plugin.php';
 require_once AINP_PLUGIN_DIR . 'src/Admin.php';
 
