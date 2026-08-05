@@ -61,6 +61,7 @@ require_once AINP_PLUGIN_DIR . 'src/Settings.php';
 require_once AINP_PLUGIN_DIR . 'src/Http.php';
 require_once AINP_PLUGIN_DIR . 'src/Feed.php';
 require_once AINP_PLUGIN_DIR . 'src/Dedup.php';
+require_once AINP_PLUGIN_DIR . 'src/Runner.php';
 require_once AINP_PLUGIN_DIR . 'src/Plugin.php';
 require_once AINP_PLUGIN_DIR . 'src/Admin.php';
 
