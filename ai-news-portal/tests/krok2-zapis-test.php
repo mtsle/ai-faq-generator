@@ -180,10 +180,14 @@ namespace AINP {
 		}
 	}
 
-	/** Atrapa ustawien — potrzebna jest tylko nazwa opcji ze zrodlami. */
+	/** Atrapa ustawien: nazwa opcji ze zrodlami i lista domyslna. */
 	class Settings {
 
 		public const OPTION_SOURCES = 'ainp_sources';
+
+		public static function default_sources(): array {
+			return array( 'https://domyslny-1.pl/feed/', 'https://domyslny-2.pl/feed/' );
+		}
 	}
 }
 
@@ -477,8 +481,16 @@ namespace {
 	$GLOBALS['__opt']['ainp_sources'] = 'nie-tablica';
 	k2z_check( 0 === count( Runner::sources() ), 'opcja w zlym typie: pusta lista zamiast bledu' );
 
+	/*
+	 * Brak opcji (swieza instalacja) to co innego niz opcja zapisana jako pusta
+	 * tablica (klient swiadomie wyczyscil liste). Pierwsze daje kanaly domyslne,
+	 * drugie zostaje puste.
+	 */
 	unset( $GLOBALS['__opt']['ainp_sources'] );
-	k2z_check( 0 === count( Runner::sources() ), 'brak opcji: pusta lista' );
+	k2z_check( 2 === count( Runner::sources() ), 'brak opcji: kanaly domyslne' );
+
+	$GLOBALS['__opt']['ainp_sources'] = array();
+	k2z_check( 0 === count( Runner::sources() ), 'lista wyczyszczona swiadomie: zostaje pusta' );
 
 	$wpdb = k2z_reset();
 	$w    = Runner::collect( array() );

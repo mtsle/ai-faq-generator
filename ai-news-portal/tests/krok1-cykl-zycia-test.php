@@ -100,9 +100,39 @@ class AINP_Fake_WPDB {
 	public function get_charset_collate() {
 		return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_520_ci';
 	}
+	// Od etapu 2.5 ekran Materialow czyta tabele — atrapa musi to udzwignac.
+	public function prepare( $sql, ...$args ) {
+		return $sql;
+	}
+	public function get_results( $sql ) {
+		return array();
+	}
 }
 $GLOBALS['wpdb'] = new AINP_Fake_WPDB();
 
+// Potrzebne od etapu 2.5: ekran Materialow rozklada adresy pozycji na czesci,
+// czyta podsumowanie ostatniego pobrania i rysuje formularz.
+function wp_parse_url( $url, $component = -1 ) {
+	return parse_url( $url, $component );
+}
+function get_transient( $k ) {
+	return false;
+}
+function delete_transient( $k ) {
+	return true;
+}
+function wp_nonce_field( $action, $pole ) {
+	echo '<input type="hidden" name="' . $pole . '" value="nonce" />';
+}
+function submit_button( $tekst, $typ = 'primary', $nazwa = 'submit', $wrap = true ) {
+	echo '<button type="submit">' . $tekst . '</button>';
+}
+function checked( $a, $b = true, $echo = true ) {
+	return ( $a === $b ) ? 'checked="checked"' : '';
+}
+function esc_textarea( $t ) {
+	return htmlspecialchars( (string) $t, ENT_QUOTES, 'UTF-8' );
+}
 function get_option( $k, $default = false ) {
 	return array_key_exists( $k, $GLOBALS['__opt'] ) ? $GLOBALS['__opt'][ $k ] : $default;
 }
@@ -243,6 +273,15 @@ function add_submenu_page( $parent, $page_title, $menu_title, $cap, $slug, $cb =
 }
 
 require_once $root . '/src/Settings.php';
+/*
+ * Od etapu 2.5 ekran Materialow siega po `Runner::sources()`, a `Runner`
+ * po `Http` i `Dedup`. Zaden z nich nie robi niczego przy ladowaniu pliku,
+ * ale musza byc znane, inaczej render konczy sie bledem krytycznym.
+ */
+require_once $root . '/src/Http.php';
+require_once $root . '/src/Feed.php';
+require_once $root . '/src/Dedup.php';
+require_once $root . '/src/Runner.php';
 require_once $root . '/src/Plugin.php';
 require_once $root . '/src/Admin.php';
 

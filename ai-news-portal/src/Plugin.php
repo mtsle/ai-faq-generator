@@ -74,6 +74,9 @@ final class Plugin {
 		add_action( 'init', array( self::class, 'register_content_types' ) );
 		add_action( 'admin_menu', array( Admin::class, 'register_menu' ) );
 		add_action( 'admin_notices', array( self::class, 'render_admin_notices' ) );
+
+		// Akcje formularzy panelu (`admin_post_ainp_*`) — etap 2.5.
+		Admin::register_actions();
 	}
 
 	/**

@@ -232,10 +232,19 @@ final class Runner {
 	/**
 	 * Adresy kanalow z ustawien.
 	 *
+	 * Rozroznienie jest celowe: BRAK opcji (swieza instalacja) daje cztery
+	 * kanaly domyslne, a opcja zapisana jako PUSTA tablica daje pustke.
+	 * Klient, ktory swiadomie wyczyscil liste, nie ma jej dostawac z powrotem
+	 * przy kazdym przebiegu.
+	 *
 	 * @return array<int,string>
 	 */
 	public static function sources(): array {
-		$zapisane = get_option( Settings::OPTION_SOURCES, array() );
+		$zapisane = get_option( Settings::OPTION_SOURCES, null );
+
+		if ( null === $zapisane || false === $zapisane ) {
+			return self::clean_sources( Settings::default_sources() );
+		}
 
 		return is_array( $zapisane ) ? self::clean_sources( $zapisane ) : array();
 	}

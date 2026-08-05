@@ -47,6 +47,32 @@ final class Settings {
 	public const KEY_DEMO_DONE = 'ainp_demo_done';
 
 	/**
+	 * Domyslne kanaly RSS — cztery, ZWERYFIKOWANE 2026-08-05 przez otwarcie
+	 * kazdego XML-a, nie wziete z wyszukiwarki.
+	 *
+	 * Wszystkie cztery podaja pelna tresc w `content:encoded`, wiec dzialaja
+	 * bez scrapingu. Dwa z nich (ccw24.pl, pupilepodochrona.pl) MIESZAJA psy
+	 * z kotami — stad warstwa 1 slow wykluczajacych nizej; bez niej portal
+	 * o psach zapelnilby sie artykulami o kotach.
+	 *
+	 * Swiadomie POZA lista: accdog.pl (blog sklepowy, tresc sprzedazowa)
+	 * i wymarzonypies.pl (glownie ogloszenia i obozy) — oba podaja same
+	 * zajawki. Przy weryfikacji odpadly: psiedobre.pl (oddaje HTML zamiast
+	 * RSS), weterynarzpluto.pl (404), superzoo.com.pl (403 dla kazdego
+	 * nieprzegladarkowego User-Agenta — nasz tez by dostal 403).
+	 *
+	 * @return array<int,string>
+	 */
+	public static function default_sources(): array {
+		return array(
+			'https://www.psy.pl/feed/',
+			'https://ccw24.pl/feed/',
+			'https://pupilepodochrona.pl/feed/',
+			'https://psiedszkole.pl/feed/',
+		);
+	}
+
+	/**
 	 * Wartosci domyslne `ainp_settings`.
 	 *
 	 * Kategorie i slowa wykluczajace sa zweryfikowane 2026-08-05 na czterech
