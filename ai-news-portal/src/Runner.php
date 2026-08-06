@@ -56,6 +56,21 @@ final class Runner {
 	 */
 	public const MAX_ITEMS_PER_SOURCE = 100;
 
+	/** Status pozycji, ktorej nie udalo sie doprowadzic do konca. */
+	public const STATUS_FAILED = 'failed';
+
+	/**
+	 * Ile razy probujemy, zanim pozycja idzie na `failed`.
+	 *
+	 * Dotyczy WYLACZNIE bledow przejsciowych (timeout, 429, 5xx, brak pamieci).
+	 * Blad trwaly — 404, zakaz z `robots.txt` — konczy pozycje od razu:
+	 * ponawianie go tylko zjada budzet czasu.
+	 */
+	public const MAX_ATTEMPTS = 3;
+
+	/** Ile pozycji bierze jeden przebieg przygotowania tresci. */
+	public const PREPARE_BATCH = 10;
+
 	/** Sufit dlugosci adresu — tyle ma kolumna `url varchar(2048)`. */
 	public const MAX_URL_BYTES = 2048;
 
@@ -270,6 +285,336 @@ final class Runner {
 		}
 
 		return $odsiane ? 'skipped' : 'added';
+	}
+
+	// -----------------------------------------------------------------------
+	// Przygotowanie tresci (etap 3.6)
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Doprowadza pozycje do stanu, w ktorym ma tresc i odcisk tresci.
+	 *
+	 * ETAP 3.6. To druga polowa drogi materialu: zebranie skonczylo sie na
+	 * wierszu z adresem i trescia z kanalu, tutaj dochodzi tresc pelna,
+	 * oczyszczona i ODCISNIETA. Wywolanie modelu jest dopiero w Kroku 4,
+	 * a cron w Kroku 5 — do tego czasu przebieg odpala czlowiek przyciskiem
+	 * „Przygotuj treści".
+	 *
+	 * Bierzemy tylko pozycje, ktore odcisku jeszcze nie maja. Odcisk jest
+	 * wiec jednoczesnie znacznikiem „ta pozycja jest juz przygotowana" —
+	 * osobna kolumna na to samo byla by trzecim stanem do pilnowania.
+	 *
+	 * @param int $limit Ile pozycji wziac.
+	 *
+	 * @return array<string,mixed> Podsumowanie w ksztalcie `prepare_summary()`.
+	 */
+	public static function prepare_batch( int $limit = self::PREPARE_BATCH ): array {
+		global $wpdb;
+
+		$wynik = self::prepare_summary();
+
+		$sql = 'SELECT id, url, url_hash, title, excerpt, content, status, attempts FROM ' . Plugin::table()
+			. ' WHERE status = %s AND ( content_hash IS NULL OR content_hash = %s )'
+			. ' ORDER BY id ASC LIMIT %d';
+
+		$wiersze = $wpdb->get_results( $wpdb->prepare( $sql, self::STATUS_NEW, '', max( 1, $limit ) ) ); // phpcs:ignore WordPress.DB
+
+		if ( ! is_array( $wiersze ) ) {
+			return $wynik;
+		}
+
+		$slowa = Filter::words();
+
+		foreach ( $wiersze as $wiersz ) {
+			$wynik['taken']++;
+
+			try {
+				$los = self::prepare_item( $wiersz, $slowa );
+			} catch ( \Throwable $e ) {
+				// Ta sama zasada co przy zbieraniu: jedna polamana pozycja
+				// nie ma prawa zatrzymac calego przebiegu.
+				$los                                   = 'error';
+				$wynik['errors'][ (int) $wiersz->id ] = $e->getMessage();
+			}
+
+			if ( isset( $wynik[ $los ] ) ) {
+				$wynik[ $los ]++;
+			}
+		}
+
+		return $wynik;
+	}
+
+	/**
+	 * Przygotowuje JEDNA pozycje: tresc, adres kanoniczny, odcisk tresci.
+	 *
+	 * Kolejnosc krokow jest cala trescia tego etapu i nie wolno jej zamienic:
+	 *
+	 *   1. FILTR jeszcze raz. Wiersze zebrane, zanim filtr powstal, nigdy go
+	 *      nie widzialy; bez tego sprawdzenia poszlyby prosto do scrapingu.
+	 *      Kosztuje zero zadan sieciowych, a oszczedza jedno na kazdej
+	 *      odsianej pozycji.
+	 *   2. SCRAPING tylko wtedy, gdy tresc z kanalu jest za krotka.
+	 *   3. CANONICAL przed odciskiem tresci: podmiana adresu potrafi odslonic
+	 *      duplikat, ktorego nie widac bylo po adresie z kanalu.
+	 *   4. ODCISK TRESCI na koncu, juz po oczyszczeniu — inaczej ten sam tekst
+	 *      raz z reklama, raz bez, dawalby dwa rozne odciski.
+	 *
+	 * @param object                 $row   Wiersz tabeli.
+	 * @param array<int,string>|null $words Slowa wykluczajace.
+	 *
+	 * @return string `ready`, `skipped`, `retry`, `failed` albo `error`.
+	 */
+	public static function prepare_item( $row, ?array $words = null ): string {
+		$id  = isset( $row->id ) ? (int) $row->id : 0;
+		$url = isset( $row->url ) ? (string) $row->url : '';
+
+		if ( 0 === $id ) {
+			return 'error';
+		}
+
+		$pozycja = array(
+			'title'   => isset( $row->title ) ? (string) $row->title : '',
+			'excerpt' => isset( $row->excerpt ) ? (string) $row->excerpt : '',
+			'content' => isset( $row->content ) ? (string) $row->content : '',
+		);
+
+		// 1. Filtr — dla wierszy zebranych, zanim filtr istnial.
+		$slowo = Filter::match( $pozycja, $words );
+
+		if ( '' !== $slowo ) {
+			self::finish( $id, self::STATUS_SKIPPED, Filter::note( $slowo ) );
+			return 'skipped';
+		}
+
+		$html = $pozycja['content'];
+
+		// 2. Scraping tylko przy zbyt krotkiej tresci z kanalu.
+		if ( Article::needs_scraping( $html ) ) {
+			$pobrane = Article::fetch( $url );
+
+			if ( ! $pobrane['ok'] ) {
+				return self::after_failure( $row, $pobrane );
+			}
+
+			$wyciete = Article::extract( $pobrane['html'], $url );
+
+			if ( ! $wyciete['ok'] ) {
+				self::finish( $id, self::STATUS_SKIPPED, $wyciete['error'] );
+				return 'skipped';
+			}
+
+			$html = (string) $wyciete['html'];
+
+			// 3. Canonical moze odslonic duplikat niewidoczny po adresie z kanalu.
+			if ( '' !== $wyciete['canonical'] && ! self::claim_canonical( $id, (string) $wyciete['canonical'], $row ) ) {
+				self::finish( $id, self::STATUS_SKIPPED, 'Duplikat: ten sam artykuł jest już w tabeli pod adresem kanonicznym' );
+				return 'skipped';
+			}
+		}
+
+		$czysta = Article::clean( $html );
+
+		if ( ! Article::is_long_enough( $czysta ) ) {
+			self::finish( $id, self::STATUS_SKIPPED, Article::short_note( $czysta ) );
+			return 'skipped';
+		}
+
+		// 4. Odcisk tresci — dopiero po oczyszczeniu.
+		if ( ! self::claim_content( $id, $czysta ) ) {
+			self::finish( $id, self::STATUS_SKIPPED, 'Duplikat treści: ten sam tekst jest już w tabeli pod innym adresem' );
+			return 'skipped';
+		}
+
+		return 'ready';
+	}
+
+	/**
+	 * Los pozycji po nieudanym pobraniu.
+	 *
+	 * Blad przejsciowy wraca do kolejki z podbitym licznikiem prob; przy
+	 * `MAX_ATTEMPTS` konczy jako `failed`. Blad trwaly konczy od razu.
+	 *
+	 * @param object              $row     Wiersz.
+	 * @param array<string,mixed> $pobrane Wynik `Article::fetch()`.
+	 *
+	 * @return string `retry` albo `failed`.
+	 */
+	private static function after_failure( $row, array $pobrane ): string {
+		global $wpdb;
+
+		$id    = (int) $row->id;
+		$proby = isset( $row->attempts ) ? (int) $row->attempts : 0;
+		$blad  = (string) $pobrane['error'];
+
+		if ( empty( $pobrane['retryable'] ) ) {
+			self::finish( $id, self::STATUS_FAILED, $blad );
+			return 'failed';
+		}
+
+		$proby++;
+
+		if ( $proby >= self::MAX_ATTEMPTS ) {
+			self::finish( $id, self::STATUS_FAILED, $blad . ' (prób: ' . $proby . ')' );
+			return 'failed';
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, note = %s, attempts = %d, updated_at = %s WHERE id = %d',
+				self::STATUS_NEW,
+				self::fit( $blad ),
+				$proby,
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return 'retry';
+	}
+
+	/**
+	 * Podmienia adres na kanoniczny — albo rozpoznaje duplikat.
+	 *
+	 * O kolizje pyta BAZA, nie kod: `UPDATE IGNORE` na kolumnie z kluczem
+	 * `UNIQUE` przy konflikcie nie zmienia wiersza i nie zglasza bledu.
+	 * Poznajemy to po odczycie: skoro odcisk nie jest tym, ktory wpisywalismy,
+	 * to znaczy, ze zajmuje go inny wiersz.
+	 *
+	 * @param string $canonical Adres kanoniczny.
+	 * @param int    $id        Identyfikator wiersza.
+	 * @param object $row       Wiersz.
+	 *
+	 * @return bool `false`, gdy adres kanoniczny nalezy juz do innej pozycji.
+	 */
+	private static function claim_canonical( int $id, string $canonical, $row ): bool {
+		global $wpdb;
+
+		$hash = Dedup::url_hash( $canonical );
+
+		if ( '' === $hash ) {
+			return true;
+		}
+
+		$stary = isset( $row->url_hash ) ? (string) $row->url_hash : '';
+
+		// Ten sam zasob pod tym samym odciskiem — nie ma czego podmieniac.
+		if ( $hash === $stary ) {
+			return true;
+		}
+
+		if ( strlen( $canonical ) > self::MAX_URL_BYTES ) {
+			return true;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE IGNORE ' . Plugin::table() . ' SET url = %s, url_hash = %s, updated_at = %s WHERE id = %d',
+				$canonical,
+				$hash,
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return $hash === self::read_column( $id, 'url_hash' );
+	}
+
+	/**
+	 * Zapisuje tresc i jej odcisk — albo rozpoznaje duplikat tresci.
+	 *
+	 * @param int    $id     Identyfikator wiersza.
+	 * @param string $tresc  Tresc po oczyszczeniu.
+	 *
+	 * @return bool `false`, gdy ten sam tekst wisi juz pod innym adresem.
+	 */
+	private static function claim_content( int $id, string $tresc ): bool {
+		global $wpdb;
+
+		$hash = Dedup::content_hash( $tresc );
+
+		if ( '' === $hash ) {
+			return true;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE IGNORE ' . Plugin::table() . ' SET content = %s, content_hash = %s, note = %s, attempts = 0, updated_at = %s WHERE id = %d',
+				wp_encode_emoji( $tresc ),
+				$hash,
+				'',
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return $hash === self::read_column( $id, 'content_hash' );
+	}
+
+	/**
+	 * Zamyka pozycje: status, powod i wyczyszczona tresc.
+	 *
+	 * Tresc jest zerowana, bo pozycja `skipped` i `failed` nie pojdzie juz do
+	 * modelu, a kanal z pelnymi tekstami zostawialby po kilkadziesiat kilobajtow
+	 * na kazdej odrzuconej pozycji.
+	 *
+	 * @param int    $id     Identyfikator wiersza.
+	 * @param string $status Status koncowy.
+	 * @param string $note   Powod.
+	 *
+	 * @return void
+	 */
+	private static function finish( int $id, string $status, string $note ): void {
+		global $wpdb;
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, note = %s, content = %s, updated_at = %s WHERE id = %d',
+				$status,
+				self::fit( $note ),
+				'',
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+	}
+
+	/**
+	 * Odczyt jednej kolumny wiersza.
+	 *
+	 * Nazwa kolumny pochodzi WYLACZNIE ze stalych w tym pliku — nigdy
+	 * z zadania, wiec nie ma tu czego przygotowywac przez `prepare()`.
+	 *
+	 * @param int    $id      Identyfikator wiersza.
+	 * @param string $kolumna Nazwa kolumny.
+	 *
+	 * @return string
+	 */
+	private static function read_column( int $id, string $kolumna ): string {
+		global $wpdb;
+
+		$wartosc = $wpdb->get_var(
+			$wpdb->prepare( 'SELECT ' . $kolumna . ' FROM ' . Plugin::table() . ' WHERE id = %d', $id )
+		); // phpcs:ignore WordPress.DB
+
+		return ( null === $wartosc ) ? '' : (string) $wartosc;
+	}
+
+	/**
+	 * Pusty ksztalt podsumowania przygotowania tresci.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function prepare_summary(): array {
+		return array(
+			'taken'   => 0,
+			'ready'   => 0,
+			'skipped' => 0,
+			'retry'   => 0,
+			'failed'  => 0,
+			'error'   => 0,
+			'errors'  => array(),
+		);
 	}
 
 	// -----------------------------------------------------------------------

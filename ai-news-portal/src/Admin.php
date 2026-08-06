@@ -46,6 +46,15 @@ final class Admin {
 	/** Akcja `admin_post_`: zapis ustawien. */
 	public const ACTION_SAVE = 'ainp_save_settings';
 
+	/**
+	 * Akcja `admin_post_`: przygotowanie tresci na zadanie (etap 3.6).
+	 *
+	 * Przycisk jest tymczasowy w tym sensie, ze w Kroku 5 te sama prace
+	 * odpali cron. Zostaje jednak w panelu na stale: bez niego na stronie
+	 * bez ruchu nie da sie ruszyc przetwarzania z reki.
+	 */
+	public const ACTION_PREPARE = 'ainp_prepare';
+
 	/** Nazwa pola z nonce'em — wspolna dla obu akcji. */
 	public const NONCE_FIELD = '_ainp_nonce';
 
@@ -59,6 +68,9 @@ final class Admin {
 	 * wzorcem `_transient_ainp_%`.
 	 */
 	public const TRANSIENT_RUN = 'ainp_last_run_';
+
+	/** Prefiks transientu z podsumowaniem ostatniego przygotowania tresci. */
+	public const TRANSIENT_PREP = 'ainp_last_prep_';
 
 	// -----------------------------------------------------------------------
 	// Rejestracja
@@ -109,6 +121,7 @@ final class Admin {
 	 */
 	public static function register_actions(): void {
 		add_action( 'admin_post_' . self::ACTION_FETCH, array( self::class, 'handle_fetch' ) );
+		add_action( 'admin_post_' . self::ACTION_PREPARE, array( self::class, 'handle_prepare' ) );
 		add_action( 'admin_post_' . self::ACTION_SAVE, array( self::class, 'handle_save_settings' ) );
 	}
 
@@ -134,6 +147,26 @@ final class Admin {
 		set_transient( self::TRANSIENT_RUN . get_current_user_id(), $podsumowanie, 300 );
 
 		self::redirect_back( self::SLUG_ITEMS, 'pobrano' );
+	}
+
+	/**
+	 * „Przygotuj treści" — jedna partia pozycji na zadanie czlowieka.
+	 *
+	 * ETAP 3.6. Praca jest ta sama, ktora w Kroku 5 przejmie cron: filtr,
+	 * scraping przy zbyt krotkiej tresci, ekstrakcja, oczyszczenie i odcisk
+	 * tresci. Partia jest maleńka (10 pozycji), bo kazda moze oznaczac jedno
+	 * zadanie sieciowe, a przegladarka nie ma na to czekac w nieskonczonosc.
+	 *
+	 * @return void
+	 */
+	public static function handle_prepare(): void {
+		self::guard( self::ACTION_PREPARE );
+
+		$podsumowanie = Runner::prepare_batch();
+
+		set_transient( self::TRANSIENT_PREP . get_current_user_id(), $podsumowanie, 300 );
+
+		self::redirect_back( self::SLUG_ITEMS, 'przygotowano' );
 	}
 
 	/**
@@ -348,6 +381,7 @@ final class Admin {
 		echo '<h1>' . esc_html__( 'AI News Portal — Materiały', 'ai-news-portal' ) . '</h1>';
 
 		self::render_run_notice();
+		self::render_prep_notice();
 
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION_FETCH ) . '" />';
@@ -360,6 +394,23 @@ final class Admin {
 					/* translators: %d: liczba kanalow RSS */
 					__( 'Kanałów na liście: %d. Pobieranie nie tworzy jeszcze artykułów — te powstają w kroku z modelem AI.', 'ai-news-portal' ),
 					count( $zrodla )
+				)
+			)
+			. '</span>';
+		echo '</p>';
+		echo '</form>';
+
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION_PREPARE ) . '" />';
+		wp_nonce_field( self::ACTION_PREPARE, self::NONCE_FIELD );
+		echo '<p>';
+		submit_button( __( 'Przygotuj treści', 'ai-news-portal' ), 'secondary', 'submit', false );
+		echo ' <span class="description">'
+			. esc_html(
+				sprintf(
+					/* translators: %d: rozmiar partii */
+					__( 'Bierze %d pozycji: odsiewa słowami wykluczającymi, dobiera pełną treść, gdy kanał podał samą zapowiedź, i odrzuca powtórki treści.', 'ai-news-portal' ),
+					Runner::PREPARE_BATCH
 				)
 			)
 			. '</span>';
@@ -418,6 +469,44 @@ final class Admin {
 
 		foreach ( (array) $podsumowanie['errors'] as $zrodlo => $blad ) {
 			echo '<p><strong>' . esc_html( (string) $zrodlo ) . '</strong>: ' . esc_html( (string) $blad ) . '</p>';
+		}
+
+		echo '</div>';
+	}
+
+	/**
+	 * Podsumowanie ostatniego przygotowania tresci.
+	 *
+	 * @return void
+	 */
+	private static function render_prep_notice(): void {
+		$klucz        = self::TRANSIENT_PREP . get_current_user_id();
+		$podsumowanie = get_transient( $klucz );
+
+		if ( ! is_array( $podsumowanie ) ) {
+			return;
+		}
+
+		delete_transient( $klucz );
+
+		echo '<div class="notice notice-success"><p>' . esc_html(
+			sprintf(
+				/* translators: 1: wziete, 2: gotowe, 3: pominiete, 4: do ponowienia, 5: nieudane */
+				__( 'Przygotowano %1$d pozycji: %2$d z treścią gotową, %3$d pominiętych, %4$d do ponowienia, %5$d nieudanych.', 'ai-news-portal' ),
+				(int) $podsumowanie['taken'],
+				(int) $podsumowanie['ready'],
+				(int) $podsumowanie['skipped'],
+				(int) $podsumowanie['retry'],
+				(int) $podsumowanie['failed']
+			)
+		) . '</p>';
+
+		if ( 0 === (int) $podsumowanie['taken'] ) {
+			echo '<p>' . esc_html__( 'Nie było czego przygotowywać — wszystkie pobrane pozycje mają już treść albo zostały zamknięte.', 'ai-news-portal' ) . '</p>';
+		}
+
+		foreach ( (array) $podsumowanie['errors'] as $id => $blad ) {
+			echo '<p><strong>#' . esc_html( (string) $id ) . '</strong>: ' . esc_html( (string) $blad ) . '</p>';
 		}
 
 		echo '</div>';

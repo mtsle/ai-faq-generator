@@ -541,23 +541,50 @@ namespace {
 	// -----------------------------------------------------------------------
 	echo "\n-- Kontrola kodu (po tokenach, nie po tekscie) --\n";
 	// -----------------------------------------------------------------------
+	/*
+	 * Zakres kontroli jest ZAWEZONY do metody `insert_item()`, i to celowo.
+	 * Od Kroku 3 `Runner` ma tez polowe przygotowujaca tresc, ktora zapytan
+	 * `SELECT` uzywa zgodnie z projektem (wybor partii, odczyt odcisku po
+	 * `UPDATE IGNORE`). Zakaz „przeczytaj, potem zapisz" dotyczy DROGI ZAPISU
+	 * pozycji, nie calego pliku — inaczej test zaczalby blokowac kod, ktory
+	 * ma prawo istniec, i skonczylby jako pierwsza rzecz do wyciszenia.
+	 */
+	$reflekcja  = new ReflectionMethod( 'AINP\\Runner', 'insert_item' );
+	$od_linii   = $reflekcja->getStartLine();
+	$do_linii   = $reflekcja->getEndLine();
+
 	$tokeny = token_get_all( file_get_contents( $root . '/src/Runner.php' ) );
 	$nazwy  = array();
 	$teksty = array();
+	$zapis  = array();
+
 	foreach ( $tokeny as $t ) {
-		if ( is_array( $t ) && T_STRING === $t[0] ) {
+		if ( ! is_array( $t ) ) {
+			continue;
+		}
+
+		$w_zapisie = ( $t[2] >= $od_linii && $t[2] <= $do_linii );
+
+		if ( T_STRING === $t[0] ) {
 			$nazwy[ $t[1] ] = true;
 		}
-		if ( is_array( $t ) && ( T_CONSTANT_ENCAPSED_STRING === $t[0] || T_ENCAPSED_AND_WHITESPACE === $t[0] ) ) {
+		if ( T_CONSTANT_ENCAPSED_STRING === $t[0] || T_ENCAPSED_AND_WHITESPACE === $t[0] ) {
 			$teksty[] = $t[1];
+
+			if ( $w_zapisie ) {
+				$zapis[] = $t[1];
+			}
 		}
 	}
-	$sql_w_kodzie = implode( ' ', $teksty );
 
+	$sql_w_kodzie = implode( ' ', $teksty );
+	$sql_w_zapisie = implode( ' ', $zapis );
+
+	k2z_check( $do_linii > $od_linii, 'metoda insert_item() znaleziona przez refleksje' );
 	k2z_check( false !== strpos( $sql_w_kodzie, 'INSERT IGNORE' ), 'w kodzie jest INSERT IGNORE' );
 	k2z_check(
-		false === stripos( $sql_w_kodzie, 'SELECT' ),
-		'kod NIE pyta bazy o duplikat przed zapisem (wzorzec „przeczytaj, potem zapisz")'
+		false === stripos( $sql_w_zapisie, 'SELECT' ),
+		'droga zapisu NIE pyta bazy o duplikat przed zapisem (wzorzec „przeczytaj, potem zapisz")'
 	);
 	k2z_check( isset( $nazwy['prepare'] ), 'kod uzywa $wpdb->prepare()' );
 	k2z_check( isset( $nazwy['wp_encode_emoji'] ), 'kod uzywa wp_encode_emoji()' );
