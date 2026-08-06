@@ -184,6 +184,9 @@ namespace {
 	require_once $root . '/src/Dedup.php';
 	require_once $root . '/src/Settings.php';
 	require_once $root . '/src/Filter.php';
+	// Od naprawy poaudytowej `insert_item()` potwierdza trafienie filtra na
+	// tresci BEZ boksow serwisu, wiec droga zapisu zalezy juz od `Article`.
+	require_once $root . '/src/Article.php';
 	require_once $root . '/src/Runner.php';
 
 	use AINP\Runner;

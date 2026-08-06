@@ -303,10 +303,10 @@ namespace {
 	 */
 	$w_srodku = '<html><body><div class="entry">'
 		. '<p>' . str_repeat( 'Właściwa treść artykułu o żywieniu psa. ', 25 ) . '</p>'
-		. '<nav class="post-nav"><p>Poprzedni wpis: kot brytyjski</p></nav>'
-		. '<aside class="promo"><p>Zapisy na webinar i konkurs z nagrodami</p></aside>'
-		. '<form class="newsletter"><p>Zapisz się do newslettera</p></form>'
-		. '<footer class="meta"><p>Autor: redakcja serwisu</p></footer>'
+		. '<nav><p>Poprzedni wpis: kot brytyjski</p></nav>'
+		. '<aside><p>Zapisy na webinar i konkurs z nagrodami</p></aside>'
+		. '<form><p>Zapisz się do newslettera</p></form>'
+		. '<footer><p>Autor: redakcja serwisu</p></footer>'
 		. '<script>var track = "analityka wewnętrzna";</script>'
 		. '<style>.entry{margin:0}</style>'
 		. '<iframe src="https://reklama.example/x"></iframe>'
@@ -415,9 +415,156 @@ namespace {
 	$wynik = Article::extract( $smiec, 'https://psy.pl/a/' );
 	k3a_check( '' === $wynik['canonical'], 'canonical, ktory nie jest adresem http(s), jest odrzucany' );
 
+	// Schemat inny niz http(s) MA hosta, wiec sama bramka zgodnosci hostow go
+	// nie zatrzyma — potrzebne sa obie.
+	$ftp   = '<html><head><link rel="canonical" href="ftp://psy.pl/artykul/"></head><body><p>x</p></body></html>';
+	$wynik = Article::extract( $ftp, 'https://psy.pl/artykul/' );
+	k3a_check( '' === $wynik['canonical'], 'canonical po ftp:// odrzucony mimo zgodnego hosta' );
+
 	$brak  = '<html><head></head><body><p>x</p></body></html>';
 	$wynik = Article::extract( $brak, 'https://psy.pl/a/' );
 	k3a_check( '' === $wynik['canonical'], 'brak canonical to pusty lancuch, nie blad' );
+
+	// --- Bramki z audytu Kroku 3 (P1, P2) ---
+	$obcy  = '<html><head><link rel="canonical" href="https://sklep-z-karma.example/promocja/"></head><body><p>x</p></body></html>';
+	$wynik = Article::extract( $obcy, 'https://psy.pl/artykul/' );
+	k3a_check( '' === $wynik['canonical'], 'canonical na OBCEJ domenie odrzucony (P2)' );
+
+	$korzen = '<html><head><link rel="canonical" href="https://psy.pl/"></head><body><p>x</p></body></html>';
+	$wynik  = Article::extract( $korzen, 'https://psy.pl/artykul/' );
+	k3a_check( '' === $wynik['canonical'], 'canonical na STRONE GLOWNA odrzucony (P1)' );
+
+	$korzen_bez = '<html><head><link rel="canonical" href="https://psy.pl"></head><body><p>x</p></body></html>';
+	$wynik      = Article::extract( $korzen_bez, 'https://psy.pl/artykul/' );
+	k3a_check( '' === $wynik['canonical'], 'canonical na hosta bez sciezki tez odrzucony' );
+
+	$wzgledny_korzen = '<html><head><link rel="canonical" href="/"></head><body><p>x</p></body></html>';
+	$wynik           = Article::extract( $wzgledny_korzen, 'https://psy.pl/artykul/' );
+	k3a_check( '' === $wynik['canonical'], 'wzgledny „/" po rozwinieciu tez jest korzeniem' );
+
+	$poddomena = '<html><head><link rel="canonical" href="https://www.psy.pl/artykul/"></head><body><p>x</p></body></html>';
+	$wynik     = Article::extract( $poddomena, 'https://psy.pl/artykul/' );
+	k3a_check( '' === $wynik['canonical'], 'inna poddomena to inny host — odrzucony' );
+
+	$wlasny = '<html><head><link rel="canonical" href="https://psy.pl/wlasciwy-adres/"></head><body><p>x</p></body></html>';
+	$wynik  = Article::extract( $wlasny, 'https://psy.pl/artykul/' );
+	k3a_check( 'https://psy.pl/wlasciwy-adres/' === $wynik['canonical'], 'canonical z tego samego hosta i z sciezka PRZECHODZI' );
+
+	$wielkosc = '<html><head><link rel="canonical" href="https://PSY.pl/artykul-2/"></head><body><p>x</p></body></html>';
+	$wynik    = Article::extract( $wielkosc, 'https://psy.pl/artykul/' );
+	k3a_check( '' !== $wynik['canonical'], 'host wielkimi literami to nadal ten sam host' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- Audyt D-7: boksy rozpoznawane po klasie --\n";
+	// -----------------------------------------------------------------------
+	$boksy = '<html><body><div class="entry-content">'
+		. '<p>' . str_repeat( 'Właściwa treść artykułu o psach. ', 25 ) . '</p>'
+		. '<div class="post-rating"><p>Rate this post</p></div>'
+		. '<div class="related-posts"><p>Zobacz też: kot brytyjski, kot perski</p></div>'
+		. '<div class="newsletter-box"><p>Zapisz się do newslettera i odbierz rabat</p></div>'
+		. '<div class="social-share"><p>Udostępnij na Facebooku</p></div>'
+		. '<div id="comments"><p>Komentarze czytelników</p></div>'
+		. '<div class="widget-area"><p>Popularne wpisy</p></div>'
+		. '</div></body></html>';
+
+	$wynik = Article::extract( $boksy, 'https://psy.pl/a/' );
+
+	k3a_check( false !== strpos( $wynik['html'], 'Właściwa treść' ), 'tresc wpisu zostaje mimo odsiewu boksow' );
+
+	foreach (
+		array(
+			'Rate this post'   => 'ramka oceny (post-rating)',
+			'kot brytyjski'    => 'boks powiazanych wpisow (related-posts)',
+			'newslettera'      => 'zachęta do newslettera (newsletter-box)',
+			'Facebooku'        => 'przyciski udostepniania (social-share)',
+			'Komentarze'       => 'komentarze (id=comments)',
+			'Popularne wpisy'  => 'widget (widget-area)',
+		) as $tekst => $opis
+	) {
+		k3a_check( false === strpos( $wynik['html'], $tekst ), 'wyciety: ' . $opis );
+	}
+
+	// Znacznik musi byc dlugi i jednoznaczny: XPath 1.0 nie zna granicy slowa,
+	// wiec krotki „rate" wycialby element z klasa „corporate-news".
+	/*
+	 * Blok o pechowej nazwie stoi OBOK wlasciwej tresci, nie zamiast niej —
+	 * inaczej siec asekuracyjna oddalaby artykul mimo bledu i test
+	 * przepuscilby za krotki znacznik (np. `rate` zamiast `rate-this`).
+	 */
+	$falszywy = '<html><body><div class="entry">'
+		. '<p>' . str_repeat( 'Właściwa treść artykułu o psach. ', 25 ) . '</p>'
+		. '<div class="corporate-news"><p>' . str_repeat( 'Treść korporacyjna o psach służbowych. ', 25 ) . '</p></div>'
+		. '</div></body></html>';
+	$wynik    = Article::extract( $falszywy, 'https://psy.pl/a/' );
+	k3a_check( false !== strpos( $wynik['html'], 'Właściwa treść' ), 'wlasciwa tresc zostaje' );
+	k3a_check( false !== strpos( $wynik['html'], 'korporacyjna' ), 'klasa „corporate-news" NIE jest brana za boks' );
+
+	// Siec asekuracyjna: gdy odsiew po klasach zjadlby caly artykul, wygrywa
+	// wynik BEZ odsiewu.
+	$pulapka = '<html><body><div class="post-share-content"><p>'
+		. str_repeat( 'Cały artykuł siedzi w pojemniku o pechowej nazwie klasy. ', 25 ) . '</p></div></body></html>';
+	$wynik   = Article::extract( $pulapka, 'https://psy.pl/a/' );
+	k3a_check( true === $wynik['ok'], 'pechowa nazwa klasy nie kasuje artykulu: ok' );
+	k3a_check( false !== strpos( $wynik['html'], 'pechowej nazwie' ), 'siec asekuracyjna oddala tresc mimo trafienia w znacznik' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- Audyt D-3: sufit dlugosci tresci --\n";
+	// -----------------------------------------------------------------------
+	$krotka = '<p>' . str_repeat( 'Krótki artykuł. ', 20 ) . '</p>';
+	k3a_check( $krotka === Article::cap( $krotka ), 'tresc ponizej sufitu wraca NIETKNIETA' );
+
+	$dluga = '<div class="entry">';
+	for ( $i = 0; $i < 400; $i++ ) {
+		$dluga .= '<p>Akapit numer ' . $i . ' z treścią artykułu o żywieniu psa, powtarzany dla objętości tekstu. </p>';
+	}
+	$dluga .= '</div>';
+
+	$przyciete = Article::cap( $dluga );
+
+	k3a_check( Article::text_length( $dluga ) > Article::MAX_CONTENT_CHARS, 'material testowy przekracza sufit ' . Article::MAX_CONTENT_CHARS );
+	k3a_check( Article::text_length( $przyciete ) <= Article::MAX_CONTENT_CHARS, 'po przycieciu miesci sie w sufinie (' . Article::text_length( $przyciete ) . ')' );
+	k3a_check( Article::text_length( $przyciete ) > Article::MIN_TEXT_CHARS, 'po przycieciu nadal jest z czego pisac' );
+	k3a_check( false !== strpos( $przyciete, 'Akapit numer 0' ), 'poczatek artykulu zachowany' );
+	k3a_check( false === strpos( $przyciete, 'Akapit numer 399' ), 'koniec artykulu odciety' );
+	k3a_check(
+		substr_count( $przyciete, '<p>' ) === substr_count( $przyciete, '</p>' ),
+		'ciecie NIE rozrywa znacznikow (otwarcia = zamkniecia)'
+	);
+
+	// Artykul w JEDNYM wielkim wezle tekstowym — ciecie musi wejsc glebiej.
+	$jeden = '<div><p>' . str_repeat( 'Jedno zdanie bez akapitów. ', 2000 ) . '</p></div>';
+	$c     = Article::cap( $jeden );
+	k3a_check( Article::text_length( $c ) <= Article::MAX_CONTENT_CHARS, 'jeden wielki wezel tez daje sie przyciac (' . Article::text_length( $c ) . ')' );
+	k3a_check( substr_count( $c, '<p' ) === substr_count( $c, '</p>' ), 'przy cieciu w srodku wezla znaczniki zostaja domkniete' );
+
+	// Ekstrakcja stosuje sufit sama.
+	$wielka = '<html><body><article>';
+	for ( $i = 0; $i < 400; $i++ ) {
+		$wielka .= '<p>Akapit numer ' . $i . ' z treścią artykułu o żywieniu psa, powtarzany dla objętości tekstu. </p>';
+	}
+	$wielka .= '</article></body></html>';
+	$wynik   = Article::extract( $wielka, 'https://psy.pl/a/' );
+	k3a_check( Article::text_length( $wynik['html'] ) <= Article::MAX_CONTENT_CHARS, 'extract() oddaje tresc juz przycieta' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- Audyt D-7: declutter() dla tresci z kanalu --\n";
+	// -----------------------------------------------------------------------
+	$z_kanalu = '<p>' . str_repeat( 'Treść artykułu prosto z kanału RSS. ', 25 ) . '</p>'
+		. '<div class="post-ratings"><p>Rate this post</p></div>'
+		. '<div class="related"><p>Powiązane: kot syjamski</p></div>';
+
+	$czysty = Article::declutter( $z_kanalu );
+
+	k3a_check( false !== strpos( $czysty, 'prosto z kanału' ), 'tresc z kanalu zostaje w calosci' );
+	k3a_check( false === strpos( $czysty, 'Rate this post' ), 'ramka oceny z kanalu wycieta' );
+	k3a_check( false === strpos( $czysty, 'kot syjamski' ), 'boks powiazanych z kanalu wyciety' );
+	k3a_check( '' === Article::declutter( '' ), 'pusta tresc wraca pusta' );
+
+	$sam_boks = '<div class="related"><p>' . str_repeat( 'Sama ramka i nic poza nia. ', 30 ) . '</p></div>';
+	k3a_check(
+		Article::text_length( Article::declutter( $sam_boks ) ) > 0,
+		'gdy odsiew zjadlby wszystko, tresc z kanalu wraca nietknieta'
+	);
 
 	$pusty_href = '<html><head><link rel="canonical" href=""></head><body><p>x</p></body></html>';
 	$wynik      = Article::extract( $pusty_href, 'https://psy.pl/a/' );

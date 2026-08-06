@@ -71,6 +71,21 @@ final class Runner {
 	/** Ile pozycji bierze jeden przebieg przygotowania tresci. */
 	public const PREPARE_BATCH = 10;
 
+	/**
+	 * Budzet czasu jednego przebiegu przygotowania: 15 sekund.
+	 *
+	 * Bez niego partia dziesieciu pozycji zamawia do 10 x (15 s artykul + 5 s
+	 * `robots.txt`), czyli okolo 200 s w jednym zadaniu — a typowy
+	 * `max_execution_time` w SAPI webowym to 30–60 s. Proces ginal w polowie
+	 * partii: transient z podsumowaniem nie powstawal, a klient dostawal pusta
+	 * strone i nie wiedzial, ktore pozycje zostaly przetworzone.
+	 *
+	 * Budzet sprawdzany jest PRZED wzieciem kolejnej pozycji, bo przerwac
+	 * mozna tylko miedzy pozycjami — pozycja w trakcie musi sie domknac,
+	 * inaczej zostaje w stanie posrednim.
+	 */
+	public const PREPARE_BUDGET = 15;
+
 	/** Sufit dlugosci adresu — tyle ma kolumna `url varchar(2048)`. */
 	public const MAX_URL_BYTES = 2048;
 
@@ -246,7 +261,7 @@ final class Runner {
 			return 'invalid';
 		}
 
-		$slowo   = Filter::match( $item, $words );
+		$slowo   = self::excluded_word( $item, $words );
 		$odsiane = ( '' !== $slowo );
 
 		$status  = $odsiane ? self::STATUS_SKIPPED : self::STATUS_NEW;
@@ -304,11 +319,16 @@ final class Runner {
 	 * wiec jednoczesnie znacznikiem „ta pozycja jest juz przygotowana" —
 	 * osobna kolumna na to samo byla by trzecim stanem do pilnowania.
 	 *
-	 * @param int $limit Ile pozycji wziac.
+	 * @param int        $limit  Ile pozycji wziac.
+	 * @param float|null $budget Budzet czasu w sekundach; `null` bierze
+	 *                           `PREPARE_BUDGET`. Jawny argument jest tu dla
+	 *                           ticku z Kroku 5, ktory poda swoj POZOSTALY
+	 *                           czas — i dla testu, ktory nie ma czekac
+	 *                           pietnastu sekund, zeby sprawdzic bramke.
 	 *
 	 * @return array<string,mixed> Podsumowanie w ksztalcie `prepare_summary()`.
 	 */
-	public static function prepare_batch( int $limit = self::PREPARE_BATCH ): array {
+	public static function prepare_batch( int $limit = self::PREPARE_BATCH, ?float $budget = null ): array {
 		global $wpdb;
 
 		$wynik = self::prepare_summary();
@@ -323,9 +343,21 @@ final class Runner {
 			return $wynik;
 		}
 
-		$slowa = Filter::words();
+		$slowa  = Filter::words();
+		$start  = microtime( true );
+		$budzet = ( null === $budget ) ? (float) self::PREPARE_BUDGET : max( 0.1, $budget );
 
 		foreach ( $wiersze as $wiersz ) {
+			/*
+			 * Sprawdzenie PRZED wzieciem pozycji, nie po. Pozycja raz zaczeta
+			 * musi sie domknac, bo w polowie zostawia wiersz w stanie, ktorego
+			 * nikt pozniej nie posprzata.
+			 */
+			if ( ( microtime( true ) - $start ) >= $budzet ) {
+				$wynik['budget_hit'] = true;
+				break;
+			}
+
 			$wynik['taken']++;
 
 			try {
@@ -380,14 +412,17 @@ final class Runner {
 		);
 
 		// 1. Filtr — dla wierszy zebranych, zanim filtr istnial.
-		$slowo = Filter::match( $pozycja, $words );
+		$slowo = self::excluded_word( $pozycja, $words );
 
 		if ( '' !== $slowo ) {
 			self::finish( $id, self::STATUS_SKIPPED, Filter::note( $slowo ) );
 			return 'skipped';
 		}
 
-		$html = $pozycja['content'];
+		// Tresc Z KANALU tez przechodzi odsiew boksow: kanal potrafi podac
+		// artykul razem z ramka „oceń wpis" i zachętą do newslettera. Bez tego
+		// smiec wchodzi do promptu, do odcisku tresci i do gotowego artykulu.
+		$html = Article::declutter( $pozycja['content'] );
 
 		// 2. Scraping tylko przy zbyt krotkiej tresci z kanalu.
 		if ( Article::needs_scraping( $html ) ) {
@@ -427,6 +462,49 @@ final class Runner {
 		}
 
 		return 'ready';
+	}
+
+	/**
+	 * Slowo wykluczajace — potwierdzone na tresci BEZ boksow serwisu.
+	 *
+	 * Odsiew idzie w dwóch spojrzeniach i to jest cala sztuczka:
+	 *
+	 *   1. Tanie: pelny tekst z kanalu. Nic nie trafia — pozycja przechodzi
+	 *      i nie kosztuje ani jednego przetworzenia drzewa HTML.
+	 *   2. Drogie, tylko przy PODEJRZENIU: tresc bez ramek „oceń wpis",
+	 *      „powiązane wpisy" i „zapisz się do newslettera”. Dopiero jesli slowo
+	 *      przetrwa to oczyszczenie, pozycja idzie do `skipped`.
+	 *
+	 * Powod jest policzony na zywym materiale: z 70 pobranych pozycji filtr
+	 * odsiewal 36, ale 15 z nich to byly DOBRE artykuly o psach, zabite przez
+	 * slowo ze stopki („newsletter” — 8 pozycji), z boksu powiazanych wpisow
+	 * („kot” — 5) i z banera („promocja” — 1). Drugie spojrzenie kosztuje
+	 * jedno przetworzenie drzewa na pozycje PODEJRZANA, nie na kazda.
+	 *
+	 * Zakres pol sie nie zmienia — nadal tytul, zajawka i tresc z kanalu.
+	 * Zmienia sie tylko to, ze tresc jest ogladana bez mebli serwisu.
+	 *
+	 * @param array<string,mixed>    $item  Pozycja.
+	 * @param array<int,string>|null $words Slowa wykluczajace.
+	 *
+	 * @return string Dopasowane slowo albo pusty lancuch.
+	 */
+	private static function excluded_word( array $item, ?array $words ): string {
+		$slowo = Filter::match( $item, $words );
+
+		if ( '' === $slowo ) {
+			return '';
+		}
+
+		$tresc = isset( $item['content'] ) ? (string) $item['content'] : '';
+
+		if ( '' === trim( $tresc ) ) {
+			return $slowo;
+		}
+
+		$item['content'] = Article::declutter( $tresc );
+
+		return Filter::match( $item, $words );
 	}
 
 	/**
@@ -607,13 +685,14 @@ final class Runner {
 	 */
 	private static function prepare_summary(): array {
 		return array(
-			'taken'   => 0,
-			'ready'   => 0,
-			'skipped' => 0,
-			'retry'   => 0,
-			'failed'  => 0,
-			'error'   => 0,
-			'errors'  => array(),
+			'taken'      => 0,
+			'ready'      => 0,
+			'skipped'    => 0,
+			'retry'      => 0,
+			'failed'     => 0,
+			'error'      => 0,
+			'errors'     => array(),
+			'budget_hit' => false,
 		);
 	}
 

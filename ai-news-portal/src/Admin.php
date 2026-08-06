@@ -501,8 +501,18 @@ final class Admin {
 			)
 		) . '</p>';
 
-		if ( 0 === (int) $podsumowanie['taken'] ) {
+		if ( 0 === (int) $podsumowanie['taken'] && empty( $podsumowanie['budget_hit'] ) ) {
 			echo '<p>' . esc_html__( 'Nie było czego przygotowywać — wszystkie pobrane pozycje mają już treść albo zostały zamknięte.', 'ai-news-portal' ) . '</p>';
+		}
+
+		if ( ! empty( $podsumowanie['budget_hit'] ) ) {
+			echo '<p>' . esc_html(
+				sprintf(
+					/* translators: %d: budzet czasu w sekundach */
+					__( 'Przebieg zatrzymał się po %d s, żeby nie przekroczyć limitu czasu serwera. Reszta pozycji czeka — kliknij ponownie.', 'ai-news-portal' ),
+					Runner::PREPARE_BUDGET
+				)
+			) . '</p>';
 		}
 
 		foreach ( (array) $podsumowanie['errors'] as $id => $blad ) {

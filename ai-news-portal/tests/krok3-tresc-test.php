@@ -193,8 +193,16 @@ namespace {
 				return 0;
 			}
 
+			/*
+			 * Grupa ATOMOWA `(?>` zamiast zwyklej `(?:` — bez niej wyrazenie
+			 * nawraca wykladniczo na dlugiej wartosci i przy tresci rzedu
+			 * 20 KB przekracza `pcre.backtrack_limit`. `preg_match_all` oddaje
+			 * wtedy `false`, atrapa nie zapisuje NICZEGO, a test pokazuje
+			 * „duplikat tresci" tam, gdzie produkt dziala poprawnie.
+			 * Zmierzone przy sufinie tresci z audytu (D-3).
+			 */
 			$pary = array();
-			preg_match_all( "/(\w+)\s*=\s*('(?:[^'\\\\]|\\\\.)*'|\d+)/", $m[1], $znalezione, PREG_SET_ORDER );
+			preg_match_all( "/(\w+)\s*=\s*('(?>[^'\\\\]|\\\\.)*'|\d+)/", $m[1], $znalezione, PREG_SET_ORDER );
 
 			foreach ( $znalezione as $para ) {
 				$wartosc = $para[2];
@@ -247,6 +255,15 @@ namespace AINP {
 
 		public static function get_article( string $url ): array {
 			$GLOBALS['__zadania'][] = $url;
+
+			// Plan `zwloka:N` udaje wolny serwer — bez tego budzetu czasu
+			// nie da sie sprawdzic inaczej niz zegarkiem w reku.
+			if ( isset( $GLOBALS['__strony'][ $url ] ) && is_string( $GLOBALS['__strony'][ $url ] )
+				&& 0 === strpos( $GLOBALS['__strony'][ $url ], 'zwloka:' ) ) {
+				usleep( (int) ( 1000000 * (float) substr( $GLOBALS['__strony'][ $url ], 7 ) ) );
+
+				return array( 'ok' => false, 'code' => 0, 'body' => '', 'error' => 'Operation timed out', 'reason' => 'transport', 'truncated' => false );
+			}
 
 			if ( ! isset( $GLOBALS['__strony'][ $url ] ) ) {
 				return array( 'ok' => false, 'code' => 404, 'body' => '', 'error' => 'Serwer odpowiedzial kodem 404', 'reason' => 'status', 'truncated' => false );
@@ -630,6 +647,95 @@ namespace {
 		false !== strpos( (string) $podsumowanie['errors'][2], 'siec padla' ),
 		'tresc bledu zachowana — inaczej nie ma po czym szukac przyczyny'
 	);
+
+	// -----------------------------------------------------------------------
+	echo "\n-- Audyt P3: budzet czasu partii --\n";
+	// -----------------------------------------------------------------------
+	/*
+	 * Bez budzetu partia dziesieciu pozycji zamawia do 10 x (15 s artykul
+	 * + 5 s robots.txt) w jednym zadaniu administracyjnym, a typowy
+	 * max_execution_time to 30-60 s. Test skraca skale: budzet zostaje ten
+	 * sam, a „wolny serwer" oddaje odpowiedz po ulamku sekundy.
+	 */
+	$wpdb = k3t_reset();
+
+	// Budzet podany JAWNIE — bramka jest ta sama, a test nie czeka pietnastu
+	// sekund, zeby ja sprawdzic. Tego samego argumentu uzyje tick z Kroku 5,
+	// podajac swoj pozostaly czas.
+	$budzet = 1.0;
+
+	for ( $i = 1; $i <= 6; $i++ ) {
+		k3t_wiersz( $i, 'https://wolny.pl/' . $i . '/', '' );
+		$GLOBALS['__strony'][ 'https://wolny.pl/' . $i . '/' ] = 'zwloka:' . ( $budzet / 2 + 0.05 );
+	}
+
+	$start        = microtime( true );
+	$podsumowanie = Runner::prepare_batch( 6, $budzet );
+	$czas         = microtime( true ) - $start;
+
+	k3t_check( true === $podsumowanie['budget_hit'], 'partia zglasza, ze zatrzymal ja budzet czasu' );
+	k3t_check( 2 === (int) $podsumowanie['taken'], 'wzieto 2 pozycje z 6, reszta czeka (jest ' . (int) $podsumowanie['taken'] . ')' );
+	k3t_check(
+		$czas < $budzet * 1.6,
+		'przebieg skonczyl sie blisko budzetu, nie po pelnej partii (' . round( $czas, 2 ) . ' s)'
+	);
+	k3t_check(
+		2 === count( $GLOBALS['__zadania'] ),
+		'pozycje ponad budzetem nie kosztowaly ani jednego zadania HTTP (jest ' . count( $GLOBALS['__zadania'] ) . ')'
+	);
+	k3t_check( 'new' === $wpdb->rows[3]->status, 'pozycja nietknieta zostaje `new`' );
+	k3t_check( 0 === (int) $wpdb->rows[3]->attempts, 'pozycji nietknietej nie podbito licznika prob' );
+
+	// Pozycja zaczeta MUSI sie domknac — budzet sprawdzamy miedzy pozycjami.
+	k3t_check( 1 === (int) $wpdb->rows[2]->attempts, 'ostatnia zaczeta pozycja zostala domknieta (attempts=1)' );
+
+	$wpdb = k3t_reset();
+	k3t_wiersz( 1, 'https://psy.pl/szybko/', '<p>' . str_repeat( 'Pełna treść z kanału, bez sieci. ', 60 ) . '</p>' );
+	$podsumowanie = Runner::prepare_batch( 10 );
+
+	k3t_check( false === $podsumowanie['budget_hit'], 'przy szybkiej partii budzet nie jest zglaszany' );
+	k3t_check(
+		Runner::PREPARE_BUDGET >= 10 && Runner::PREPARE_BUDGET <= 20,
+		'domyslny budzet miesci sie pod typowym max_execution_time (' . Runner::PREPARE_BUDGET . ' s)'
+	);
+
+	// -----------------------------------------------------------------------
+	echo "\n-- Audyt D-7: boksy w tresci Z KANALU --\n";
+	// -----------------------------------------------------------------------
+	$wpdb = k3t_reset();
+
+	$z_boksem = '<p>' . str_repeat( 'Właściwa treść artykułu o karmie dla psa. ', 40 ) . '</p>'
+		. '<div class="post-ratings"><p>Rate this post</p></div>'
+		. '<div class="related-posts"><p>Zobacz też: kot brytyjski</p></div>';
+
+	$w   = k3t_wiersz( 1, 'https://psy.pl/z-boksem/', $z_boksem );
+	$los = Runner::prepare_item( $w, array( 'kot' ) );
+
+	k3t_check( 'ready' === $los, 'pozycja z boksem w tresci przechodzi: `ready`' );
+	k3t_check( 0 === count( $GLOBALS['__zadania'] ), 'zero zadan HTTP — tresc byla w kanale' );
+	k3t_check( false !== strpos( (string) $wpdb->rows[1]->content, 'Właściwa treść' ), 'tresc artykulu zapisana' );
+	k3t_check( false === strpos( (string) $wpdb->rows[1]->content, 'Rate this post' ), 'ramka oceny NIE trafila do bazy' );
+	k3t_check( false === strpos( (string) $wpdb->rows[1]->content, 'kot brytyjski' ), 'boks powiazanych NIE trafil do bazy' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- Audyt D-3: sufit tresci przy zapisie --\n";
+	// -----------------------------------------------------------------------
+	$wpdb = k3t_reset();
+
+	$ogromna = '';
+	for ( $i = 0; $i < 500; $i++ ) {
+		$ogromna .= '<p>Akapit numer ' . $i . ' o żywieniu psa, powtarzany dla objętości tekstu w kanale. </p>';
+	}
+
+	$w   = k3t_wiersz( 1, 'https://psy.pl/ogromna/', $ogromna );
+	$los = Runner::prepare_item( $w, array() );
+
+	k3t_check( 'ready' === $los, 'ogromna tresc z kanalu: `ready`' );
+	k3t_check(
+		AINP\Article::text_length( (string) $wpdb->rows[1]->content ) <= AINP\Article::MAX_CONTENT_CHARS,
+		'w bazie ląduje tresc przycieta do sufitu (' . AINP\Article::text_length( (string) $wpdb->rows[1]->content ) . ')'
+	);
+	k3t_check( 64 === strlen( (string) $wpdb->rows[1]->content_hash ), 'odcisk liczony z tresci PRZYCIETEJ' );
 
 	echo "\n";
 	echo '=== WYNIK: ' . ( $ran - $fail ) . ' / ' . $ran . " asercji ===\n";
