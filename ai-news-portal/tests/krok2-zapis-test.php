@@ -189,6 +189,32 @@ namespace AINP {
 			return array( 'https://domyslny-1.pl/feed/', 'https://domyslny-2.pl/feed/' );
 		}
 	}
+
+	/**
+	 * Atrapa filtra (Krok 3, etap 3.2).
+	 *
+	 * Ten zestaw sprawdza ZAPIS, nie odsiew: przepuszcza wszystko, zeby
+	 * werdykt filtra nie mieszal sie z werdyktem `INSERT IGNORE`. Odsiew ma
+	 * wlasny zestaw — `krok3-note-test.php` — pracujacy na prawdziwej klasie.
+	 */
+	class Filter {
+
+		/** @var array<int,array<string,mixed>> Pozycje, ktore filtr ogladal. */
+		public static $widziane = array();
+
+		public static function words(): array {
+			return array();
+		}
+
+		public static function match( array $item, ?array $words = null ): string {
+			self::$widziane[] = $item;
+			return '';
+		}
+
+		public static function note( string $word ): string {
+			return 'Słowo wykluczające: ' . $word;
+		}
+	}
 }
 
 namespace {

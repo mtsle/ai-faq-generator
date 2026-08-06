@@ -36,6 +36,17 @@ final class Runner {
 	public const STATUS_NEW = 'new';
 
 	/**
+	 * Status pozycji, ktora nie pojdzie dalej.
+	 *
+	 * Pozycja odsiana przez filtr jest ZAPISYWANA, nie pomijana przy zapisie.
+	 * Powod jest praktyczny: wiersz w tabeli z kluczem `UNIQUE` na `url_hash`
+	 * sprawia, ze przy kazdym kolejnym przebiegu ten sam adres jest duplikatem,
+	 * wiec kanal nie podaje go w kolko od nowa. Bez zapisu odsiana pozycja
+	 * wracalaby co godzine i za kazdym razem przechodzila przez filtr.
+	 */
+	public const STATUS_SKIPPED = 'skipped';
+
+	/**
 	 * Sufit pozycji branych z JEDNEGO kanalu w jednym przebiegu.
 	 *
 	 * Typowy kanal podaje 10–20 wpisow. Sufit jest zabezpieczeniem przed
@@ -84,7 +95,7 @@ final class Runner {
 
 			$wynik['per_source'][ $url ] = $jedno;
 
-			foreach ( array( 'added', 'duplicates', 'invalid', 'dropped', 'failed' ) as $klucz ) {
+			foreach ( array( 'added', 'skipped', 'duplicates', 'invalid', 'dropped', 'failed' ) as $klucz ) {
 				$wynik[ $klucz ] += $jedno[ $klucz ];
 			}
 
@@ -131,9 +142,14 @@ final class Runner {
 			$pozycje          = array_slice( $pozycje, 0, self::MAX_ITEMS_PER_SOURCE );
 		}
 
+		// Lista slow czytana RAZ na kanal, nie raz na pozycje: `Settings::all()`
+		// to odczyt opcji i scalenie z domyslnymi, a kanal potrafi podac
+		// sto pozycji.
+		$slowa = Filter::words();
+
 		foreach ( $pozycje as $pozycja ) {
 			try {
-				$los = self::insert_item( $pozycja );
+				$los = self::insert_item( $pozycja, $slowa );
 			} catch ( \Throwable $e ) {
 				$los = 'error';
 			}
@@ -141,6 +157,9 @@ final class Runner {
 			switch ( $los ) {
 				case 'added':
 					$wynik['added']++;
+					break;
+				case 'skipped':
+					$wynik['skipped']++;
 					break;
 				case 'duplicate':
 					$wynik['duplicates']++;
@@ -177,11 +196,26 @@ final class Runner {
 	 * w ciche ucięcie wiersza. Ryzykiem nie jest tu serwer, tylko stala
 	 * w `wp-config.php`.
 	 *
-	 * @param array<string,mixed> $item Pozycja z `Feed::parse()`.
+	 * ETAP 3.2. Zapis jest tez miejscem, w ktorym zapada werdykt filtra:
+	 * pozycja ze slowem wykluczajacym ląduje w tabeli od razu ze statusem
+	 * `skipped` i POWODEM w kolumnie `note`. Powod jest tam po to, zeby seria
+	 * pominiec z jednego kanalu byla widoczna golym okiem na ekranie Materialy
+	 * — to jedyny sygnal, ze lista wykluczen jest za ostra.
 	 *
-	 * @return string `added`, `duplicate`, `invalid` albo `error`.
+	 * Tresc odsianej pozycji NIE jest zapisywana: do konca zycia tego wiersza
+	 * nikt jej nie przeczyta, a kanal z pelnymi tekstami potrafi podac 100
+	 * pozycji po kilkadziesiat kilobajtow.
+	 *
+	 * @param array<string,mixed>    $item  Pozycja z `Feed::parse()`.
+	 * @param array<int,string>|null $words Slowa wykluczajace; `null` bierze
+	 *                                      liste z ustawien (wygodne przy
+	 *                                      wywolaniu pojedynczym, drogie
+	 *                                      w petli — stad jawny argument
+	 *                                      w `collect_source()`).
+	 *
+	 * @return string `added`, `skipped`, `duplicate`, `invalid` albo `error`.
 	 */
-	public static function insert_item( array $item ): string {
+	public static function insert_item( array $item, ?array $words = null ): string {
 		global $wpdb;
 
 		$url  = isset( $item['url'] ) ? trim( (string) $item['url'] ) : '';
@@ -197,6 +231,13 @@ final class Runner {
 			return 'invalid';
 		}
 
+		$slowo   = Filter::match( $item, $words );
+		$odsiane = ( '' !== $slowo );
+
+		$status  = $odsiane ? self::STATUS_SKIPPED : self::STATUS_NEW;
+		$note    = $odsiane ? Filter::note( $slowo ) : '';
+		$tresc   = $odsiane ? '' : wp_encode_emoji( self::text( $item, 'content' ) );
+
 		$teraz = current_time( 'mysql' );
 
 		$sql = "INSERT IGNORE INTO " . Plugin::table() . '
@@ -209,9 +250,9 @@ final class Runner {
 			$hash,
 			self::fit( wp_encode_emoji( self::text( $item, 'title' ) ) ),
 			self::fit( wp_encode_emoji( self::text( $item, 'summary' ) ) ),
-			wp_encode_emoji( self::text( $item, 'content' ) ),
-			self::STATUS_NEW,
-			'',
+			$tresc,
+			$status,
+			self::fit( $note ),
 			$teraz,
 			$teraz
 		);
@@ -222,7 +263,13 @@ final class Runner {
 			return 'error';
 		}
 
-		return ( (int) $wynik > 0 ) ? 'added' : 'duplicate';
+		// Zero zmienionych wierszy to duplikat — i to niezaleznie od werdyktu
+		// filtra: adres juz jest w tabeli, wiec wiersz zostaje taki, jaki byl.
+		if ( 0 === (int) $wynik ) {
+			return 'duplicate';
+		}
+
+		return $odsiane ? 'skipped' : 'added';
 	}
 
 	// -----------------------------------------------------------------------
@@ -332,6 +379,7 @@ final class Runner {
 		return array(
 			'sources'    => 0,
 			'added'      => 0,
+			'skipped'    => 0,
 			'duplicates' => 0,
 			'invalid'    => 0,
 			'dropped'    => 0,
@@ -349,6 +397,7 @@ final class Runner {
 	private static function source_summary(): array {
 		return array(
 			'added'      => 0,
+			'skipped'    => 0,
 			'duplicates' => 0,
 			'invalid'    => 0,
 			'dropped'    => 0,

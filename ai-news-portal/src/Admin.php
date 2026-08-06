@@ -395,10 +395,11 @@ final class Admin {
 
 		echo '<div class="notice notice-success"><p>' . esc_html(
 			sprintf(
-				/* translators: 1: zrodla, 2: nowe, 3: duplikaty, 4: pominiete, 5: bledy */
-				__( 'Pobrano z %1$d kanałów: %2$d nowych, %3$d duplikatów, %4$d pominiętych, %5$d nieudanych zapisów.', 'ai-news-portal' ),
+				/* translators: 1: zrodla, 2: nowe, 3: odsiane filtrem, 4: duplikaty, 5: bez adresu, 6: bledy */
+				__( 'Pobrano z %1$d kanałów: %2$d nowych, %3$d odsianych filtrem, %4$d duplikatów, %5$d bez adresu, %6$d nieudanych zapisów.', 'ai-news-portal' ),
 				(int) $podsumowanie['sources'],
 				(int) $podsumowanie['added'],
+				isset( $podsumowanie['skipped'] ) ? (int) $podsumowanie['skipped'] : 0,
 				(int) $podsumowanie['duplicates'],
 				(int) $podsumowanie['invalid'],
 				(int) $podsumowanie['failed']
