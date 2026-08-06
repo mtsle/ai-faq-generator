@@ -79,6 +79,15 @@ final class Article {
 	/** Elementy, ktore moga byc pojemnikiem na tresc artykulu. */
 	public const BLOCK_TAGS = array( 'article', 'main', 'section', 'div', 'td' );
 
+	/**
+	 * Ile limitu pamieci wolno zajac, zanim odpuszczamy kolejny scraping: 80%.
+	 *
+	 * Wyczerpania pamieci NIE LAPIE `try/catch` — proces po prostu ginie
+	 * w polowie przebiegu i zostawia pozycje w stanie `processing`. Jedyna
+	 * obrona jest sprawdzenie PRZED, a nie obsluga PO.
+	 */
+	public const MEMORY_FRACTION = 0.8;
+
 	// -----------------------------------------------------------------------
 	// Decyzja: czy w ogole siegac do sieci
 	// -----------------------------------------------------------------------
@@ -136,6 +145,23 @@ final class Article {
 	 *                             `truncated`.
 	 */
 	public static function fetch( string $url ): array {
+		/*
+		 * Bramka pamieci stoi PRZED zadaniem, nie po nim: pobrany 1 MB HTML-a
+		 * plus drzewo DOM z niego to najdrozszy moment calego przebiegu.
+		 * Powod jest przejsciowy — nastepny tick zaczyna z czysta pamiecia —
+		 * wiec pozycja idzie do ponowienia, nie do `failed`.
+		 */
+		if ( ! self::memory_ok() ) {
+			return array(
+				'ok'        => false,
+				'html'      => '',
+				'error'     => 'Za mało pamięci na pobranie kolejnej strony',
+				'reason'    => 'memory',
+				'retryable' => true,
+				'truncated' => false,
+			);
+		}
+
 		$odpowiedz = Http::get_article( $url );
 
 		if ( ! $odpowiedz['ok'] ) {
@@ -270,7 +296,13 @@ final class Article {
 			return '';
 		}
 
-		$href = trim( (string) $wezly->item( 0 )->getAttribute( 'href' ) );
+		$link = $wezly->item( 0 );
+
+		if ( ! $link instanceof \DOMElement ) {
+			return '';
+		}
+
+		$href = trim( $link->getAttribute( 'href' ) );
 
 		if ( '' === $href ) {
 			return '';
@@ -414,6 +446,106 @@ final class Article {
 		// `saveHTML()` oddaje polskie litery jako encje liczbowe. Rozkodowanie
 		// jest tu bezpieczne, bo `wp_kses_post()` (etap 3.5) idzie PO nim.
 		return trim( html_entity_decode( $html, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+	}
+
+	// -----------------------------------------------------------------------
+	// Oczyszczanie i progi (etap 3.5)
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Tresc przepuszczona przez `wp_kses_post()`.
+	 *
+	 * ETAP 3.5. Oczyszczanie robimy PRZY ZAPISIE, nie przy wyswietlaniu:
+	 * tresc idzie stad do promptu, do odcisku i do wpisu, a kazde z tych
+	 * miejsc ma innego odbiorce. Jedno oczyszczenie u zrodla jest jedynym,
+	 * ktore obowiazuje wszystkich trzech.
+	 *
+	 * `wp_kses_post()`, nie gole `wp_kses()` — to drugie wymaga drugiego
+	 * argumentu z lista dozwolonych znacznikow i bez niego jest bledem
+	 * krytycznym.
+	 *
+	 * @param string $html Tresc po ekstrakcji.
+	 *
+	 * @return string
+	 */
+	public static function clean( string $html ): string {
+		if ( '' === trim( $html ) ) {
+			return '';
+		}
+
+		return trim( wp_kses_post( $html ) );
+	}
+
+	/**
+	 * Czy po oczyszczeniu zostalo dosc tresci, zeby isc do modelu.
+	 *
+	 * @param string $html Tresc po `self::clean()`.
+	 *
+	 * @return bool
+	 */
+	public static function is_long_enough( string $html ): bool {
+		return self::text_length( $html ) >= self::MIN_TEXT_CHARS;
+	}
+
+	/**
+	 * Powod pominiecia przy zbyt krotkiej tresci — z liczbami, nie ogolnikiem.
+	 *
+	 * Na ekranie Materialy ta notatka jest jedynym sladem po stronie, ktora
+	 * renderuje sie JavaScriptem. Bez liczb wyglada jak awaria; z liczbami
+	 * widac, ze wtyczka zachowala sie zgodnie z projektem.
+	 *
+	 * @param string $html Tresc po oczyszczeniu.
+	 *
+	 * @return string
+	 */
+	public static function short_note( string $html ): string {
+		return sprintf(
+			'Za mało treści: %1$d znaków (potrzeba %2$d)',
+			self::text_length( $html ),
+			self::MIN_TEXT_CHARS
+		);
+	}
+
+	// -----------------------------------------------------------------------
+	// Budzet pamieci
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Czy zostalo dosc pamieci na kolejna strone.
+	 *
+	 * @return bool `true` takze wtedy, gdy limitu nie ma (`memory_limit = -1`).
+	 */
+	public static function memory_ok(): bool {
+		$limit = self::memory_limit_bytes();
+
+		if ( 0 >= $limit ) {
+			return true;
+		}
+
+		return memory_get_usage( true ) < (int) ( $limit * self::MEMORY_FRACTION );
+	}
+
+	/**
+	 * Efektywny limit pamieci w bajtach.
+	 *
+	 * `memory_limit` bywa podany jako `256M`, `1G` albo `-1`. Przeliczenie
+	 * robi `wp_convert_hr_to_bytes()`; `-1` znaczy „bez limitu" i wraca stad
+	 * jako `0`, czyli „nie ma progu do pilnowania".
+	 *
+	 * @return int Bajty albo `0`, gdy progu nie ma.
+	 */
+	public static function memory_limit_bytes(): int {
+		$limit = ini_get( 'memory_limit' );
+
+		if ( false === $limit || '' === $limit ) {
+			return 0;
+		}
+
+		$bajty = function_exists( 'wp_convert_hr_to_bytes' )
+			? (int) wp_convert_hr_to_bytes( (string) $limit )
+			: (int) $limit;
+
+		return ( 0 >= $bajty ) ? 0 : $bajty;
 	}
 
 	/**

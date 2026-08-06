@@ -364,6 +364,86 @@ namespace {
 	k3a_check( false === Article::extract( '', 'https://psy.pl/a/' )['ok'], 'pusta strona: ok = false' );
 	k3a_check( false === Article::extract( '   ', 'https://psy.pl/a/' )['ok'], 'same biale znaki: ok = false' );
 
+	// -----------------------------------------------------------------------
+	echo "\n-- 3.5 Oczyszczanie tresci --\n";
+	// -----------------------------------------------------------------------
+	$GLOBALS['__kses'] = 0;
+
+	$brudna = '<p onclick="alert(1)">Treść artykułu</p><script>alert(2)</script><iframe src="//zle.pl"></iframe>';
+	$czysta = Article::clean( $brudna );
+
+	k3a_check( 1 === $GLOBALS['__kses'], 'tresc przechodzi przez wp_kses_post DOKLADNIE raz' );
+	k3a_check( false !== strpos( $czysta, 'Treść artykułu' ), 'tresc zostaje' );
+	k3a_check( false === strpos( $czysta, 'onclick' ), 'atrybut zdarzenia wyciety' );
+	k3a_check( false === strpos( $czysta, '<script' ), 'skrypt wyciety' );
+	k3a_check( false === strpos( $czysta, '<iframe' ), 'ramka wycieta' );
+	k3a_check( false !== strpos( $czysta, '<p' ), 'znaczniki dozwolone we wpisie zostaja' );
+
+	$GLOBALS['__kses'] = 0;
+	k3a_check( '' === Article::clean( '   ' ), 'pusta tresc wraca pusta' );
+	k3a_check( 0 === $GLOBALS['__kses'], 'pustej tresci nie ma po co oczyszczac' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- 3.5 Prog dlugosci --\n";
+	// -----------------------------------------------------------------------
+	$dosc  = '<p>' . str_repeat( 'Treść artykułu o psach. ', 30 ) . '</p>';   // ok. 720 znakow.
+	$malo  = '<p>Krótka notka o niczym.</p>';
+	$rowno = '<p>' . str_repeat( 'a', Article::MIN_TEXT_CHARS ) . '</p>';
+
+	k3a_check( Article::is_long_enough( $dosc ), 'pelna tresc przechodzi prog' );
+	k3a_check( ! Article::is_long_enough( $malo ), 'krotka notka NIE przechodzi progu' );
+	k3a_check( Article::is_long_enough( $rowno ), 'tresc rowna progowi przechodzi' );
+	k3a_check(
+		! Article::is_long_enough( '<p>' . str_repeat( 'a', Article::MIN_TEXT_CHARS - 1 ) . '</p>' ),
+		'tresc o znak krotsza NIE przechodzi'
+	);
+
+	// Szkielet strony renderowanej JavaScriptem: duzo znacznikow, zero tekstu.
+	$szkielet = '<html><body><div id="root"></div><div class="loader"><span></span></div></body></html>';
+	$wynik    = Article::extract( $szkielet, 'https://psy.pl/spa/' );
+
+	k3a_check(
+		! Article::is_long_enough( Article::clean( $wynik['html'] ) ),
+		'strona renderowana JavaScriptem nie przechodzi progu (idzie do skipped)'
+	);
+
+	$notatka = Article::short_note( $malo );
+	k3a_check( false !== strpos( $notatka, 'Za mało treści' ), 'notatka mowi, co sie stalo' );
+	k3a_check( 1 === preg_match( '/\d+ znaków \(potrzeba ' . Article::MIN_TEXT_CHARS . '\)/u', $notatka ), 'notatka podaje LICZBY, nie ogolnik' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- 3.5 Budzet pamieci --\n";
+	// -----------------------------------------------------------------------
+	$stary_limit = ini_get( 'memory_limit' );
+
+	ini_set( 'memory_limit', '-1' );
+	k3a_check( 0 === Article::memory_limit_bytes(), 'memory_limit = -1 znaczy BRAK progu' );
+	k3a_check( Article::memory_ok(), 'bez limitu pamieci zawsze wolno pobierac' );
+
+	ini_set( 'memory_limit', '512M' );
+	k3a_check( 536870912 === Article::memory_limit_bytes(), 'limit 512M przeliczony na bajty' );
+	k3a_check( Article::memory_ok(), 'przy 512M i pustym tescie pamieci wystarcza' );
+
+	// Limit ponizej biezacego zuzycia — bramka MUSI zamknac sie przed zadaniem.
+	$zajete = memory_get_usage( true );
+	ini_set( 'memory_limit', (string) max( 1, (int) ( $zajete / 1048576 ) ) . 'M' );
+
+	k3a_check( ! Article::memory_ok(), 'przy limicie ponizej zuzycia bramka jest zamknieta' );
+
+	$GLOBALS['__zadania'] = array();
+	$wynik                = Article::fetch( 'https://psy.pl/karma/' );
+
+	k3a_check( false === $wynik['ok'], 'przy braku pamieci pobranie nie dochodzi do skutku' );
+	k3a_check( 'memory' === $wynik['reason'], 'powod: `memory`' );
+	k3a_check( true === $wynik['retryable'], 'brak pamieci JEST wart ponowienia — nastepny tick ma czysta pamiec' );
+	k3a_check(
+		0 === count( $GLOBALS['__zadania'] ),
+		'ZERO zadan HTTP: bramka stoi PRZED zadaniem, nie po nim (jest ' . count( $GLOBALS['__zadania'] ) . ')'
+	);
+
+	ini_set( 'memory_limit', (string) $stary_limit );
+	k3a_check( Article::memory_ok(), 'po przywroceniu limitu bramka znowu jest otwarta' );
+
 	echo "\n";
 	echo '=== WYNIK: ' . ( $ran - $fail ) . ' / ' . $ran . " asercji ===\n";
 
