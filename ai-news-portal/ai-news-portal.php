@@ -53,14 +53,20 @@ define( 'AINP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
  * Kolejnosc ma znaczenie tylko tyle, ze `Plugin` i `Admin` siegaja do
  * `Settings` dopiero w czasie wykonania, nie przy ladowaniu pliku.
  *
- * Krok 1 zamknal sie na trzech klasach. W Kroku 2 dochodza kolejno: Http (2.1),
- * Feed (2.2), Dedup (2.3); dalej Article, Filter, Gemini, Validator, Publisher,
- * Runner, Portal.
+ * Krok 1 zamknal sie na trzech klasach. W Kroku 2 doszly: Http (2.1), Feed (2.2),
+ * Dedup (2.3). W Kroku 3: Filter (3.1) i Article (3.3); dalej Gemini, Validator,
+ * Publisher, Portal.
+ *
+ * `Filter` stoi PO `Dedup`, bo `Filter::normalize()` wola `Dedup::normalize_text()`.
+ * W praktyce kolejnosc i tak nie ma znaczenia (wywolanie nastepuje w czasie
+ * wykonania, nie przy ladowaniu), ale lista czytana z gory ma pokazywac
+ * zaleznosci, a nie je ukrywac.
  */
 require_once AINP_PLUGIN_DIR . 'src/Settings.php';
 require_once AINP_PLUGIN_DIR . 'src/Http.php';
 require_once AINP_PLUGIN_DIR . 'src/Feed.php';
 require_once AINP_PLUGIN_DIR . 'src/Dedup.php';
+require_once AINP_PLUGIN_DIR . 'src/Filter.php';
 require_once AINP_PLUGIN_DIR . 'src/Runner.php';
 require_once AINP_PLUGIN_DIR . 'src/Plugin.php';
 require_once AINP_PLUGIN_DIR . 'src/Admin.php';
