@@ -331,7 +331,19 @@ final class Article {
 				}
 			}
 
-			if ( '' === $tresc ) {
+			/*
+			 * DLUG D-1 Z AUDYTU KROKU 3. Bramka pyta o dlugosc GOLEGO TEKSTU,
+			 * nie o pusty lancuch — bo te dwie rzeczy nie sa tym samym. Gdy
+			 * libxml urwie drzewo na 255. poziomie zagniezdzenia, `inner_html()`
+			 * oddaje lancuch pelen znacznikow, w ktorym nie ma ANI JEDNEGO
+			 * znaku tekstu. Warunek na pusty lancuch przepuszczal to jako
+			 * `ok = true`; pozycja i tak konczyla jako `skipped`, ale z notatka
+			 * „Za mało treści", ktora wskazuje na kanal zamiast na parser.
+			 *
+			 * Prog jest ZEROWY, nie `MIN_TEXT_CHARS`: tresc krotka, ale prawdziwa,
+			 * ma dalej isc do progu w `Runner`, ktory poda w notatce jej dlugosc.
+			 */
+			if ( 0 === self::text_length( $tresc ) ) {
 				return self::extract_result( false, '', $canonical, 'Nie znaleziono treści na stronie' );
 			}
 

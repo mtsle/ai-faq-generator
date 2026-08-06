@@ -290,10 +290,17 @@ namespace {
 		'format'  => 'rss',
 		'title'   => 'Kanal',
 		'items'   => array(
-			k3n_pozycja( 'https://psy.pl/a/', 'Karma bytowa', 'o karmie', 'tresc' ),
+			// Tytuly dostosowane do wariantu C (2026-08-07): pozycja, ktora ma
+			// PRZEJSC, musi mowic o psach w tytule albo zajawce. Bez tego
+			// licznik `added` mierzylby bramke slow wymaganych zamiast wykluczen.
+			k3n_pozycja( 'https://psy.pl/a/', 'Karma bytowa dla psa', 'o karmie', 'tresc' ),
 			k3n_pozycja( 'https://psy.pl/b/', 'Kot rudy', 'o kocie', 'tresc' ),
 			k3n_pozycja( 'https://psy.pl/c/', 'Szkolenie szczeniaka', 'komendy', 'tresc' ),
-			k3n_pozycja( 'https://psy.pl/d/', 'Wielki konkurs', 'zapisy trwaja', 'tresc' ),
+			k3n_pozycja( 'https://psy.pl/d/', 'Wielki konkurs dla psow', 'zapisy trwaja', 'tresc' ),
+			// Poza tematem: ani slowa wykluczajacego, ani slowa o psie. Zadna
+			// dlugosc listy wykluczen tego nie zatrzyma — zatrzymuje to dopiero
+			// bramka wariantu C, i to na PELNEJ drodze przez `collect()`.
+			k3n_pozycja( 'https://psy.pl/e/', 'Nowe trendy w modzie męskiej', 'przeglad kolekcji', 'tresc' ),
 		),
 		'skipped' => 0,
 	);
@@ -302,10 +309,29 @@ namespace {
 
 	k3n_check( array_key_exists( 'skipped', $podsumowanie ), 'podsumowanie ma licznik `skipped`' );
 	k3n_check( 2 === (int) $podsumowanie['added'], 'nowych: 2 (jest ' . (int) $podsumowanie['added'] . ')' );
-	k3n_check( 2 === (int) $podsumowanie['skipped'], 'odsianych: 2 — kot i konkurs (jest ' . (int) $podsumowanie['skipped'] . ')' );
+	k3n_check(
+		3 === (int) $podsumowanie['skipped'],
+		'odsianych: 3 — kot, konkurs i moda poza tematem (jest ' . (int) $podsumowanie['skipped'] . ')'
+	);
 	k3n_check( 0 === (int) $podsumowanie['duplicates'], 'duplikatow: 0' );
 	k3n_check( 0 === (int) $podsumowanie['failed'], 'nieudanych zapisow: 0' );
-	k3n_check( 2 === (int) $podsumowanie['per_source']['https://psy.pl/feed/']['skipped'], 'licznik `skipped` jest tez per zrodlo' );
+	k3n_check( 3 === (int) $podsumowanie['per_source']['https://psy.pl/feed/']['skipped'], 'licznik `skipped` jest tez per zrodlo' );
+
+	// Bramka wariantu C na PELNEJ drodze: lista wymagana musi dojsc
+	// z `collect_source()` az do `insert_item()`, a nie zgubic sie po drodze.
+	$zapytania_e = array_values(
+		array_filter(
+			$wpdb->queries,
+			function ( $sql ) {
+				return false !== strpos( $sql, 'https://psy.pl/e/' );
+			}
+		)
+	);
+	k3n_check( 1 === count( $zapytania_e ), 'pozycja poza tematem trafila do tabeli (jeden zapis)' );
+	k3n_check(
+		false !== strpos( $zapytania_e[0], 'Poza tematem' ),
+		'i ma powod „poza tematem” — lista wymagana doszla z `collect()` do zapisu'
+	);
 	k3n_check(
 		1 === count( $GLOBALS['__zadania'] ),
 		'zadan HTTP dokladnie tyle, ile kanalow: 1 (jest ' . count( $GLOBALS['__zadania'] ) . ')'

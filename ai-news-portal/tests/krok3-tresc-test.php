@@ -338,11 +338,15 @@ namespace {
 	 * @param int    $id      Identyfikator.
 	 * @param string $url     Adres.
 	 * @param string $content Tresc z kanalu.
-	 * @param string $title   Tytul.
+	 * @param string $title   Tytul. Domyslny MUSI zawierac slowo o psie: od
+	 *                        wariantu C (2026-08-07) bramka slow wymaganych
+	 *                        odsiewa pozycje, ktorych tytul i zajawka nie mowia
+	 *                        o psach, a ten zestaw sprawdza tresc i odciski,
+	 *                        nie filtr — material ma przez filtr przechodzic.
 	 *
 	 * @return object
 	 */
-	function k3t_wiersz( $id, $url, $content = '', $title = 'Tytuł artykułu' ) {
+	function k3t_wiersz( $id, $url, $content = '', $title = 'Tytuł artykułu o psach' ) {
 		$wiersz = (object) array(
 			'id'           => $id,
 			'url'          => $url,
@@ -538,7 +542,18 @@ namespace {
 	$los = Runner::prepare_item( $a, array() );
 
 	k3t_check( 'skipped' === $los, 'szkielet bez tresci: `skipped` (test 5 z planu)' );
-	k3t_check( false !== strpos( (string) $wpdb->rows[1]->note, 'Za mało treści' ), 'powod podaje liczby' );
+
+	/*
+	 * NAPRAWA D-1 (2026-08-07) zmienila TU powod, i o to w niej chodzilo.
+	 * Przedtem `extract()` oddawalo `ok = true` z lancuchem pelnym znacznikow
+	 * i zerem znakow tekstu, wiec pozycje odrzucal dopiero prog w `Runner`
+	 * z notatka „Za mało treści" — a to wskazuje palcem na kanal. Szkielet SPA
+	 * nie ma za malo tresci; on jej nie ma wcale i wina lezy po stronie strony.
+	 */
+	k3t_check(
+		false !== strpos( (string) $wpdb->rows[1]->note, 'Nie znaleziono treści na stronie' ),
+		'powod nazywa prawdziwa przyczyne: strona bez tekstu, nie krotki tekst (D-1)'
+	);
 	k3t_check( '' === (string) $wpdb->rows[1]->content_hash, 'pozycja bez tresci nie zajmuje odcisku' );
 
 	// -----------------------------------------------------------------------

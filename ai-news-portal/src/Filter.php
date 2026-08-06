@@ -49,6 +49,38 @@ final class Filter {
 	/** Poczatek notatki zapisywanej przy pominietej pozycji. */
 	public const NOTE_PREFIX = 'Słowo wykluczające: ';
 
+	/**
+	 * Notatka przy pozycji odrzuconej przez bramke slow wymaganych.
+	 *
+	 * Osobna od `NOTE_PREFIX`, bo to zupelnie inny powod: tam artykul mowil
+	 * o czyms niechcianym, tutaj nie mowi o psach w ogole. Zlanie obu w jedna
+	 * notatke zabiloby jedyny sygnal, po ktorym na ekranie Materialy widac,
+	 * ktora z dwoch list jest za ostra.
+	 */
+	public const NOTE_OFFTOPIC = 'Poza tematem: brak słowa wymaganego w tytule i zajawce';
+
+	/**
+	 * Pola ogladane przy szukaniu slowa WYKLUCZAJACEGO.
+	 *
+	 * Dwie nazwy na zajawke, bo pozycja przychodzi tu z dwoch miejsc:
+	 * z `Feed::parse()` (klucz `summary`) albo z wiersza tabeli (`excerpt`).
+	 *
+	 * @var array<int,string>
+	 */
+	private const FIELDS_ALL = array( 'title', 'summary', 'excerpt', 'content' );
+
+	/**
+	 * Pola, w ktorych musi stac slowo WYMAGANE: tytul i zajawka, bez tresci.
+	 *
+	 * Zawezenie jest cala wartoscia bramki. W pelnym tekscie artykulu
+	 * z kanalu o psach slowo „pies" pada prawie zawsze — nawet w artykule
+	 * o pizzy, gdzie siedzi w stopce albo w boksie „powiazane wpisy". Bramka
+	 * na pelnym tekscie przepuszczalaby wiec wszystko i byla tylko kosztem.
+	 *
+	 * @var array<int,string>
+	 */
+	private const FIELDS_HEAD = array( 'title', 'summary', 'excerpt' );
+
 	// -----------------------------------------------------------------------
 	// Decyzja
 	// -----------------------------------------------------------------------
@@ -107,6 +139,55 @@ final class Filter {
 	}
 
 	/**
+	 * Czy pozycja mowi o psach — bramka slow WYMAGANYCH (wariant C).
+	 *
+	 * Odwrotnosc `match()`: tam szukamy powodu do odrzucenia, tutaj powodu do
+	 * przyjecia. Kolejnosc w przeplywie jest taka, ze ta bramka stoi PO
+	 * wykluczeniach — artykul o kocie ma zostac odrzucony jako artykul o kocie,
+	 * a nie jako „nie o psie", bo tylko pierwsza z tych notatek mowi klientowi,
+	 * ktore slowo z listy zadzialalo.
+	 *
+	 * PUSTA LISTA ZNACZY „BEZ WYMAGAN". To nie jest uprzejmosc wobec pustego
+	 * pola w Ustawieniach, tylko warunek zgodnosci wstecz: instalacja sprzed
+	 * wariantu C ma dzialac dalej dokladnie tak jak przedtem, a klient, ktory
+	 * pole wyczysci, ma dostac filtr bez bramki — nie portal odrzucajacy
+	 * kazda pozycje.
+	 *
+	 * @param array<string,mixed>    $item  Pozycja.
+	 * @param array<int,string>|null $words Lista slow wymaganych; `null` bierze
+	 *                                      ja z ustawien.
+	 *
+	 * @return bool `true`, gdy pozycja przechodzi (albo gdy lista jest pusta).
+	 */
+	public static function has_required( array $item, ?array $words = null ): bool {
+		$lista = ( null === $words ) ? self::required_words() : self::clean_words( $words );
+
+		if ( ! $lista ) {
+			return true;
+		}
+
+		$tekst = self::haystack( $item, self::FIELDS_HEAD );
+
+		/*
+		 * Pozycja bez tytulu I bez zajawki nie daje sie ocenic — nie ma o czym
+		 * orzekac. Idzie do `skipped` z ta sama notatka co artykul o pizzy,
+		 * bo dla klienta skutek jest ten sam: nic nie wskazuje, ze to material
+		 * o psach. Kanaly z czterech domyslnych zrodel zawsze podaja tytul.
+		 */
+		if ( '' === $tekst ) {
+			return false;
+		}
+
+		foreach ( $lista as $slowo ) {
+			if ( self::contains( $tekst, $slowo ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Notatka do kolumny `note` przy pozycji pominietej przez filtr.
 	 *
 	 * Powod pominiecia MUSI byc czytelny na ekranie Materialy — seria pozycji
@@ -132,14 +213,17 @@ final class Filter {
 	 * To jest wlasnie warunek, dzieki ktoremu odrzucona pozycja ma zero zadan
 	 * HTTP na koncie.
 	 *
-	 * @param array<string,mixed> $item Pozycja.
+	 * @param array<string,mixed>    $item   Pozycja.
+	 * @param array<int,string>|null $fields Pola do sklejenia; `null` bierze
+	 *                                       komplet (`FIELDS_ALL`). Bramka slow
+	 *                                       wymaganych podaje tu sam naglowek.
 	 *
 	 * @return string Tekst znormalizowany.
 	 */
-	public static function haystack( array $item ): string {
+	public static function haystack( array $item, ?array $fields = null ): string {
 		$czesci = array();
 
-		foreach ( array( 'title', 'summary', 'excerpt', 'content' ) as $klucz ) {
+		foreach ( ( null === $fields ) ? self::FIELDS_ALL : $fields as $klucz ) {
 			if ( isset( $item[ $klucz ] ) && is_scalar( $item[ $klucz ] ) ) {
 				$czesci[] = (string) $item[ $klucz ];
 			}
@@ -204,6 +288,46 @@ final class Filter {
 		$zapisane = Settings::get( 'excluded_words', array() );
 
 		return self::clean_words( is_array( $zapisane ) ? $zapisane : array() );
+	}
+
+	/**
+	 * Slowa wymagane z ustawien, gotowe do porownania.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function required_words(): array {
+		$zapisane = Settings::get( 'required_words', array() );
+
+		return self::clean_words( is_array( $zapisane ) ? $zapisane : array() );
+	}
+
+	/**
+	 * OBIE listy naraz, przy jednym odczycie opcji.
+	 *
+	 * `words()` i `required_words()` wolane osobno to dwa razy `Settings::all()`,
+	 * czyli dwa odczyty opcji i dwa scalenia z domyslnymi. W petli po kanale
+	 * to bez znaczenia — listy czyta sie raz na kanal, nie raz na pozycje —
+	 * ale asercja „opcja czytana RAZ na kanal" jest jedynym, co pilnuje, zeby
+	 * ktos tego kiedys nie przeniosl do srodka petli. Ta metoda pozwala jej
+	 * zostac w mocy.
+	 *
+	 * @return array{excluded: array<int,string>, required: array<int,string>}
+	 */
+	public static function lists(): array {
+		$ustawienia = Settings::all();
+
+		$wykluczone = isset( $ustawienia['excluded_words'] ) && is_array( $ustawienia['excluded_words'] )
+			? $ustawienia['excluded_words']
+			: array();
+
+		$wymagane = isset( $ustawienia['required_words'] ) && is_array( $ustawienia['required_words'] )
+			? $ustawienia['required_words']
+			: array();
+
+		return array(
+			'excluded' => self::clean_words( $wykluczone ),
+			'required' => self::clean_words( $wymagane ),
+		);
 	}
 
 	/**

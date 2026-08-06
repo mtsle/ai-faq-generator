@@ -172,14 +172,16 @@ final class Runner {
 			$pozycje          = array_slice( $pozycje, 0, self::MAX_ITEMS_PER_SOURCE );
 		}
 
-		// Lista slow czytana RAZ na kanal, nie raz na pozycje: `Settings::all()`
+		// Obie listy czytane RAZ na kanal, nie raz na pozycje: `Settings::all()`
 		// to odczyt opcji i scalenie z domyslnymi, a kanal potrafi podac
 		// sto pozycji.
-		$slowa = Filter::words();
+		$listy    = Filter::lists();
+		$slowa    = $listy['excluded'];
+		$wymagane = $listy['required'];
 
 		foreach ( $pozycje as $pozycja ) {
 			try {
-				$los = self::insert_item( $pozycja, $slowa );
+				$los = self::insert_item( $pozycja, $slowa, $wymagane );
 			} catch ( \Throwable $e ) {
 				$los = 'error';
 			}
@@ -242,10 +244,13 @@ final class Runner {
 	 *                                      wywolaniu pojedynczym, drogie
 	 *                                      w petli — stad jawny argument
 	 *                                      w `collect_source()`).
+	 * @param array<int,string>|null $required Slowa wymagane (wariant C); `null`
+	 *                                         bierze liste z ustawien, pusta
+	 *                                         tablica wylacza bramke.
 	 *
 	 * @return string `added`, `skipped`, `duplicate`, `invalid` albo `error`.
 	 */
-	public static function insert_item( array $item, ?array $words = null ): string {
+	public static function insert_item( array $item, ?array $words = null, ?array $required = null ): string {
 		global $wpdb;
 
 		$url  = isset( $item['url'] ) ? trim( (string) $item['url'] ) : '';
@@ -263,9 +268,21 @@ final class Runner {
 
 		$slowo   = self::excluded_word( $item, $words );
 		$odsiane = ( '' !== $slowo );
+		$note    = $odsiane ? Filter::note( $slowo ) : '';
+
+		/*
+		 * Bramka slow wymaganych stoi PO wykluczeniach i tylko wtedy, gdy tamte
+		 * przepuscily. Odwrotna kolejnosc dawalaby przy artykule o kocie notatke
+		 * „poza tematem" zamiast nazwy slowa, ktore zadzialalo — a nazwa slowa
+		 * jest jedynym sygnalem, po ktorym widac, ze lista wykluczen jest za
+		 * ostra. Bramka nie dotyka sieci: patrzy na tytul i zajawke z kanalu.
+		 */
+		if ( ! $odsiane && ! Filter::has_required( $item, $required ) ) {
+			$odsiane = true;
+			$note    = Filter::NOTE_OFFTOPIC;
+		}
 
 		$status  = $odsiane ? self::STATUS_SKIPPED : self::STATUS_NEW;
-		$note    = $odsiane ? Filter::note( $slowo ) : '';
 		$tresc   = $odsiane ? '' : wp_encode_emoji( self::text( $item, 'content' ) );
 
 		$teraz = current_time( 'mysql' );
@@ -343,9 +360,11 @@ final class Runner {
 			return $wynik;
 		}
 
-		$slowa  = Filter::words();
-		$start  = microtime( true );
-		$budzet = ( null === $budget ) ? (float) self::PREPARE_BUDGET : max( 0.1, $budget );
+		$listy    = Filter::lists();
+		$slowa    = $listy['excluded'];
+		$wymagane = $listy['required'];
+		$start    = microtime( true );
+		$budzet   = ( null === $budget ) ? (float) self::PREPARE_BUDGET : max( 0.1, $budget );
 
 		foreach ( $wiersze as $wiersz ) {
 			/*
@@ -361,7 +380,7 @@ final class Runner {
 			$wynik['taken']++;
 
 			try {
-				$los = self::prepare_item( $wiersz, $slowa );
+				$los = self::prepare_item( $wiersz, $slowa, $wymagane );
 			} catch ( \Throwable $e ) {
 				// Ta sama zasada co przy zbieraniu: jedna polamana pozycja
 				// nie ma prawa zatrzymac calego przebiegu.
@@ -385,19 +404,21 @@ final class Runner {
 	 *   1. FILTR jeszcze raz. Wiersze zebrane, zanim filtr powstal, nigdy go
 	 *      nie widzialy; bez tego sprawdzenia poszlyby prosto do scrapingu.
 	 *      Kosztuje zero zadan sieciowych, a oszczedza jedno na kazdej
-	 *      odsianej pozycji.
+	 *      odsianej pozycji. Razem z nim bramka slow WYMAGANYCH — z tego
+	 *      samego powodu i tez bez sieci.
 	 *   2. SCRAPING tylko wtedy, gdy tresc z kanalu jest za krotka.
 	 *   3. CANONICAL przed odciskiem tresci: podmiana adresu potrafi odslonic
 	 *      duplikat, ktorego nie widac bylo po adresie z kanalu.
 	 *   4. ODCISK TRESCI na koncu, juz po oczyszczeniu — inaczej ten sam tekst
 	 *      raz z reklama, raz bez, dawalby dwa rozne odciski.
 	 *
-	 * @param object                 $row   Wiersz tabeli.
-	 * @param array<int,string>|null $words Slowa wykluczajace.
+	 * @param object                 $row      Wiersz tabeli.
+	 * @param array<int,string>|null $words    Slowa wykluczajace.
+	 * @param array<int,string>|null $required Slowa wymagane (wariant C).
 	 *
 	 * @return string `ready`, `skipped`, `retry`, `failed` albo `error`.
 	 */
-	public static function prepare_item( $row, ?array $words = null ): string {
+	public static function prepare_item( $row, ?array $words = null, ?array $required = null ): string {
 		$id  = isset( $row->id ) ? (int) $row->id : 0;
 		$url = isset( $row->url ) ? (string) $row->url : '';
 
@@ -416,6 +437,14 @@ final class Runner {
 
 		if ( '' !== $slowo ) {
 			self::finish( $id, self::STATUS_SKIPPED, Filter::note( $slowo ) );
+			return 'skipped';
+		}
+
+		// 1b. Bramka slow wymaganych — tak samo jak przy zapisie, dla wierszy
+		// zebranych, zanim wariant C powstal. Kosztuje zero zadan sieciowych
+		// i stoi PRZED scrapingiem wlasnie po to.
+		if ( ! Filter::has_required( $pozycja, $required ) ) {
+			self::finish( $id, self::STATUS_SKIPPED, Filter::NOTE_OFFTOPIC );
 			return 'skipped';
 		}
 

@@ -72,6 +72,33 @@ final class Admin {
 	/** Prefiks transientu z podsumowaniem ostatniego przygotowania tresci. */
 	public const TRANSIENT_PREP = 'ainp_last_prep_';
 
+	/**
+	 * Zamek na czas przygotowywania partii — DLUG D-8 Z AUDYTU KROKU 3.
+	 *
+	 * Zamek jest WSPOLNY dla calej witryny, bez identyfikatora uzytkownika:
+	 * chodzi o to, ze ta sama partia wierszy nie ma byc scrapowana dwa razy,
+	 * a wiersze nie naleza do nikogo.
+	 *
+	 * ZAKRES TEGO ROZWIAZANIA JEST SWIADOMIE MALY. Zamyka najczestszy przypadek
+	 * z zycia — dwuklik w „Przygotuj treści" i odswiezenie strony w trakcie —
+	 * i tylko tyle. Nie jest to przejecie atomowe: miedzy odczytem a zapisem
+	 * transientu jest okno, w ktore da sie wejsc dwoma zadaniami rownoczesnie.
+	 * Prawdziwe przejecie pozycji (`UPDATE … SET status='taken' WHERE
+	 * status='new'`) nalezy do etapu 5.2, razem z tickiem crona, ktory jest
+	 * jedynym miejscem, gdzie rownoczesnosc powstaje sama z siebie.
+	 */
+	public const TRANSIENT_LOCK = 'ainp_prepare_lock';
+
+	/**
+	 * Zycie zamka w sekundach.
+	 *
+	 * Musi przezyc najdluzsza mozliwa partie, ale nie wiecej: proces zabity
+	 * przez `max_execution_time` nie zdazy zamka zdjac, a zamek, ktory zostal
+	 * po trupie, blokuje przycisk do konca swojego zycia. 120 s to z zapasem
+	 * ponad `Runner::PREPARE_BUDGET` (15 s) plus jedno pobranie strony.
+	 */
+	public const LOCK_TTL = 120;
+
 	// -----------------------------------------------------------------------
 	// Rejestracja
 	// -----------------------------------------------------------------------
@@ -162,11 +189,40 @@ final class Admin {
 	public static function handle_prepare(): void {
 		self::guard( self::ACTION_PREPARE );
 
-		$podsumowanie = Runner::prepare_batch();
+		/*
+		 * Zamek PRZED praca, zdejmowany w `finally`. Bez `finally` wyjatek
+		 * w srodku partii zostawialby zamek na cale `LOCK_TTL` i klient
+		 * mialby przycisk martwy przez dwie minuty bez zadnego wyjasnienia.
+		 */
+		if ( ! self::claim_prepare_lock() ) {
+			self::redirect_back( self::SLUG_ITEMS, 'zajete' );
+		}
+
+		try {
+			$podsumowanie = Runner::prepare_batch();
+		} finally {
+			delete_transient( self::TRANSIENT_LOCK );
+		}
 
 		set_transient( self::TRANSIENT_PREP . get_current_user_id(), $podsumowanie, 300 );
 
 		self::redirect_back( self::SLUG_ITEMS, 'przygotowano' );
+	}
+
+	/**
+	 * Bierze zamek na przygotowanie partii. Patrz `TRANSIENT_LOCK`.
+	 *
+	 * @return bool `true`, gdy zamek zostal wziety; `false`, gdy trzyma go
+	 *              inne zadanie.
+	 */
+	private static function claim_prepare_lock(): bool {
+		if ( false !== get_transient( self::TRANSIENT_LOCK ) ) {
+			return false;
+		}
+
+		set_transient( self::TRANSIENT_LOCK, time(), self::LOCK_TTL );
+
+		return true;
 	}
 
 	/**
@@ -293,6 +349,16 @@ final class Admin {
 			'excluded_words' => isset( $dane['ainp_excluded_words'] )
 				? self::parse_list( (string) $dane['ainp_excluded_words'] )
 				: $domyslne['excluded_words'],
+			/*
+			 * Pusta lista slow wymaganych jest DOZWOLONA i znaczy „bez bramki" —
+			 * inaczej niz pusta lista kategorii nizej, ktora unieruchomilaby
+			 * walidator. Dlatego nie ma tu podstawienia domyslnych po fakcie:
+			 * klient, ktory swiadomie wyczyscil pole, ma dostac filtr sprzed
+			 * wariantu C, a nie ciche przywrocenie listy.
+			 */
+			'required_words' => isset( $dane['ainp_required_words'] )
+				? self::parse_list( (string) $dane['ainp_required_words'] )
+				: $domyslne['required_words'],
 			'categories'     => isset( $dane['ainp_categories'] )
 				? self::parse_list( (string) $dane['ainp_categories'] )
 				: $domyslne['categories'],
@@ -380,6 +446,7 @@ final class Admin {
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html__( 'AI News Portal — Materiały', 'ai-news-portal' ) . '</h1>';
 
+		self::render_lock_notice();
 		self::render_run_notice();
 		self::render_prep_notice();
 
@@ -427,6 +494,24 @@ final class Admin {
 
 		echo '<p><a href="' . esc_url( $lista_artykulow ) . '">' . esc_html__( 'Zarządzaj opublikowanymi artykułami', 'ai-news-portal' ) . '</a> ' . esc_html__( '— tam usuwa się i edytuje artykuły hurtem.', 'ai-news-portal' ) . '</p>';
 		echo '</div>';
+	}
+
+	/**
+	 * Informacja, ze partia byla juz w toku (zamek D-8).
+	 *
+	 * Osobny komunikat, nie cisza: klient, ktory kliknal dwa razy, ma zobaczyc,
+	 * ze drugie klikniecie NIC nie zrobilo. Bez tego wyglada to jak przycisk,
+	 * ktory czasem dziala, a czasem nie.
+	 *
+	 * @return void
+	 */
+	private static function render_lock_notice(): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- odczyt, nic nie zapisuje.
+		if ( ! isset( $_GET['ainp_status'] ) || 'zajete' !== $_GET['ainp_status'] ) {
+			return;
+		}
+
+		echo '<div class="notice notice-warning"><p>' . esc_html__( 'Przygotowanie treści już trwa — poczekaj na jego koniec i odśwież stronę.', 'ai-news-portal' ) . '</p></div>';
 	}
 
 	/**
@@ -604,6 +689,7 @@ final class Admin {
 		$ustawienia = Settings::all();
 		$kategorie  = is_array( $ustawienia['categories'] ) ? $ustawienia['categories'] : array();
 		$slowa      = is_array( $ustawienia['excluded_words'] ) ? $ustawienia['excluded_words'] : array();
+		$wymagane   = is_array( $ustawienia['required_words'] ) ? $ustawienia['required_words'] : array();
 		$zrodla     = Runner::sources();
 
 		echo '<div class="wrap">';
@@ -635,6 +721,12 @@ final class Admin {
 		echo '<textarea name="ainp_excluded_words" id="ainp_excluded_words" rows="6" cols="70" class="large-text">'
 			. esc_textarea( implode( ', ', $slowa ) ) . '</textarea>';
 		echo '<p class="description">' . esc_html__( 'Po przecinku albo po jednym na linię, bez polskich znaków diakrytycznych.', 'ai-news-portal' ) . '</p>';
+		echo '</td></tr>';
+
+		echo '<tr><th scope="row"><label for="ainp_required_words">' . esc_html__( 'Słowa wymagane', 'ai-news-portal' ) . '</label></th><td>';
+		echo '<textarea name="ainp_required_words" id="ainp_required_words" rows="6" cols="70" class="large-text">'
+			. esc_textarea( implode( ', ', $wymagane ) ) . '</textarea>';
+		echo '<p class="description">' . esc_html__( 'Pozycja przechodzi tylko wtedy, gdy w TYTULE albo ZAJAWCE stoi co najmniej jedno z tych słów. Odmiany trzeba wypisać osobno — dopasowanie jest do całego słowa. Puste pole wyłącza ten warunek.', 'ai-news-portal' ) . '</p>';
 		echo '</td></tr>';
 
 		echo '<tr><th scope="row"><label for="ainp_model">' . esc_html__( 'Model', 'ai-news-portal' ) . '</label></th><td>';

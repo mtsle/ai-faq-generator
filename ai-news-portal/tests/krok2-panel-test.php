@@ -200,6 +200,15 @@ class AINP_Fake_WPDB {
 
 	public function get_results( $sql ) {
 		$this->queries[] = $sql;
+
+		/*
+		 * Sonda do dlugu D-8. Zamek na przygotowanie partii jest zdejmowany
+		 * na koncu `handle_prepare()`, wiec z zewnatrz nie widac, czy w ogole
+		 * byl postawiony — a to jedyne, co ten zamek robi. Odczyt tabeli
+		 * dzieje sie W TRAKCIE partii, wiec tutaj widac stan prawdziwy.
+		 */
+		$GLOBALS['__zamek_w_trakcie'] = array_key_exists( 'ainp_prepare_lock', $GLOBALS['__transient'] );
+
 		return $this->wiersze;
 	}
 
@@ -218,6 +227,9 @@ require_once $root . '/src/Settings.php';
 require_once $root . '/src/Http.php';
 require_once $root . '/src/Feed.php';
 require_once $root . '/src/Dedup.php';
+// Od wariantu C `Runner` pyta `Filter` o obie listy przy kazdej partii —
+// bez tego pliku `handle_prepare()` fataluje zamiast wykonac prace.
+require_once $root . '/src/Filter.php';
 require_once $root . '/src/Runner.php';
 require_once $root . '/src/Plugin.php';
 require_once $root . '/src/Admin.php';
@@ -393,6 +405,32 @@ k2p_check(
 );
 
 // ---------------------------------------------------------------------------
+echo "\n-- Wariant C: pole „Slowa wymagane” --\n";
+// ---------------------------------------------------------------------------
+$latka = Admin::sanitize_settings( array( 'ainp_required_words' => "pies, psa\njamnik, pies" ) );
+k2p_check( 3 === count( $latka['required_words'] ), 'slowa wymagane z przecinkow i linii, bez powtorzen' );
+
+/*
+ * Ta asercja jest odwrotnoscia tej o kategoriach wyzej i to jest w niej
+ * najwazniejsze. Pusta lista kategorii MUSI wrocic do domyslnej, bo bez
+ * kategorii walidator AI odrzuca wszystko. Pusta lista slow wymaganych MUSI
+ * zostac pusta, bo pusta znaczy „bez bramki" — ciche przywrocenie domyslnych
+ * odbieraloby klientowi mozliwosc jej wylaczenia i wygladalo jak awaria
+ * zapisu.
+ */
+$latka = Admin::sanitize_settings( array( 'ainp_required_words' => '   ' ) );
+k2p_check(
+	array() === $latka['required_words'],
+	'wyczyszczone pole slow wymaganych ZOSTAJE puste — domyslne NIE wracaja'
+);
+
+$latka = Admin::sanitize_settings( array() );
+k2p_check(
+	count( $latka['required_words'] ) === count( Settings::defaults()['required_words'] ),
+	'brak pola w formularzu (nie to samo co puste) bierze liste domyslna'
+);
+
+// ---------------------------------------------------------------------------
 echo "\n-- Bez uprawnienia i bez nonce'a: ZERO zmian w bazie --\n";
 // ---------------------------------------------------------------------------
 $GLOBALS['__cap']      = false;
@@ -455,8 +493,87 @@ k2p_check(
 );
 
 // ---------------------------------------------------------------------------
+echo "\n-- DLUG D-8: zamek na dwuklik w „Przygotuj tresci” --\n";
+// ---------------------------------------------------------------------------
+// Bez zamka drugie klikniecie bierze te sama partie wierszy i scrapuje ja
+// jeszcze raz: podwojny ruch sieciowy i podwojne ryzyko wyscigu o odcisk
+// tresci. To ZASLEPKA — pelne przejecie pozycji nalezy do etapu 5.2.
+$GLOBALS['__transient']        = array();
+$GLOBALS['wpdb']->wiersze      = array();
+$GLOBALS['__zamek_w_trakcie']  = null;
+
+try {
+	Admin::handle_prepare();
+} catch ( AINP_Redirect $e ) {
+	true;
+}
+
+k2p_check(
+	false !== strpos( (string) $GLOBALS['__redirect'], 'ainp_status=przygotowano' ),
+	'pierwsze klikniecie wykonuje prace'
+);
+k2p_check(
+	true === $GLOBALS['__zamek_w_trakcie'],
+	'zamek STOI w trakcie partii — sprawdzone w chwili odczytu tabeli, nie po fakcie'
+);
+k2p_check(
+	! array_key_exists( Admin::TRANSIENT_LOCK, $GLOBALS['__transient'] ),
+	'zamek ZDJETY po skonczonej partii — inaczej przycisk jest martwy przez ' . Admin::LOCK_TTL . ' s'
+);
+
+$zapytan_po_pierwszym = count( $GLOBALS['wpdb']->queries );
+
+// Drugie klikniecie, gdy zamek jeszcze stoi.
+$GLOBALS['__transient'][ Admin::TRANSIENT_LOCK ] = time();
+
+try {
+	Admin::handle_prepare();
+} catch ( AINP_Redirect $e ) {
+	true;
+}
+
+k2p_check(
+	false !== strpos( (string) $GLOBALS['__redirect'], 'ainp_status=zajete' ),
+	'drugie klikniecie przy zajetym zamku wraca ze statusem `zajete`'
+);
+k2p_check(
+	$zapytan_po_pierwszym === count( $GLOBALS['wpdb']->queries ),
+	'i NIE puszcza ani jednego zapytania do bazy (bylo ' . $zapytan_po_pierwszym
+		. ', jest ' . count( $GLOBALS['wpdb']->queries ) . ')'
+);
+k2p_check(
+	array_key_exists( Admin::TRANSIENT_LOCK, $GLOBALS['__transient'] ),
+	'odbite zadanie NIE zdejmuje cudzego zamka'
+);
+
+// Uprawnienie i nonce sprawdzane PRZED zamkiem: zadanie bez uprawnienia nie
+// ma prawa zablokowac przycisku reszcie swiata.
+$GLOBALS['__transient'] = array();
+$GLOBALS['__cap']       = false;
+
+try {
+	Admin::handle_prepare();
+	k2p_check( false, 'bez uprawnienia `handle_prepare` zostaje przerwane' );
+} catch ( AINP_Died $e ) {
+	k2p_check( true, 'bez uprawnienia `handle_prepare` zostaje przerwane' );
+}
+
+k2p_check(
+	array() === $GLOBALS['__transient'],
+	'zadanie bez uprawnienia NIE zostawia zamka — inaczej byloby to zdalne zablokowanie przycisku'
+);
+
+$GLOBALS['__cap'] = true;
+
+// ---------------------------------------------------------------------------
 echo "\n-- Ekran Materialow: escapowanie tresci z obcego serwera --\n";
 // ---------------------------------------------------------------------------
+// Liczniki atrapy zerowane TUTAJ, a nie liczone od poczatku pliku: asercje
+// nizej mowia „odczyt TEGO ekranu idzie przez prepare() i ma sufit 50",
+// a licznik ciagniety przez caly zestaw mierzylby wszystko, co bylo wczesniej.
+$GLOBALS['wpdb']->prepared = 0;
+$GLOBALS['wpdb']->queries  = array();
+
 $GLOBALS['wpdb']->wiersze = array(
 	(object) array(
 		'id'         => 1,

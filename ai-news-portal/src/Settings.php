@@ -122,6 +122,72 @@ final class Settings {
 				'znecanie', 'okrucienstwo', 'zwloki',
 			),
 
+			/*
+			 * Slowa WYMAGANE — wariant C filtra, decyzja usera z 2026-08-07.
+			 *
+			 * Slowa wykluczajace odpowiadaja na pytanie „czy to jest o czyms,
+			 * czego nie chcemy". Ta lista odpowiada na pytanie odwrotne i o wiele
+			 * skuteczniejsze przy kanale ogolnotematycznym: „czy to w ogole jest
+			 * o psie". Zmierzone na 70 prawdziwych pozycjach: bez tej bramki
+			 * przez filtr przechodzily wesela, jazda konna, pizza, garderoba,
+			 * obiady wegetarianskie, Wi-Fi, przedszkole, slad weglowy
+			 * i ogrzewanie — zaden z tych artykulow nie ma slowa wykluczajacego,
+			 * wiec zadna dlugosc listy wykluczen ich nie zatrzyma.
+			 *
+			 * TRZY WLASNOSCI, ktorych nie wolno zgubic przy edycji:
+			 *
+			 *   1. PUSTA LISTA WYLACZA BRAMKE. Klient, ktory wyczysci pole
+			 *      w Ustawieniach, dostaje filtr sprzed wariantu C, a nie portal,
+			 *      ktory odrzuca wszystko.
+			 *   2. Bramka patrzy WYLACZNIE na tytul i zajawke — nie na tresc.
+			 *      W tresci slowo „pies" pada predzej czy pozniej w kazdym
+			 *      artykule z takiego kanalu, wiec bramka na pelnym tekscie
+			 *      nie odsialaby niczego.
+			 *   3. Dopasowanie jest z granica slowa, tak samo jak przy
+			 *      wykluczeniach — stad formy odmienione wypisane osobno.
+			 *      `pies` NIE zlapie `piesek`, a `psi` nie zlapie `psia`.
+			 */
+			'required_words'      => array(
+				/*
+				 * Warstwa 1 — rdzen i PELNY paradygmat. Pelny nie z pedanterii:
+				 * przy dopasowaniu do calego slowa kazdy brakujacy przypadek to
+				 * cicha dziura, a tytul „O psach i kotach" wpada w nia tak samo
+				 * jak artykul o pizzy. Miejscownik mnogi („o psach") zgubil sie
+				 * w pierwszej wersji tej listy i zlapal go dopiero test.
+				 */
+				'pies', 'psa', 'psu', 'psem', 'psie', 'psow', 'psy', 'psom',
+				'psami', 'psach',
+				'psi', 'psia', 'psiej', 'psiego', 'psiemu', 'psim', 'psich', 'psimi',
+
+				// Warstwa 2 — zdrobnienia i mlode, z tym samym wymogiem odmian.
+				'piesek', 'pieska', 'piesku', 'pieskiem', 'pieski', 'pieskow',
+				'pieskom', 'pieskami', 'pieskach',
+				'psiak', 'psiaka', 'psiaki', 'psiakow', 'psiakach', 'psina', 'psiny',
+				'szczeniak', 'szczeniaka', 'szczeniakowi', 'szczeniakiem',
+				'szczeniaki', 'szczeniakow', 'szczeniakach',
+				'szczenie', 'szczenieta', 'szczeniat', 'szczeniakom', 'szczeniactwo',
+				'suczka', 'suczki', 'suczke', 'suka', 'suki',
+
+				// Warstwa 3 — nazwy zastepcze, ktorymi tytul omija slowo „pies".
+				'czworonog', 'czworonoga', 'czworonogi', 'czworonogow',
+				'czworonogiem', 'czworonogach', 'czworonozny', 'czworonoznego',
+				'kynologia', 'kynologii', 'kynologiczny', 'kynologicznej', 'kynolog',
+
+				// Warstwa 4 — rasy. Tytul „Jak zyje jamnik" nie ma slowa „pies",
+				// a jest dokladnie tym, po co ten portal powstal.
+				'owczarek', 'owczarka', 'owczarki', 'labrador', 'labradora',
+				'retriever', 'retrievera', 'buldog', 'buldoga',
+				'jamnik', 'jamnika', 'jamniki', 'husky', 'terier', 'teriera',
+				'yorkshire', 'yorek', 'yorki', 'mops', 'mopsa', 'beagle',
+				'chihuahua', 'doberman', 'dobermana', 'pudel', 'pudla',
+				'sznaucer', 'sznaucera', 'maltanczyk', 'maltanczyka',
+				'ratlerek', 'bernardyn', 'rottweiler', 'rottweilera',
+				'chart', 'charta', 'wyzel', 'wyzla', 'seter', 'setera',
+				'spaniel', 'spaniela', 'corgi', 'malamut', 'samojed', 'akita',
+				'shih tzu', 'collie', 'dalmatynczyk', 'pinczer',
+				'kundel', 'kundla', 'kundelek',
+			),
+
 			/** Model Gemini. Pole w Ustawieniach, nie stala — klient moze zmienic bez nowej wersji. */
 			'model'               => 'gemini-2.5-flash',
 

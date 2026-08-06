@@ -214,6 +214,33 @@ namespace AINP {
 		public static function note( string $word ): string {
 			return 'Słowo wykluczające: ' . $word;
 		}
+
+		// -------------------------------------------------------------------
+		// Wariant C (2026-08-07). Ta atrapa przepuszcza rowniez bramke slow
+		// wymaganych — z tego samego powodu, dla ktorego przepuszcza
+		// wykluczenia. Bramka ma wlasny zestaw: `krok3-wymog-test.php`.
+		// -------------------------------------------------------------------
+
+		/** @var array<int,array<string,mixed>> Pozycje, ktore ogladala bramka. */
+		public static $wymagane_widziane = array();
+
+		public const NOTE_OFFTOPIC = 'Poza tematem: brak słowa wymaganego w tytule i zajawce';
+
+		public static function required_words(): array {
+			return array();
+		}
+
+		public static function lists(): array {
+			return array(
+				'excluded' => array(),
+				'required' => array(),
+			);
+		}
+
+		public static function has_required( array $item, ?array $words = null ): bool {
+			self::$wymagane_widziane[] = $item;
+			return true;
+		}
 	}
 }
 
