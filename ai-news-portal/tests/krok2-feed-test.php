@@ -310,6 +310,85 @@ $out = Feed::parse( '<?xml version="1.0"?><!doctype rss><rss version="2.0"><chan
 k2f_check( false === $out['ok'], 'DOCTYPE malymi literami tez odrzucony' );
 k2f_check( false !== strpos( $out['error'], 'DOCTYPE' ), 'DOCTYPE malymi literami: powod nazwany wprost' );
 
+/*
+ * Bramka DOCTYPE patrzy WYLACZNIE w prolog (audyt K2, D1). Skan calego
+ * dokumentu kasowal caly kanal przez jeden artykul, ktory cytuje kod HTML
+ * w sekcji CDATA — a to zwykla tresc na blogu.
+ */
+$cdata = '<?xml version="1.0"?><rss version="2.0"><channel><title>Blog</title>'
+	. '<item><title>Jak zaczac strone</title><link>https://psy.pl/strona/</link>'
+	. '<content:encoded xmlns:content="http://purl.org/rss/1.0/modules/content/">'
+	. '<![CDATA[<p>Kazdy plik zaczyna sie od <!DOCTYPE html>.</p>]]></content:encoded>'
+	. '</item></channel></rss>';
+$out = Feed::parse( $cdata );
+k2f_check( true === $out['ok'], 'DOCTYPE w CDATA: kanal NIE jest kasowany' );
+k2f_check( 1 === count( $out['items'] ), 'DOCTYPE w CDATA: pozycja doszla' );
+k2f_check(
+	false !== strpos( $out['items'][0]['content'], '<!DOCTYPE html>' ),
+	'DOCTYPE w CDATA: tresc artykulu zachowana w calosci'
+);
+
+// To samo w tekscie zwyklego elementu, bez CDATA (encje `&lt;`).
+$w_tekscie = '<?xml version="1.0"?><rss version="2.0"><channel><title>Blog</title>'
+	. '<item><title>O tagu &lt;!DOCTYPE&gt;</title><link>https://psy.pl/doctype/</link>'
+	. '<description>Tekst o &lt;!DOCTYPE html&gt; w zajawce.</description></item></channel></rss>';
+$out = Feed::parse( $w_tekscie );
+k2f_check( true === $out['ok'] && 1 === count( $out['items'] ), 'DOCTYPE w zajawce: kanal przechodzi' );
+
+// Prolog moze miec wiecej niz deklaracje XML — bramka ma isc PRZEZ nie do konca.
+$po_pi = '<?xml version="1.0"?><?xml-stylesheet type="text/xsl" href="/s.xsl"?>'
+	. '<!DOCTYPE rss><rss version="2.0"><channel><title>t</title></channel></rss>';
+$out   = Feed::parse( $po_pi );
+k2f_check( false === $out['ok'], 'DOCTYPE za instrukcja przetwarzania: nadal odrzucony' );
+
+$po_komentarzu = '<?xml version="1.0"?><!-- kanal generowany automatycznie -->'
+	. '<!DOCTYPE rss><rss version="2.0"><channel><title>t</title></channel></rss>';
+$out           = Feed::parse( $po_komentarzu );
+k2f_check( false === $out['ok'], 'DOCTYPE za komentarzem prologu: nadal odrzucony' );
+
+// Slowo DOCTYPE w samym komentarzu prologu nikomu nie szkodzi.
+$w_komentarzu = '<?xml version="1.0"?><!-- ten kanal nie ma <!DOCTYPE> -->'
+	. '<rss version="2.0"><channel><title>t</title></channel></rss>';
+$out          = Feed::parse( $w_komentarzu );
+k2f_check( true === $out['ok'], 'DOCTYPE wewnatrz komentarza: kanal przechodzi' );
+
+// ---------------------------------------------------------------------------
+echo "\n-- guid: identyfikator to nie adres (audyt K2, D2) --\n";
+// ---------------------------------------------------------------------------
+/*
+ * `<guid isPermaLink="false">` to identyfikator wpisu, nie adres artykulu.
+ * WordPress publikuje tam `https://serwis.pl/?p=123` — adres, ktory po
+ * przekierowaniu prowadzi do tej samej strony co <link>. Wziety jako adres
+ * dawalby po canonicalu w Kroku 3 DRUGA kopie tego samego materialu.
+ */
+$guid_false = '<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>'
+	. '<item><title>Wpis bez link</title><guid isPermaLink="false">https://psy.pl/?p=123</guid></item>'
+	. '</channel></rss>';
+$out        = Feed::parse( $guid_false );
+k2f_check( 0 === count( $out['items'] ), 'guid isPermaLink="false": NIE jest brany za adres' );
+k2f_check( 1 === $out['skipped'], 'guid isPermaLink="false": pozycja policzona jako pominieta' );
+
+$guid_wielkie = '<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>'
+	. '<item><title>Wpis</title><guid isPermaLink=" FALSE ">https://psy.pl/?p=124</guid></item>'
+	. '</channel></rss>';
+$out          = Feed::parse( $guid_wielkie );
+k2f_check( 0 === count( $out['items'] ), 'guid isPermaLink=" FALSE ": wielkosc liter i spacje nie omijaja bramki' );
+
+// Brak atrybutu znaczy „true" — tak mowi RSS 2.0.
+$guid_bez_atrybutu = '<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>'
+	. '<item><title>Wpis</title><guid>https://psy.pl/bez-atrybutu/</guid></item>'
+	. '</channel></rss>';
+$out               = Feed::parse( $guid_bez_atrybutu );
+k2f_check( 1 === count( $out['items'] ), 'guid bez atrybutu: domyslnie trwaly odnosnik' );
+k2f_check(
+	'https://psy.pl/bez-atrybutu/' === $out['items'][0]['url'],
+	'guid bez atrybutu: adres wziety z guid'
+);
+
+// Odrzucony guid zostaje w polu `guid` — jako identyfikator, do czego sluzy.
+$out = Feed::parse( $guid_false );
+k2f_check( 0 === count( $out['items'] ), 'guid odrzucony jako adres nie tworzy pozycji-widma' );
+
 k2f_check(
 	0 === count( $GLOBALS['__warn'] ),
 	'zaden przebieg nie wypisal ostrzezenia PHP' . ( $GLOBALS['__warn'] ? ' — ' . implode( ' | ', $GLOBALS['__warn'] ) : '' )

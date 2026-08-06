@@ -144,6 +144,15 @@ function k2_resp( $code, $body = '' ) {
 	);
 }
 
+// Kazde ostrzezenie PHP jest bledem testu — warstwa sieciowa ma milczec.
+$GLOBALS['__warn'] = array();
+set_error_handler(
+	function ( $no, $str ) {
+		$GLOBALS['__warn'][] = $str;
+		return true;
+	}
+);
+
 require_once $root . '/src/Http.php';
 
 use AINP\Http;
@@ -240,6 +249,67 @@ k2_reset();
 $GLOBALS['__resp_any'] = k2_resp( 200, str_repeat( 'a', Http::LIMIT_FEED - 1 ) );
 $out                   = Http::get_feed( 'https://psy.pl/feed/' );
 k2_check( true === $out['ok'] && false === $out['truncated'], 'feed o bajt ponizej limitu: bez alarmu' );
+
+// ---------------------------------------------------------------------------
+echo "\n-- Kompresja: limit i dlugosc w tych samych bajtach (audyt K2, P1) --\n";
+// ---------------------------------------------------------------------------
+/*
+ * Sedno poprawki P1. `limit_response_size` liczy bajty SUROWE, a kod porownuje
+ * z nim dlugosc tresci rozpakowanej. Prosba o `identity` sprowadza obie liczby
+ * do jednej jednostki; gdyby naglowek zniknal, kompletny kanal wazacy po
+ * rozpakowaniu wiecej niz limit dostawalby falszywy `too_large`, a uciety gzip
+ * wracalby jako `ok = true` z binarna sieczka w `body`.
+ */
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 200, 'x' );
+Http::get_feed( 'https://psy.pl/feed/' );
+k2_check(
+	'identity' === $GLOBALS['__req'][0]['args']['headers']['Accept-Encoding'],
+	'feed: Accept-Encoding = identity'
+);
+
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 200, 'x' );
+Http::get_article( 'https://psy.pl/a/' );
+k2_check(
+	'identity' === $GLOBALS['__req'][0]['args']['headers']['Accept-Encoding'],
+	'robots.txt: Accept-Encoding = identity'
+);
+k2_check(
+	'identity' === $GLOBALS['__req'][1]['args']['headers']['Accept-Encoding'],
+	'artykul: Accept-Encoding = identity'
+);
+k2_check( 'identity' === Http::ENCODING, 'stala ENCODING trzyma `identity`' );
+
+// Sygnatury: co jest strumieniem skompresowanym, a co zwyklym tekstem.
+$gzip    = "\x1f\x8b\x08\x00" . str_repeat( "\x00", 40 );
+$zlib    = "\x78\x9c" . str_repeat( "\x00", 40 );
+$stary   = "\x1f\x9d\x90" . str_repeat( "\x00", 40 );
+k2_check( true === Http::looks_compressed( $gzip ), 'sygnatura gzip rozpoznana' );
+k2_check( true === Http::looks_compressed( $zlib ), 'sygnatura zlib/deflate rozpoznana' );
+k2_check( true === Http::looks_compressed( $stary ), 'sygnatura compress rozpoznana' );
+k2_check( false === Http::looks_compressed( '<rss></rss>' ), 'XML nie jest brany za kompresje' );
+k2_check(
+	false === Http::looks_compressed( 'xml zaczynajace sie od litery x' ),
+	'tekst od litery „x" nie jest brany za deflate (drugi bajt decyduje)'
+);
+k2_check( false === Http::looks_compressed( 'x' ), 'jednobajtowa tresc nie wywraca sygnatury' );
+
+// Serwer, ktory zignorowal `identity`, dostaje jasny blad zamiast ciszy.
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 200, $gzip );
+$out                   = Http::get_feed( 'https://psy.pl/feed/' );
+k2_check( false === $out['ok'], 'feed skompresowany mimo prosby: ok = false' );
+k2_check( 'compressed' === $out['reason'], 'feed skompresowany: powod `compressed`' );
+k2_check( '' === $out['body'], 'feed skompresowany: binaria NIE ida dalej' );
+
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 200, $gzip );
+$out                   = Http::get_article( 'https://psy.pl/a/' );
+k2_check(
+	false === $out['ok'] && '' === $out['body'],
+	'artykul skompresowany: ekstrakcja nie dostanie bajtow gzipa'
+);
 
 // ---------------------------------------------------------------------------
 echo "\n-- Bledy: kod HTTP, transport, zly adres --\n";
@@ -393,6 +463,8 @@ $retry = array(
 	array( array( 'ok' => false, 'reason' => 'robots', 'code' => 0 ), false, 'zakaz robots.txt' ),
 	array( array( 'ok' => false, 'reason' => 'bad_url', 'code' => 0 ), false, 'zly adres' ),
 	array( array( 'ok' => false, 'reason' => 'too_large', 'code' => 200 ), false, 'odpowiedz za duza' ),
+	// Serwer ignorujacy `identity` bedzie go ignorowal takze za drugim razem.
+	array( array( 'ok' => false, 'reason' => 'compressed', 'code' => 200 ), false, 'tresc skompresowana' ),
 	array( array( 'ok' => true, 'reason' => '', 'code' => 200 ), false, 'wynik udany' ),
 	/*
 	 * Udany wynik nie jest ponawiany NIGDY, nawet gdy pozostale pola wygladaja
@@ -441,6 +513,11 @@ k2_check( ! isset( $wywolane['curl_init'] ), 'kod nie siega po cURL bezposrednio
 k2_check(
 	! isset( $wywolane['update_option'] ) && ! isset( $wywolane['get_option'] ),
 	'warstwa sieciowa nie dotyka opcji (werdykt siedzi w transiencie)'
+);
+
+k2_check(
+	0 === count( $GLOBALS['__warn'] ),
+	'zaden przebieg nie wypisal ostrzezenia PHP' . ( $GLOBALS['__warn'] ? ' — ' . implode( ' | ', $GLOBALS['__warn'] ) : '' )
 );
 
 // ---------------------------------------------------------------------------

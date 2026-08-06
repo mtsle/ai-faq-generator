@@ -65,7 +65,7 @@ final class Feed {
 		 * potrafia rozwinac kilkaset bajtow do gigabajtow pamieci, a limitu
 		 * pamieci nie da sie zlapac blokiem `try`.
 		 */
-		if ( preg_match( '/<!DOCTYPE/i', $xml ) ) {
+		if ( self::has_doctype( $xml ) ) {
 			return self::result( false, 'Kanal zawiera deklaracje DOCTYPE — odrzucony' );
 		}
 
@@ -121,8 +121,17 @@ final class Feed {
 		foreach ( $doc->channel->item as $item ) {
 			$url = self::clean_text( (string) $item->link );
 
-			// Niektore kanaly trzymaja adres wylacznie w <guid isPermaLink="true">.
-			if ( ! Http::is_http_url( $url ) && isset( $item->guid ) ) {
+			/*
+			 * Niektore kanaly trzymaja adres wylacznie w <guid>. Wolno go wziac
+			 * TYLKO wtedy, gdy jest oznaczony jako trwaly odnosnik — w RSS 2.0
+			 * `isPermaLink` domyslnie znaczy „true", ale WordPress i sporo
+			 * innych systemow publikuje `isPermaLink="false"` z adresem
+			 * w postaci `https://serwis.pl/?p=123`. To identyfikator, nie adres
+			 * artykulu: prowadzi po przekierowaniu do tej samej strony, wiec
+			 * canonical w Kroku 3 zrobilby z niego DRUGA kopie tego samego
+			 * materialu.
+			 */
+			if ( ! Http::is_http_url( $url ) && isset( $item->guid ) && self::guid_is_permalink( $item->guid ) ) {
 				$kandydat = self::clean_text( (string) $item->guid );
 				if ( Http::is_http_url( $kandydat ) ) {
 					$url = $kandydat;
@@ -195,6 +204,27 @@ final class Feed {
 	}
 
 	/**
+	 * Czy `<guid>` jest trwalym odnosnikiem, czy tylko identyfikatorem.
+	 *
+	 * Brak atrybutu znaczy „true" — tak mowi RSS 2.0. Odrzucamy wylacznie
+	 * jawne `isPermaLink="false"`; wartosc zapisana inaczej niz malymi literami
+	 * albo z bialymi znakami wokol tez sie liczy.
+	 *
+	 * @param \SimpleXMLElement $guid Element `<guid>`.
+	 *
+	 * @return bool
+	 */
+	private static function guid_is_permalink( \SimpleXMLElement $guid ): bool {
+		$atrybuty = $guid->attributes();
+
+		if ( ! isset( $atrybuty['isPermaLink'] ) ) {
+			return true;
+		}
+
+		return 'false' !== strtolower( trim( (string) $atrybuty['isPermaLink'] ) );
+	}
+
+	/**
 	 * Adres wpisu Atoma.
 	 *
 	 * Atom pozwala na wiele elementow `<link>`. Bierzemy `rel="alternate"`
@@ -262,6 +292,74 @@ final class Feed {
 	// -----------------------------------------------------------------------
 	// Pomocnicze
 	// -----------------------------------------------------------------------
+
+	/**
+	 * Czy dokument ma deklaracje typu — szukana WYLACZNIE w prologu.
+	 *
+	 * Skan calego dokumentu (`preg_match('/<!DOCTYPE/i', $xml)`) mial jedna
+	 * wade: kanal, w ktorym ktorykolwiek artykul cytuje kod HTML w sekcji
+	 * CDATA — a to normalna tresc na blogu o technologii — bywal odrzucany
+	 * w calosci, razem z wszystkimi pozostalymi pozycjami.
+	 *
+	 * XML dopuszcza `<!DOCTYPE` tylko przed elementem glownym, wiec skan
+	 * konczy sie na pierwszym elemencie. Po drodze przeskakujemy deklaracje
+	 * XML i instrukcje przetwarzania (`<?...?>`) oraz komentarze (`<!--...-->`)
+	 * — one same moga zawierac slowo DOCTYPE i nic z niego nie wynika.
+	 *
+	 * @param string $xml Tresc kanalu (juz po `strip_prolog()`).
+	 *
+	 * @return bool
+	 */
+	private static function has_doctype( string $xml ): bool {
+		$dlugosc = strlen( $xml );
+		$i       = 0;
+
+		while ( $i < $dlugosc ) {
+			// Biale znaki miedzy elementami prologu sa dozwolone.
+			while ( $i < $dlugosc && 1 === preg_match( '/\s/', $xml[ $i ] ) ) {
+				$i++;
+			}
+
+			if ( $i >= $dlugosc || '<' !== $xml[ $i ] ) {
+				// Smiec przed elementem glownym — nie nasza sprawa, zglosi to parser.
+				return false;
+			}
+
+			$nastepny = ( $i + 1 < $dlugosc ) ? $xml[ $i + 1 ] : '';
+
+			if ( '?' === $nastepny ) {
+				$koniec = strpos( $xml, '?>', $i );
+				if ( false === $koniec ) {
+					return false;
+				}
+				$i = $koniec + 2;
+				continue;
+			}
+
+			if ( '!' === $nastepny ) {
+				if ( 0 === strncasecmp( substr( $xml, $i, 9 ), '<!DOCTYPE', 9 ) ) {
+					return true;
+				}
+
+				if ( '<!--' === substr( $xml, $i, 4 ) ) {
+					$koniec = strpos( $xml, '-->', $i );
+					if ( false === $koniec ) {
+						return false;
+					}
+					$i = $koniec + 3;
+					continue;
+				}
+
+				// Inna deklaracja `<!` w prologu jest niepoprawna — zostawiamy parserowi.
+				return false;
+			}
+
+			// Znacznik otwierajacy element glowny: prolog sie skonczyl.
+			return false;
+		}
+
+		return false;
+	}
 
 	/**
 	 * Usuwa BOM i wszystko przed deklaracja XML.

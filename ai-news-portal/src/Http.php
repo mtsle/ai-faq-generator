@@ -11,9 +11,11 @@
  *   1. ZADNE zadanie nie wisi w nieskonczonosc — kazde ma timeout (10 s feed,
  *      15 s artykul) i najwyzej 3 przekierowania.
  *   2. ZADNA odpowiedz nie wysadzi pamieci — limit 4 MB dla feedu i 1 MB dla
- *      scrapowanego artykulu. Limity sa ROZNE swiadomie: kanal RSS z pelna
- *      trescia (psy.pl, 20 wpisow po ~47 tys. znakow) przekracza 1 MB, a
- *      uciety w polowie XML wywraca parser.
+ *      scrapowanego artykulu, liczony w tych samych bajtach, ktore widzi
+ *      reszta wtyczki (stad prosba o `identity`, patrz `self::ENCODING`).
+ *      Limity sa ROZNE swiadomie: kanal RSS z pelna trescia (psy.pl, 20 wpisow
+ *      po ~47 tys. znakow) przekracza 1 MB, a uciety w polowie XML wywraca
+ *      parser.
  *   3. ZADNE wywolanie nie rzuca wyjatkiem ani nie zwraca `WP_Error` na
  *      zewnatrz — zawsze wraca tablica o stalym ksztalcie (patrz `result()`).
  *
@@ -73,6 +75,28 @@ final class Http {
 	 * zdazyl zdefiniowac swoja stala.
 	 */
 	public const ROBOTS_TTL = 43200;
+
+	/**
+	 * Kodowanie tresci, o ktore prosimy serwer: ZADNE.
+	 *
+	 * WordPress liczy `limit_response_size` na bajtach SUROWEJ odpowiedzi —
+	 * tych, ktore przyszly z sieci, a wiec skompresowanych. Kod porownywal
+	 * z tym limitem dlugosc tresci JUZ ROZPAKOWANEJ, a to sa dwie rozne
+	 * jednostki: kompletny kanal 5 MB, ktory po drodze wazyl 400 KB, dostawal
+	 * falszywy `too_large`, a naprawde uciety gzip wracal jako binarna sieczka
+	 * — rozpakowanie ucietego strumienia sie nie udaje i biblioteka oddaje
+	 * wtedy wejscie bez zmian.
+	 *
+	 * Prosba o `identity` sprowadza obie liczby do tej samej jednostki. Przy
+	 * okazji wyrownuje zachowanie miedzy transportami: fsockopen tnie bajty
+	 * skompresowane, cURL (`CURLOPT_ENCODING = ''`) rozpakowane — bez tego
+	 * naglowka ta sama wtyczka zachowywalaby sie inaczej na dwoch hostingach.
+	 *
+	 * Cena to wiekszy transfer. Swiadomy wybor: przewidywalny sufit pamieci
+	 * jest wart wiecej niz zaoszczedzone kilobajty przy czterech kanalach
+	 * na godzine.
+	 */
+	public const ENCODING = 'identity';
 
 	/**
 	 * Prefiks klucza transientu z werdyktem `robots.txt`.
@@ -142,9 +166,10 @@ final class Http {
 				'limit_response_size' => $limit,
 				'user-agent'          => self::user_agent(),
 				'headers'             => array(
-					'Accept' => $is_feed
+					'Accept'          => $is_feed
 						? 'application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.8'
 						: 'text/html, application/xhtml+xml;q=0.9, */*;q=0.8',
+					'Accept-Encoding' => self::ENCODING,
 				),
 			)
 		);
@@ -161,11 +186,32 @@ final class Http {
 		 * UCIETA, bez slowa ostrzezenia. Rozpoznajemy to po dlugosci rownej
 		 * limitowi — inaczej parser XML dostalby polowe dokumentu i padl
 		 * z bledem, ktory nic nie mowi o prawdziwej przyczynie.
+		 *
+		 * Porownanie jest uczciwe tylko dlatego, ze prosimy o `identity`
+		 * (patrz `self::ENCODING`): limit i dlugosc sa wtedy w tych samych
+		 * bajtach.
 		 */
 		$truncated = ( strlen( $body ) >= $limit );
 
 		if ( 200 !== $code ) {
 			return self::result( false, $code, '', 'Serwer odpowiedzial kodem ' . $code, 'status', $truncated );
+		}
+
+		/*
+		 * Serwer moze zignorowac `identity` i skompresowac mimo wszystko.
+		 * Wtedy dlugosc tresci znowu nie znaczy tego, co limit, a samo cialo
+		 * jest binarna sieczka. Lepiej oddac jasny blad niz karmic parser XML
+		 * albo ekstrakcje tresci bajtami gzipa.
+		 */
+		if ( self::looks_compressed( $body ) ) {
+			return self::result(
+				false,
+				$code,
+				'',
+				'Serwer oddal tresc skompresowana mimo prosby o `identity`',
+				'compressed',
+				$truncated
+			);
 		}
 
 		if ( $truncated && $is_feed ) {
@@ -212,6 +258,38 @@ final class Http {
 
 		if ( 'status' === $reason ) {
 			return ( 429 === $code || $code >= 500 );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Czy tresc wyglada na skompresowany strumien, a nie na tekst.
+	 *
+	 * Rozpoznajemy po sygnaturze pierwszych bajtow: `1f 8b` to gzip, `1f 9d`
+	 * to stary `compress`, a `78` z jednym z czterech dopuszczalnych drugich
+	 * bajtow to naglowek zlib (suma kontrolna naglowka musi byc podzielna
+	 * przez 31). Sam bajt `78` to litera „x" — dlatego drugi bajt jest
+	 * sprawdzany, inaczej dokument zaczynajacy sie od „x" bralibysmy za deflate.
+	 *
+	 * @param string $body Tresc odpowiedzi.
+	 *
+	 * @return bool
+	 */
+	public static function looks_compressed( string $body ): bool {
+		if ( strlen( $body ) < 2 ) {
+			return false;
+		}
+
+		$pierwszy = ord( $body[0] );
+		$drugi    = ord( $body[1] );
+
+		if ( 0x1F === $pierwszy && ( 0x8B === $drugi || 0x9D === $drugi ) ) {
+			return true;
+		}
+
+		if ( 0x78 === $pierwszy ) {
+			return in_array( $drugi, array( 0x01, 0x5E, 0x9C, 0xDA ), true );
 		}
 
 		return false;
@@ -287,6 +365,7 @@ final class Http {
 				'redirection'         => self::REDIRECTS,
 				'limit_response_size' => self::ROBOTS_LIMIT,
 				'user-agent'          => self::user_agent(),
+				'headers'             => array( 'Accept-Encoding' => self::ENCODING ),
 			)
 		);
 
