@@ -233,6 +233,137 @@ namespace {
 	k3a_check( 'empty' === $wynik['reason'], 'powod: `empty`' );
 	k3a_check( false === $wynik['retryable'], 'pustej strony nie ponawiamy — to nie blad sieci' );
 
+	// -----------------------------------------------------------------------
+	echo "\n-- 3.4 Ekstrakcja: co zostaje ze strony --\n";
+	// -----------------------------------------------------------------------
+	$strona = '<!DOCTYPE html><html lang="pl"><head>'
+		. '<title>Karma bytowa — psy.pl</title>'
+		. '<link rel="canonical" href="https://psy.pl/karma-bytowa/">'
+		. '<script>var ga = "analityka konkurs zapisy";</script>'
+		. '<style>.menu{color:red}</style>'
+		. '</head><body>'
+		. '<header><h1>psy.pl</h1><p>Portal o psach od 2001 roku, największy w Polsce serwis</p></header>'
+		. '<nav><ul><li>Strona główna</li><li>Żywienie</li><li>Zdrowie</li><li>Kontakt z redakcją</li></ul></nav>'
+		. '<div id="wrapper"><div class="content"><article>'
+		. '<h1>Karma bytowa dla psa</h1>'
+		. '<p>Karma bytowa to podstawa diety dorosłego psa. Zażółć gęślą jaźń.</p>'
+		. '<p>Drugi akapit mówi o białku, tłuszczach i węglowodanach w karmie suchej.</p>'
+		. '<!-- komentarz redakcyjny: sprawdzić źródło -->'
+		. '</article></div></div>'
+		. '<aside><p>Polecane: kot rasy brytyjskiej, konkurs z nagrodami, zapisy na webinar</p></aside>'
+		. '<form><input name="email"><button>Zapisz się do newslettera</button></form>'
+		. '<footer><p>Copyright 2026 psy.pl. Wszelkie prawa zastrzeżone. Regulamin i polityka prywatności.</p></footer>'
+		. '</body></html>';
+
+	$wynik = Article::extract( $strona, 'https://psy.pl/feed-link/' );
+
+	k3a_check( true === $wynik['ok'], 'ekstrakcja: ok' );
+	k3a_check( false !== strpos( $wynik['html'], 'Karma bytowa to podstawa diety' ), 'tresc artykulu zostala' );
+	k3a_check( false !== strpos( $wynik['html'], 'Drugi akapit' ), 'drugi akapit tez' );
+	k3a_check( false !== strpos( $wynik['html'], 'Zażółć gęślą jaźń' ), 'polskie znaki bez krzakow i bez encji' );
+	k3a_check( false === strpos( $wynik['html'], '&#' ), 'w wyniku nie ma encji liczbowych' );
+
+	foreach (
+		array(
+			'Portal o psach'      => 'naglowek serwisu (header)',
+			'Strona główna'       => 'menu (nav)',
+			'kot rasy'            => 'pasek boczny (aside)',
+			'newsletter'          => 'formularz (form)',
+			'Wszelkie prawa'      => 'stopka (footer)',
+			'analityka'           => 'skrypt (script)',
+			'color:red'           => 'styl (style)',
+			'komentarz redakcyjny' => 'komentarz HTML',
+		) as $tekst => $opis
+	) {
+		k3a_check( false === strpos( $wynik['html'], $tekst ), 'wyciete: ' . $opis );
+	}
+
+	// Slowa wykluczajace z paska bocznego („kot", „konkurs", „zapisy") nie moga
+	// przeciec do tresci — filtr juz przepuscil ta pozycje, wiec to ostatnia
+	// bramka przed modelem i przed odciskiem tresci.
+	k3a_check( false === strpos( $wynik['html'], 'konkurs' ), 'slowo z paska bocznego nie truje tresci' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- 3.4 Wybor bloku przy zagniezdzeniu --\n";
+	// -----------------------------------------------------------------------
+	$zagniezdzone = '<html><body><div id="zewnetrzny">'
+		. '<div id="pierwsza-polowa"><p>' . str_repeat( 'Pierwsza połowa artykułu. ', 20 ) . '</p></div>'
+		. '<div id="druga-polowa"><p>' . str_repeat( 'Druga połowa artykułu. ', 20 ) . '</p></div>'
+		. '</div></body></html>';
+
+	$wynik = Article::extract( $zagniezdzone, 'https://psy.pl/a/' );
+
+	k3a_check(
+		false !== strpos( $wynik['html'], 'Pierwsza połowa' ) && false !== strpos( $wynik['html'], 'Druga połowa' ),
+		'wygrywa blok zawierajacy CALY artykul, nie jego polowe'
+	);
+
+	$krotki_dluzszy = '<html><body>'
+		. '<div id="krotki"><p>Krótka notka redakcyjna.</p></div>'
+		. '<div id="dlugi"><p>' . str_repeat( 'Właściwa treść artykułu o żywieniu psa. ', 30 ) . '</p></div>'
+		. '</body></html>';
+
+	$wynik = Article::extract( $krotki_dluzszy, 'https://psy.pl/a/' );
+
+	k3a_check( false !== strpos( $wynik['html'], 'Właściwa treść' ), 'wygrywa blok z wieksza iloscia tekstu' );
+	k3a_check( false === strpos( $wynik['html'], 'Krótka notka' ), 'krotszy blok obok NIE wchodzi do wyniku' );
+
+	// Strona na samych `<br>`, bez ani jednego akapitu — zamiast pustki
+	// bierzemy cale `<body>` i niech zdecyduje prog dlugosci.
+	$bez_akapitow = '<html><body><div>Tekst<br>bez<br>akapitów, ale całkiem długi jak na notkę.</div></body></html>';
+	$wynik        = Article::extract( $bez_akapitow, 'https://psy.pl/a/' );
+
+	k3a_check( true === $wynik['ok'], 'strona bez akapitow: ekstrakcja sie nie wywraca' );
+	k3a_check( false !== strpos( $wynik['html'], 'bez<br>akapitów' ), 'wynikiem jest cale body' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- 3.4 Adres kanoniczny --\n";
+	// -----------------------------------------------------------------------
+	$wynik = Article::extract( $strona, 'https://psy.pl/feed-link/' );
+	k3a_check( 'https://psy.pl/karma-bytowa/' === $wynik['canonical'], 'canonical bezwzgledny' );
+
+	$wzgledny = '<html><head><link rel="canonical" href="/artykul/karma/"></head><body><p>x</p></body></html>';
+	$wynik    = Article::extract( $wzgledny, 'https://psy.pl/skad-przyszlo/' );
+	k3a_check( 'https://psy.pl/artykul/karma/' === $wynik['canonical'], 'canonical wzgledny rozwiniety wzgledem adresu strony' );
+
+	$bez_schematu = '<html><head><link rel="canonical" href="//psy.pl/artykul/"></head><body><p>x</p></body></html>';
+	$wynik        = Article::extract( $bez_schematu, 'https://psy.pl/a/' );
+	k3a_check( 'https://psy.pl/artykul/' === $wynik['canonical'], 'canonical bez schematu dostaje schemat strony' );
+
+	$wielkie = '<html><head><link REL="Canonical" HREF="https://psy.pl/duze/"></head><body><p>x</p></body></html>';
+	$wynik   = Article::extract( $wielkie, 'https://psy.pl/a/' );
+	k3a_check( 'https://psy.pl/duze/' === $wynik['canonical'], 'rel wielkimi literami tez jest canonical' );
+
+	$smiec = '<html><head><link rel="canonical" href="javascript:alert(1)"></head><body><p>x</p></body></html>';
+	$wynik = Article::extract( $smiec, 'https://psy.pl/a/' );
+	k3a_check( '' === $wynik['canonical'], 'canonical, ktory nie jest adresem http(s), jest odrzucany' );
+
+	$brak  = '<html><head></head><body><p>x</p></body></html>';
+	$wynik = Article::extract( $brak, 'https://psy.pl/a/' );
+	k3a_check( '' === $wynik['canonical'], 'brak canonical to pusty lancuch, nie blad' );
+
+	$pusty_href = '<html><head><link rel="canonical" href=""></head><body><p>x</p></body></html>';
+	$wynik      = Article::extract( $pusty_href, 'https://psy.pl/a/' );
+	k3a_check( '' === $wynik['canonical'], 'pusty href nie udaje adresu' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- 3.4 Polamany HTML i stan libxml --\n";
+	// -----------------------------------------------------------------------
+	libxml_use_internal_errors( false );
+
+	$polamany = '<html><body><div><p>Treść <b>bez domknięcia<p>Drugi akapit</div></body>';
+	$wynik    = Article::extract( $polamany, 'https://psy.pl/a/' );
+
+	k3a_check( true === $wynik['ok'], 'polamany HTML nie wywraca ekstrakcji' );
+	k3a_check( false !== strpos( $wynik['html'], 'Drugi akapit' ), 'tresc z polamanego HTML-a odzyskana' );
+	k3a_check(
+		false === libxml_use_internal_errors(),
+		'stan libxml PRZYWROCONY — wtyczka nie zmienia globalnych ustawien na stale'
+	);
+
+	k3a_check( false === Article::extract( '', 'https://psy.pl/a/' )['ok'], 'pusta strona: ok = false' );
+	k3a_check( false === Article::extract( '   ', 'https://psy.pl/a/' )['ok'], 'same biale znaki: ok = false' );
+
 	echo "\n";
 	echo '=== WYNIK: ' . ( $ran - $fail ) . ' / ' . $ran . " asercji ===\n";
 
