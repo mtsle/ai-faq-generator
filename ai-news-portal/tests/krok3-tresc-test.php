@@ -248,9 +248,17 @@ namespace AINP {
 		public static function get_article( string $url ): array {
 			$GLOBALS['__zadania'][] = $url;
 
-			return isset( $GLOBALS['__strony'][ $url ] )
-				? $GLOBALS['__strony'][ $url ]
-				: array( 'ok' => false, 'code' => 404, 'body' => '', 'error' => 'Serwer odpowiedzial kodem 404', 'reason' => 'status', 'truncated' => false );
+			if ( ! isset( $GLOBALS['__strony'][ $url ] ) ) {
+				return array( 'ok' => false, 'code' => 404, 'body' => '', 'error' => 'Serwer odpowiedzial kodem 404', 'reason' => 'status', 'truncated' => false );
+			}
+
+			// Plan `throw` udaje awarie, ktorej nikt nie przewidzial —
+			// wyjatek z wnetrza warstwy sieciowej.
+			if ( 'throw' === $GLOBALS['__strony'][ $url ] ) {
+				throw new \RuntimeException( 'siec padla w polowie' );
+			}
+
+			return $GLOBALS['__strony'][ $url ];
 		}
 
 		public static function is_retryable( array $result ): bool {
@@ -599,6 +607,29 @@ namespace {
 	$podsumowanie = Runner::prepare_batch( 10 );
 	k3t_check( 1 === (int) $podsumowanie['ready'], 'partia z jedna poprawna pozycja konczy sie wynikiem 1' );
 	k3t_check( 0 === (int) $podsumowanie['error'], 'zero wyjatkow w partii' );
+
+	/*
+	 * Zabezpieczenie „brak zatrzyman": awaria, ktorej nikt nie przewidzial,
+	 * ma zabrac JEDNA pozycje, a nie cala partie. Pozycja rzucajaca wyjatkiem
+	 * stoi w SRODKU, wiec test wykryje tez przerwanie petli.
+	 */
+	$wpdb = k3t_reset();
+	k3t_wiersz( 1, 'https://psy.pl/przed/', '<p>' . str_repeat( 'Artykuł przed awarią. ', 60 ) . '</p>' );
+	k3t_wiersz( 2, 'https://psy.pl/awaria/', '' );
+	k3t_wiersz( 3, 'https://psy.pl/po/', '<p>' . str_repeat( 'Artykuł po awarii, z pełną treścią. ', 60 ) . '</p>' );
+
+	$GLOBALS['__strony']['https://psy.pl/awaria/'] = 'throw';
+
+	$podsumowanie = Runner::prepare_batch( 10 );
+
+	k3t_check( 3 === (int) $podsumowanie['taken'], 'partia wziela wszystkie 3 pozycje' );
+	k3t_check( 1 === (int) $podsumowanie['error'], 'wyjatek policzony jako JEDNA pozycja (jest ' . (int) $podsumowanie['error'] . ')' );
+	k3t_check( 2 === (int) $podsumowanie['ready'], 'pozycje PRZED i PO awarii przygotowane (jest ' . (int) $podsumowanie['ready'] . ')' );
+	k3t_check( isset( $podsumowanie['errors'][2] ), 'numer polamanej pozycji jest w podsumowaniu' );
+	k3t_check(
+		false !== strpos( (string) $podsumowanie['errors'][2], 'siec padla' ),
+		'tresc bledu zachowana — inaczej nie ma po czym szukac przyczyny'
+	);
 
 	echo "\n";
 	echo '=== WYNIK: ' . ( $ran - $fail ) . ' / ' . $ran . " asercji ===\n";

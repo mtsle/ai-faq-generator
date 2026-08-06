@@ -180,6 +180,12 @@ final class Filter {
 			$tekst = remove_accents( $tekst );
 		}
 
+		/*
+		 * Male litery robi juz `Dedup::normalize_text()`. Powtorzenie jest tu
+		 * SWIADOMA nadmiarowoscia: `remove_accents()` mapuje tez wersje wielkie
+		 * (Ł → L), a gdyby definicja golego tekstu kiedys przestala zmieniac
+		 * wielkosc liter, filtr milczaco przepuszczalby „Kot".
+		 */
 		$tekst = function_exists( 'mb_strtolower' ) ? mb_strtolower( $tekst, 'UTF-8' ) : strtolower( $tekst );
 
 		return trim( (string) preg_replace( '/\s+/u', ' ', $tekst ) );

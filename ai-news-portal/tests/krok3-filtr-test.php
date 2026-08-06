@@ -161,6 +161,55 @@ foreach ( $nie_lapie as $tekst => $opis ) {
 	);
 }
 
+// Granica slowa musi znac litery SPOZA alfabetu lacinskiego. Bez modyfikatora
+// `u` wyrazenie oglada bajty: przed „k" stoi wtedy drugi bajt litery „ż",
+// ktory bajtowo nie jest litera — i „żkot" zostaje uznane za slowo „kot".
+// Litera musi byc taka, ktorej `remove_accents()` NIE sprowadza do ASCII —
+// inaczej test sprawdzalby usuwanie ogonkow, a nie granice slowa. Cyrylica
+// nadaje sie idealnie: bajtowo jej pierwszy bajt nie jest litera ASCII.
+k3f_check(
+	'' === Filter::match( array( 'title' => 'яkot' ), array( 'kot' ) ),
+	'nie lapie „kot" w: litera wielobajtowa tuz przed slowem'
+);
+k3f_check(
+	'' === Filter::match( array( 'title' => 'kotя' ), array( 'kot' ) ),
+	'nie lapie „kot" w: litera wielobajtowa tuz po slowie'
+);
+
+// Skad bierze sie mala litera: `Dedup::normalize_text()` juz ja robi, a filtr
+// powtarza to swiadomie. Ta asercja przypina zalozenie, na ktorym stoi
+// powtorzenie — gdyby definicja golego tekstu przestala zmieniac wielkosc,
+// zobaczymy to tutaj, a nie w produkcji.
+k3f_check(
+	'kot' === AINP\Dedup::normalize_text( 'KOT' ),
+	'wspolna definicja golego tekstu sprowadza do malych liter'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n-- Polamane kodowanie --\n";
+// ---------------------------------------------------------------------------
+// Kanal z blednym bajtem to nie teoria: wystarczy zle skonfigurowany serwer.
+// Wyrazenie z modyfikatorem `u` na takim tekscie zwraca `false` — czyli
+// „slowa nie ma" — i CALY kanal przechodzi filtr. Znalezione mutacja.
+$polamany = "Artykul o kocie \xC3\x28 i psach, slowo kot w srodku";
+
+k3f_check(
+	1 !== preg_match( '//u', $polamany ),
+	'material testowy faktycznie ma polamana sekwencje UTF-8'
+);
+k3f_check(
+	'kot' === Filter::match( array( 'title' => $polamany ), array( 'kot' ) ),
+	'slowo wykluczajace znalezione MIMO polamanego kodowania'
+);
+k3f_check(
+	1 === preg_match( '//u', Filter::normalize( $polamany ) ),
+	'po normalizacji tekst jest poprawnym UTF-8'
+);
+k3f_check(
+	'' === Filter::match( array( 'title' => $polamany ), array( 'chomik' ) ),
+	'polamane kodowanie nie zaczyna lapac czegokolwiek'
+);
+
 // ---------------------------------------------------------------------------
 echo "\n-- Znaki diakrytyczne po obu stronach porownania --\n";
 // ---------------------------------------------------------------------------

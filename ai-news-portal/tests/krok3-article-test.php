@@ -171,6 +171,15 @@ namespace {
 	$pelny   = str_repeat( 'Pełna treść artykułu o żywieniu psa. ', 60 );   // ok. 2200 znakow.
 
 	k3a_check( Article::needs_scraping( $zajawka ), 'zajawka z kanalu wymaga scrapingu' );
+
+	// Zajawki bywaja dlugie — 400 znakow to typowy „lead" z serwisu. Prog musi
+	// stac WYRAZNIE wyzej, inaczej lead przechodzi jako pelny artykul.
+	$dlugi_lead = str_repeat( 'Zajawka artykułu z serwisu. ', 15 );   // ok. 420 znakow.
+	k3a_check(
+		Article::text_length( $dlugi_lead ) > 400 && Article::text_length( $dlugi_lead ) < 600,
+		'material testowy ma typowa dlugosc leadu (' . Article::text_length( $dlugi_lead ) . ' znakow)'
+	);
+	k3a_check( Article::needs_scraping( $dlugi_lead ), 'lead na 420 znakow NADAL wymaga scrapingu' );
 	k3a_check( ! Article::needs_scraping( $pelny ), 'pelna tresc z kanalu NIE wymaga scrapingu' );
 	k3a_check( Article::needs_scraping( '' ), 'pusta tresc wymaga scrapingu' );
 
@@ -284,6 +293,58 @@ namespace {
 	k3a_check( false === strpos( $wynik['html'], 'konkurs' ), 'slowo z paska bocznego nie truje tresci' );
 
 	// -----------------------------------------------------------------------
+	echo "\n-- 3.4 Smieci WEWNATRZ bloku z trescia --\n";
+	// -----------------------------------------------------------------------
+	/*
+	 * Poprzedni przypadek mial menu i stopke OBOK artykulu, wiec przechodzil
+	 * takze wtedy, gdy lista wycinanych znacznikow byla pusta — wygrywal blok,
+	 * ktory ich nie zawieral. Prawdziwe szablony wstawiaja te elementy DO
+	 * srodka wpisu i dopiero to sprawdza, czy wycinanie w ogole dziala.
+	 */
+	$w_srodku = '<html><body><div class="entry">'
+		. '<p>' . str_repeat( 'Właściwa treść artykułu o żywieniu psa. ', 25 ) . '</p>'
+		. '<nav class="post-nav"><p>Poprzedni wpis: kot brytyjski</p></nav>'
+		. '<aside class="promo"><p>Zapisy na webinar i konkurs z nagrodami</p></aside>'
+		. '<form class="newsletter"><p>Zapisz się do newslettera</p></form>'
+		. '<footer class="meta"><p>Autor: redakcja serwisu</p></footer>'
+		. '<script>var track = "analityka wewnętrzna";</script>'
+		. '<style>.entry{margin:0}</style>'
+		. '<iframe src="https://reklama.example/x"></iframe>'
+		. '<noscript><p>Włącz JavaScript</p></noscript>'
+		. '</div></body></html>';
+
+	$wynik = Article::extract( $w_srodku, 'https://psy.pl/a/' );
+
+	k3a_check( false !== strpos( $wynik['html'], 'Właściwa treść' ), 'tresc wpisu zostaje' );
+
+	foreach (
+		array(
+			'Poprzedni wpis'      => 'nawigacja wewnatrz wpisu',
+			'Zapisy na webinar'   => 'ramka promocyjna wewnatrz wpisu',
+			'newslettera'         => 'formularz wewnatrz wpisu',
+			'Autor: redakcja'     => 'stopka wpisu',
+			'analityka'           => 'skrypt wewnatrz wpisu',
+			'margin:0'            => 'styl wewnatrz wpisu',
+			'reklama.example'     => 'ramka iframe',
+			'Włącz JavaScript'    => 'noscript',
+		) as $tekst => $opis
+	) {
+		k3a_check( false === strpos( $wynik['html'], $tekst ), 'wyciete ze SRODKA wpisu: ' . $opis );
+	}
+
+	// -----------------------------------------------------------------------
+	echo "\n-- 3.4 Encje i znaki specjalne --\n";
+	// -----------------------------------------------------------------------
+	$encje = '<html><body><div><p>Karma &amp; woda, temperatura &lt;20&deg;C, cena&nbsp;99 zł</p>'
+		. '<p>Zapis kodu: &lt;script&gt;alert(1)&lt;/script&gt;</p></div></body></html>';
+
+	$wynik = Article::extract( $encje, 'https://psy.pl/a/' );
+
+	k3a_check( false !== strpos( $wynik['html'], '&amp;' ), 'znak & zostaje ZAPISANY jako encja, nie goly' );
+	k3a_check( false === strpos( $wynik['html'], '<script>alert' ), 'zapisany jako tekst <script> NIE staje sie znacznikiem' );
+	k3a_check( false !== strpos( $wynik['html'], '99' ), 'twarda spacja z &nbsp; nie gubi tresci' );
+
+	// -----------------------------------------------------------------------
 	echo "\n-- 3.4 Wybor bloku przy zagniezdzeniu --\n";
 	// -----------------------------------------------------------------------
 	$zagniezdzone = '<html><body><div id="zewnetrzny">'
@@ -307,6 +368,22 @@ namespace {
 
 	k3a_check( false !== strpos( $wynik['html'], 'Właściwa treść' ), 'wygrywa blok z wieksza iloscia tekstu' );
 	k3a_check( false === strpos( $wynik['html'], 'Krótka notka' ), 'krotszy blok obok NIE wchodzi do wyniku' );
+
+	/*
+	 * Remis: opakowanie i wpis maja DOKLADNIE tyle samo tekstu w akapitach.
+	 * Wygrac ma ten szerszy, czyli pierwszy w dokumencie — razem z nim zostaje
+	 * to, co w wpisie nie jest akapitem (obrazek, lista, ramka z cytatem).
+	 * Odwrocenie warunku na `>=` oddaje zwyciestwo najglebiej zagniezdzonemu.
+	 */
+	$remis = '<html><body><div id="opakowanie"><div id="wpis">'
+		. '<figure>ZDJĘCIE GŁÓWNE</figure>'
+		. '<p>' . str_repeat( 'Jeden akapit w dwóch pojemnikach. ', 20 ) . '</p>'
+		. '</div></div></body></html>';
+
+	$wynik = Article::extract( $remis, 'https://psy.pl/a/' );
+
+	k3a_check( false !== strpos( $wynik['html'], 'id="wpis"' ), 'przy remisie wygrywa blok SZERSZY (pierwszy w dokumencie)' );
+	k3a_check( false !== strpos( $wynik['html'], 'ZDJĘCIE GŁÓWNE' ), 'to, co nie jest akapitem, zostaje razem z blokiem' );
 
 	// Strona na samych `<br>`, bez ani jednego akapitu — zamiast pustki
 	// bierzemy cale `<body>` i niech zdecyduje prog dlugosci.
@@ -392,6 +469,15 @@ namespace {
 
 	k3a_check( Article::is_long_enough( $dosc ), 'pelna tresc przechodzi prog' );
 	k3a_check( ! Article::is_long_enough( $malo ), 'krotka notka NIE przechodzi progu' );
+
+	// Notka na 250 znakow to typowa „wzmianka" — dosc, zeby wygladac jak
+	// tresc, za malo, zeby model mial z czego pisac.
+	$wzmianka = '<p>' . str_repeat( 'Krótka wzmianka redakcyjna. ', 9 ) . '</p>';
+	k3a_check(
+		Article::text_length( $wzmianka ) > 200 && Article::text_length( $wzmianka ) < 300,
+		'material testowy ma dlugosc wzmianki (' . Article::text_length( $wzmianka ) . ' znakow)'
+	);
+	k3a_check( ! Article::is_long_enough( $wzmianka ), 'wzmianka na 250 znakow NADAL nie przechodzi progu' );
 	k3a_check( Article::is_long_enough( $rowno ), 'tresc rowna progowi przechodzi' );
 	k3a_check(
 		! Article::is_long_enough( '<p>' . str_repeat( 'a', Article::MIN_TEXT_CHARS - 1 ) . '</p>' ),

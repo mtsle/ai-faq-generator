@@ -443,9 +443,15 @@ final class Article {
 			}
 		}
 
-		// `saveHTML()` oddaje polskie litery jako encje liczbowe. Rozkodowanie
-		// jest tu bezpieczne, bo `wp_kses_post()` (etap 3.5) idzie PO nim.
-		return trim( html_entity_decode( $html, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+		/*
+		 * ZMIERZONE, nie zalozone (PHP 8.2 / libxml): przy dokumencie
+		 * z zadeklarowanym UTF-8 `saveHTML()` oddaje polskie litery jako
+		 * ZWYKLE znaki, a `&nbsp;` zamienia na twarda spacje. Jedyne, co
+		 * zostaje encja, to `&amp;` — i tak ma zostac. Rozkodowanie encji
+		 * w tym miejscu bylo by szkodliwe: zamienialoby ZAPISANY jako tekst
+		 * `&lt;script&gt;` w prawdziwy znacznik.
+		 */
+		return trim( $html );
 	}
 
 	// -----------------------------------------------------------------------

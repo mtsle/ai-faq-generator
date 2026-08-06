@@ -256,6 +256,11 @@ final class Dedup {
 	 * @return string
 	 */
 	public static function normalize_text( string $tresc ): string {
+		// Polamane kodowanie MUSI zniknac na samym poczatku — inaczej kazde
+		// dalsze wyrazenie z modyfikatorem `u` zwroci `null` i z calej tresci
+		// zostanie pusty lancuch (patrz `valid_utf8()`).
+		$tresc = self::valid_utf8( $tresc );
+
 		// Skrypty i style: ich TRESC nie jest tekstem artykulu, wiec znika
 		// razem ze znacznikami. `strip_tags` samo zostawiloby ja w wyniku.
 		$tresc = (string) preg_replace( '#<(script|style)\b[^>]*>.*?</\1>#is', ' ', $tresc );
@@ -272,5 +277,35 @@ final class Dedup {
 		}
 
 		return function_exists( 'mb_strtolower' ) ? mb_strtolower( $tresc, 'UTF-8' ) : strtolower( $tresc );
+	}
+
+	/**
+	 * Tekst pozbawiony polamanych sekwencji UTF-8.
+	 *
+	 * Wyrazenie regularne z modyfikatorem `u` na tekscie z blednym bajtem
+	 * NIE ZGLASZA bledu — po prostu zwraca `null` albo `false`. Skutki sa
+	 * ciche i rozne w kazdym miejscu, w ktorym uzywamy tego tekstu:
+	 * `normalize_text()` oddalaby pusty lancuch (wiec odcisk tresci znikalby,
+	 * a artykul liczyl zero znakow), a `Filter` uznalby, ze slowa
+	 * wykluczajacego NIE MA — czyli kanal z popsutym kodowaniem przechodzilby
+	 * filtr w calosci. Znalezione testem mutacyjnym Kroku 3.
+	 *
+	 * @param string $tresc Wejscie.
+	 *
+	 * @return string
+	 */
+	public static function valid_utf8( string $tresc ): string {
+		if ( '' === $tresc || 1 === preg_match( '//u', $tresc ) ) {
+			return $tresc;
+		}
+
+		if ( function_exists( 'mb_convert_encoding' ) ) {
+			// Konwersja UTF-8 → UTF-8 usuwa sekwencje, ktore nie sa poprawne.
+			return (string) mb_convert_encoding( $tresc, 'UTF-8', 'UTF-8' );
+		}
+
+		// Bez mbstring zostaje wyciecie wszystkiego spoza ASCII. Tracimy
+		// polskie znaki, ale nie tracimy CALEJ tresci.
+		return (string) preg_replace( '/[\x80-\xFF]/', '', $tresc );
 	}
 }
