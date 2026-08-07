@@ -391,6 +391,34 @@ namespace {
 	k4g_check( ! isset( $pusty['properties']['topic']['enum'] ), 'pusta lista kategorii NIE wysyla pustego enum (bledne zadanie)' );
 	k4g_check( 'string' === $pusty['properties']['topic']['type'], 'przy pustej liscie topic zostaje zwyklym stringiem' );
 
+	/*
+	 * SCHEMAT MOZE NIESC WYLACZNIE POLA, KTORE API ZNA.
+	 *
+	 * `Schema` w Gemini nie jest pelnym JSON Schema — kazde nieznane pole
+	 * wywraca CALE zadanie na HTTP 400, razem z poprawna reszta. Zmierzone
+	 * na zywym API 2026-08-07 przy odbiorze Kroku 4: `additionalProperties`
+	 * dopisane „na wszelki wypadek" dalo „Unknown name additionalProperties
+	 * at 'generation_config.response_schema'" i zaden artykul nie mogl powstac.
+	 * Atrapy tego nie zlapaly, bo atrapa przyjmuje kazde cialo zadania.
+	 *
+	 * Stad biala lista: nowe pole w schemacie wymaga POTWIERDZENIA na zywym
+	 * API i dopisania tutaj — asercja jest tansza niz kolejny nieudany odbior.
+	 */
+	$dozwolone_schemat = array( 'type', 'properties', 'required', 'propertyOrdering' );
+	$dozwolone_pole    = array( 'type', 'enum' );
+
+	k4g_check(
+		array() === array_diff( array_keys( $schemat ), $dozwolone_schemat ),
+		'schemat nie niesie zadnego pola spoza bialej listy API'
+	);
+	k4g_check( ! isset( $schemat['additionalProperties'] ), 'w szczegolnosci NIE ma additionalProperties (HTTP 400 na zywym API)' );
+
+	$obce = array();
+	foreach ( $schemat['properties'] as $nazwa => $opis ) {
+		$obce = array_merge( $obce, array_diff( array_keys( $opis ), $dozwolone_pole ) );
+	}
+	k4g_check( array() === $obce, 'opis kazdego pola tez trzyma sie bialej listy' );
+
 	k4g_check( Gemini::MAX_OUTPUT_TOKENS === ( $req['generationConfig']['maxOutputTokens'] ?? 0 ), 'sufit tokenow wyjscia jest w zadaniu' );
 	k4g_check( Gemini::MAX_OUTPUT_TOKENS >= 4096, 'sufit tokenow hojny — model zjada czesc budzetu na thoughts' );
 

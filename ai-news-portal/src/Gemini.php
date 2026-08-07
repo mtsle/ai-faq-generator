@@ -276,17 +276,31 @@ final class Gemini {
 			$topic['enum'] = $enum;
 		}
 
+		/*
+		 * TYLKO POLA, KTORE API ZNA. Schemat Gemini nie jest pelnym JSON Schema
+		 * — jest osobnym typem `Schema` i KAZDE nieznane pole wywraca cale
+		 * zadanie na HTTP 400, razem z poprawna reszta.
+		 *
+		 * Zmierzone na zywym API 2026-08-07, przy odbiorze Kroku 4: dopisane
+		 * „na wszelki wypadek" `additionalProperties => false` dalo
+		 * „Unknown name \"additionalProperties\" at 'generation_config
+		 * .response_schema': Cannot find field" i ANI JEDEN artykul nie mogl
+		 * powstac. Atrapy tego nie zlapaly, bo atrapa przyjmuje kazde cialo
+		 * zadania. Dlatego lista dozwolonych kluczy jest dzis pilnowana
+		 * asercja w `krok4-gemini-test.php`.
+		 *
+		 * `propertyOrdering` API zna i przyjmuje — sprawdzone tym samym zadaniem.
+		 */
 		return array(
-			'type'                 => 'object',
-			'properties'           => array(
+			'type'             => 'object',
+			'properties'       => array(
 				'title'   => array( 'type' => 'string' ),
 				'lead'    => array( 'type' => 'string' ),
 				'content' => array( 'type' => 'string' ),
 				'topic'   => $topic,
 			),
-			'required'             => array( 'title', 'lead', 'content', 'topic' ),
-			'propertyOrdering'     => array( 'title', 'lead', 'content', 'topic' ),
-			'additionalProperties' => false,
+			'required'         => array( 'title', 'lead', 'content', 'topic' ),
+			'propertyOrdering' => array( 'title', 'lead', 'content', 'topic' ),
 		);
 	}
 
