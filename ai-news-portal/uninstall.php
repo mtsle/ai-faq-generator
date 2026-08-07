@@ -81,7 +81,6 @@ if ( $ainp_terms ) {
 
 	$wpdb->query( "DELETE FROM {$wpdb->term_relationships} WHERE term_taxonomy_id IN ({$ainp_tt_lista})" );
 	$wpdb->query( "DELETE FROM {$wpdb->term_taxonomy} WHERE term_taxonomy_id IN ({$ainp_tt_lista})" );
-	$wpdb->query( "DELETE FROM {$wpdb->termmeta} WHERE term_id IN ({$ainp_term_lista})" );
 
 	/*
 	 * Sam termin kasujemy tylko wtedy, gdy nie uzywa go zadna inna taksonomia —
@@ -91,6 +90,22 @@ if ( $ainp_terms ) {
 		"DELETE t FROM {$wpdb->terms} t
 		 LEFT JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
 		 WHERE t.term_id IN ({$ainp_term_lista}) AND tt.term_taxonomy_id IS NULL"
+	);
+
+	/*
+	 * Meta terminow — DOPIERO TERAZ i tylko dla tych, ktore naprawde znikly.
+	 *
+	 * Kasowanie po samym `term_id` zabieralo `termmeta` takze terminowi
+	 * WSPOLDZIELONEMU z inna taksonomia, ktory zostaje w `wp_terms`. Wtyczka
+	 * nigdy nie zapisuje wlasnych `termmeta`, wiec kazdy taki wiersz jest
+	 * z definicji CUDZY — to byloby kasowanie danych innej taksonomii.
+	 * Ta sama oslona co przy `wp_terms` wyzej, o jedna tabele dalej.
+	 * Ustalenie U10 z testu 15 (Krok 4).
+	 */
+	$wpdb->query(
+		"DELETE tm FROM {$wpdb->termmeta} tm
+		 LEFT JOIN {$wpdb->terms} t ON t.term_id = tm.term_id
+		 WHERE tm.term_id IN ({$ainp_term_lista}) AND t.term_id IS NULL"
 	);
 }
 

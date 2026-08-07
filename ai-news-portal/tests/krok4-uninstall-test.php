@@ -24,6 +24,11 @@
  * Dzieki temu usuniecie jawnego `DELETE FROM term_relationships` z kodu zostawia
  * sieroty, ktore asercja wylapie.
  *
+ * ZNALAZL BLAD U10: `uninstall.php` kasowal `termmeta` po samym `term_id`, wiec
+ * zabieral takze meta terminu WSPOLDZIELONEGO z inna taksonomia — a wtyczka
+ * nigdy nie zapisuje wlasnych `termmeta`, wiec kazdy taki wiersz byl cudzy.
+ * Naprawione ta sama oslona `LEFT JOIN`, ktora chroni juz `wp_terms`.
+ *
  * ZMIERZONE przy powstaniu (2026-08-07): 29 asercji, kontrola mutacyjna 12/12
  * na PELNEJ kopii wtyczki, przy zielonej probie kontrolnej. Dwie mutacje
  * przezyly pierwsza serie i obie byly luka w FIKSTURZE, nie w kodzie:
@@ -142,13 +147,10 @@ $GLOBALS['__term_relationships'] = array(
 $GLOBALS['__termmeta'] = array(
 	array( 'term_id' => 5, 'meta_key' => 'ainp_kolor' ),   // nasz termin -> ma zniknac
 	/*
-	 * Termin WSPOLDZIELONY. Zadnej asercji tu NIE MA i to jest swiadome:
-	 * `uninstall.php` kasuje `termmeta` po samym `term_id`, wiec ten wiersz znika,
-	 * mimo ze nalezy do `category`, ktora zostaje. Wtyczka nigdy nie zapisuje
-	 * wlasnych `termmeta`, wiec kazdy taki wiersz jest z definicji CUDZY.
-	 * Zgloszone jako U10 — do rozstrzygniecia przez usera. Asercja wejdzie tu
-	 * razem z decyzja; asercja zamrazajaca dzisiejsze zachowanie byla by
-	 * zabetonowaniem bledu.
+	 * Meta terminu WSPOLDZIELONEGO — ma PRZEZYC. To jest ustalenie U10,
+	 * znalezione przy pisaniu tego testu i naprawione: `uninstall.php` kasowal
+	 * `termmeta` po samym `term_id`, wiec zabieral takze meta terminu, ktory
+	 * zostaje w `wp_terms`, bo uzywa go `category`.
 	 */
 	array( 'term_id' => 6, 'meta_key' => 'kategoria_ikona' ),
 	array( 'term_id' => 9, 'meta_key' => 'obcy_klucz' ),   // obcy termin -> ma zostac
@@ -306,11 +308,16 @@ class AINP_Fake_WPDB_Uninstall {
 			return 1;
 		}
 
-		// Meta terminow.
-		if ( preg_match( '/DELETE FROM wp_termmeta WHERE term_id IN \(([^)]*)\)/', $query, $m ) ) {
+		/*
+		 * Meta terminow — tylko dla tych, ktorych juz nie ma w `wp_terms`.
+		 * Wzorzec jest scisly: kasowanie po samym `term_id` (postac sprzed U10)
+		 * nie zostanie rozpoznane i nie skasuje niczego.
+		 */
+		if ( preg_match( '/DELETE tm FROM wp_termmeta tm\s+LEFT JOIN wp_terms t ON t\.term_id = tm\.term_id\s+WHERE tm\.term_id IN \(([^)]*)\) AND t\.term_id IS NULL/', $query, $m ) ) {
 			$ids = $this->ids( $m[1] );
 			foreach ( $GLOBALS['__termmeta'] as $i => $wiersz ) {
-				if ( in_array( (int) $wiersz['term_id'], $ids, true ) ) {
+				$term_id = (int) $wiersz['term_id'];
+				if ( in_array( $term_id, $ids, true ) && ! isset( $GLOBALS['__terms'][ $term_id ] ) ) {
 					unset( $GLOBALS['__termmeta'][ $i ] );
 				}
 			}
@@ -531,6 +538,10 @@ u15_check( array( 'wp_ainp_items' ) === $GLOBALS['__dropped'], 'skasowana doklad
 
 $pozostale_termmeta = array_column( $GLOBALS['__termmeta'], 'meta_key' );
 u15_check( ! in_array( 'ainp_kolor', $pozostale_termmeta, true ), 'meta terminu uzywanego TYLKO przez nas skasowana' );
+u15_check(
+	in_array( 'kategoria_ikona', $pozostale_termmeta, true ),
+	'U10: meta terminu WSPOLDZIELONEGO ZOSTAJE — nalezy do category, ktora nas nie dotyczy'
+);
 u15_check( in_array( 'obcy_klucz', $pozostale_termmeta, true ), 'meta obcego terminu nietknieta' );
 
 // ---------------------------------------------------------------------------

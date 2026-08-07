@@ -365,7 +365,7 @@ u1_check( false !== strpos( $sql_all, "post_type = 'ainp_article'" ), 'ID artyku
 u1_check( false !== strpos( $sql_all, 'DELETE FROM wp_term_relationships WHERE object_id IN (11,12)' ), 'powiazania artykulow z terminami kasowane osobnym zapytaniem' );
 u1_check( false !== strpos( $sql_all, "taxonomy = 'ainp_topic'" ), 'terminy taksonomii ainp_topic wyszukane w bazie' );
 u1_check( false !== strpos( $sql_all, 'DELETE FROM wp_term_taxonomy WHERE term_taxonomy_id IN (5,6)' ), 'wpisy taksonomii skasowane' );
-u1_check( false !== strpos( $sql_all, 'DELETE FROM wp_termmeta WHERE term_id IN (5,6)' ), 'meta terminow skasowane' );
+u1_check( false !== strpos( $sql_all, 'FROM wp_termmeta tm' ), 'meta terminow kasowane — i tylko dla terminow, ktore naprawde znikly (U10)' );
 u1_check( false !== strpos( $sql_all, 'FROM wp_terms t' ), 'terminy kasowane tylko wtedy, gdy nie uzywa ich inna taksonomia' );
 u1_check( false !== strpos( $sql_all, "'_ainp_item_id', '_ainp_source_url', '_ainp_demo'" ), 'zapytanie o osierocone meta wymienia wszystkie trzy klucze wtyczki (asercja tekstowa)' );
 
