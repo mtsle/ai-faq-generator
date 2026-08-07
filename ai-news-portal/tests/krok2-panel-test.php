@@ -171,7 +171,23 @@ function home_url( $p = '' ) {
 	return 'https://dworek.local' . $p;
 }
 function current_time( $typ, $gmt = 0 ) {
-	return '2026-08-05 12:00:00';
+	return ( 'Y-m-d' === $typ ) ? '2026-08-05' : '2026-08-05 12:00:00';
+}
+
+/*
+ * Od etapu 4.6 ekran Materialow czyta licznik dobowej puli, a ten mieszka
+ * w opcji zapisanej jako tablica — stad para `maybe_*` w atrapach.
+ */
+function is_serialized( $d ) {
+	return is_string( $d ) && (bool) preg_match( '/^[aOs]:\d+:/', $d );
+}
+
+function maybe_serialize( $d ) {
+	return ( is_array( $d ) || is_object( $d ) ) ? serialize( $d ) : $d;
+}
+
+function maybe_unserialize( $d ) {
+	return is_serialized( $d ) ? unserialize( $d ) : $d;
 }
 function wp_encode_emoji( $t ) {
 	return $t;
@@ -232,6 +248,9 @@ require_once $root . '/src/Dedup.php';
 require_once $root . '/src/Filter.php';
 require_once $root . '/src/Runner.php';
 require_once $root . '/src/Plugin.php';
+// Od etapu 4.6 ekran Materialow pokazuje stan dobowej puli, wiec `Admin`
+// siega do `Gemini`. Bez tego pliku zestaw pada na brakujacej klasie.
+require_once $root . '/src/Gemini.php';
 require_once $root . '/src/Admin.php';
 
 use AINP\Admin;

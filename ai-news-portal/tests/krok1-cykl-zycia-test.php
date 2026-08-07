@@ -272,6 +272,26 @@ function add_submenu_page( $parent, $page_title, $menu_title, $cap, $slug, $cb =
 	return $slug;
 }
 
+/*
+ * Od etapu 4.6 ekran Materialow czyta licznik dobowej puli wywolan AI —
+ * a ten mieszka w opcji zapisanej jako tablica i porownuje date z dzisiejsza.
+ */
+function current_time( $typ, $gmt = 0 ) {
+	return ( 'Y-m-d' === $typ ) ? '2026-08-05' : '2026-08-05 12:00:00';
+}
+
+function is_serialized( $d ) {
+	return is_string( $d ) && (bool) preg_match( '/^[aOs]:\d+:/', $d );
+}
+
+function maybe_serialize( $d ) {
+	return ( is_array( $d ) || is_object( $d ) ) ? serialize( $d ) : $d;
+}
+
+function maybe_unserialize( $d ) {
+	return is_serialized( $d ) ? unserialize( $d ) : $d;
+}
+
 require_once $root . '/src/Settings.php';
 /*
  * Od etapu 2.5 ekran Materialow siega po `Runner::sources()`, a `Runner`
@@ -283,6 +303,9 @@ require_once $root . '/src/Feed.php';
 require_once $root . '/src/Dedup.php';
 require_once $root . '/src/Runner.php';
 require_once $root . '/src/Plugin.php';
+// Od etapu 4.6 ekran Materialow pokazuje stan dobowej puli, wiec `Admin`
+// siega do `Gemini`. Bez tego pliku zestaw pada na brakujacej klasie.
+require_once $root . '/src/Gemini.php';
 require_once $root . '/src/Admin.php';
 
 use AINP\Admin;

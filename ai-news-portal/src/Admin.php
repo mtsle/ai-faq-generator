@@ -55,7 +55,16 @@ final class Admin {
 	 */
 	public const ACTION_PREPARE = 'ainp_prepare';
 
-	/** Nazwa pola z nonce'em — wspolna dla obu akcji. */
+	/**
+	 * Akcja `admin_post_`: wyslanie partii do modelu i publikacja (etap 4.6).
+	 *
+	 * Tak jak „Przygotuj treści" — w Kroku 5 te sama prace odpali cron,
+	 * ale przycisk zostaje: na stronie bez ruchu WP-Cron nie chodzi, wiec
+	 * bez niego nie da sie ruszyc publikacji z reki.
+	 */
+	public const ACTION_PUBLISH = 'ainp_publish';
+
+	/** Nazwa pola z nonce'em — wspolna dla wszystkich akcji. */
 	public const NONCE_FIELD = '_ainp_nonce';
 
 	/** Ile pozycji pokazuje tabela Materialow. */
@@ -71,6 +80,9 @@ final class Admin {
 
 	/** Prefiks transientu z podsumowaniem ostatniego przygotowania tresci. */
 	public const TRANSIENT_PREP = 'ainp_last_prep_';
+
+	/** Prefiks transientu z podsumowaniem ostatniej publikacji. */
+	public const TRANSIENT_PUB = 'ainp_last_pub_';
 
 	/**
 	 * Zamek na czas przygotowywania partii — DLUG D-8 Z AUDYTU KROKU 3.
@@ -149,6 +161,7 @@ final class Admin {
 	public static function register_actions(): void {
 		add_action( 'admin_post_' . self::ACTION_FETCH, array( self::class, 'handle_fetch' ) );
 		add_action( 'admin_post_' . self::ACTION_PREPARE, array( self::class, 'handle_prepare' ) );
+		add_action( 'admin_post_' . self::ACTION_PUBLISH, array( self::class, 'handle_publish' ) );
 		add_action( 'admin_post_' . self::ACTION_SAVE, array( self::class, 'handle_save_settings' ) );
 	}
 
@@ -210,6 +223,37 @@ final class Admin {
 	}
 
 	/**
+	 * „Opublikuj teraz" — partia pozycji idzie do modelu i na portal.
+	 *
+	 * Ten sam zamek co przy przygotowaniu tresci, i tu jest wazniejszy niz tam:
+	 * dwuklik w przygotowanie kosztuje zadania sieciowe, a dwuklik TUTAJ
+	 * kosztuje wywolania z dobowej puli 20. Atomowa rezerwacja slotu (etap 4.1)
+	 * pilnuje, ze pula nie zostanie przekroczona, ale nie zatrzyma dwoch partii
+	 * naraz — od tego jest zamek.
+	 *
+	 * @return void
+	 */
+	public static function handle_publish(): void {
+		self::guard( self::ACTION_PUBLISH );
+
+		if ( ! self::claim_prepare_lock() ) {
+			self::redirect_back( self::SLUG_ITEMS, 'zajete' );
+		}
+
+		try {
+			$podsumowanie = Runner::publish_batch();
+		} finally {
+			// `finally`, bo wyjatek w polowie partii zostawilby zamek na cale
+			// `LOCK_TTL` i przycisk bylby martwy przez dwie minuty bez slowa.
+			delete_transient( self::TRANSIENT_LOCK );
+		}
+
+		set_transient( self::TRANSIENT_PUB . get_current_user_id(), $podsumowanie, 300 );
+
+		self::redirect_back( self::SLUG_ITEMS, 'opublikowano' );
+	}
+
+	/**
 	 * Bierze zamek na przygotowanie partii. Patrz `TRANSIENT_LOCK`.
 	 *
 	 * @return bool `true`, gdy zamek zostal wziety; `false`, gdy trzyma go
@@ -245,7 +289,51 @@ final class Admin {
 
 		Settings::update( self::sanitize_settings( is_array( $dane ) ? $dane : array() ) );
 
+		self::schedule_first_run();
+
 		self::redirect_back( self::SLUG_SETTINGS, 'zapisano' );
+	}
+
+	/**
+	 * Planuje pierwszy przebieg na JUZ, zaraz po zapisaniu Ustawien.
+	 *
+	 * Trzy linie, a dzieki nim pierwszy prawdziwy artykul powstaje bez klikania
+	 * „Pobierz teraz" i „Opublikuj teraz" — klient wpisuje klucz, zapisuje
+	 * i portal zaczyna sam.
+	 *
+	 * TRZY WARUNKI, KAZDY Z POWODU:
+	 *
+	 *   1. Klucz i zrodla MUSZA byc. Przebieg bez klucza konczy sie odmowa
+	 *      przy pierwszej pozycji, a bez zrodel nie ma czego pobierac —
+	 *      planowanie go byloby samym halasem w harmonogramie.
+	 *   2. `wp_next_scheduled()` przed planowaniem, zeby dziesiec zapisow
+	 *      Ustawien pod rzad nie zrobilo dziesieciu zdarzen. Ta funkcja TYLKO
+	 *      SPRAWDZA — sama niczego nie planuje.
+	 *   3. `wp_schedule_single_event()`, nie `wp_schedule_event()`: to jest
+	 *      pojedynczy start, a nie harmonogram. Powtarzalny `ainp_tick`
+	 *      zaklada aktywacja w etapie 5.1 i to on jest jego wlascicielem.
+	 *
+	 * Uchwyt `ainp_tick` dostaje sluchacza dopiero w Kroku 5. Zaplanowane
+	 * zdarzenie bez sluchacza jest w WordPressie nieszkodliwe: odpala sie,
+	 * nikt go nie lapie, znika z harmonogramu.
+	 *
+	 * @return void
+	 */
+	private static function schedule_first_run(): void {
+		if ( ! function_exists( 'wp_schedule_single_event' ) || ! function_exists( 'wp_next_scheduled' ) ) {
+			return;
+		}
+
+		$klucz = trim( (string) get_option( Settings::OPTION_KEY, '' ) );
+		if ( '' === $klucz || array() === Runner::sources() ) {
+			return;
+		}
+
+		if ( false !== wp_next_scheduled( Plugin::CRON_HOOK ) ) {
+			return;
+		}
+
+		wp_schedule_single_event( time(), Plugin::CRON_HOOK );
 	}
 
 	/**
@@ -494,6 +582,8 @@ final class Admin {
 		$lista_artykulow = admin_url( 'edit.php?post_type=' . Plugin::CPT );
 		$pozycje         = self::recent_items();
 		$zrodla          = Runner::sources();
+		$zuzycie         = Gemini::usage();
+		$ma_klucz        = ( '' !== trim( (string) get_option( Settings::OPTION_KEY, '' ) ) );
 
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html__( 'AI News Portal — Materiały', 'ai-news-portal' ) . '</h1>';
@@ -501,6 +591,7 @@ final class Admin {
 		self::render_lock_notice();
 		self::render_run_notice();
 		self::render_prep_notice();
+		self::render_pub_notice();
 
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION_FETCH ) . '" />';
@@ -536,6 +627,31 @@ final class Admin {
 		echo '</p>';
 		echo '</form>';
 
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION_PUBLISH ) . '" />';
+		wp_nonce_field( self::ACTION_PUBLISH, self::NONCE_FIELD );
+		echo '<p>';
+		submit_button( __( 'Opublikuj teraz', 'ai-news-portal' ), 'secondary', 'submit', false, $ma_klucz ? array() : array( 'disabled' => 'disabled' ) );
+		echo ' <span class="description">'
+			. esc_html(
+				sprintf(
+					/* translators: 1: rozmiar partii, 2: zuzyte wywolania, 3: sufit dobowy */
+					__( 'Wysyła do modelu %1$d pozycji i publikuje gotowe artykuły. Wywołań AI dziś: %2$d z %3$d.', 'ai-news-portal' ),
+					Runner::AI_BATCH,
+					$zuzycie['count'],
+					$zuzycie['cap']
+				)
+			)
+			. '</span>';
+		echo '</p>';
+		echo '</form>';
+
+		if ( ! $ma_klucz ) {
+			echo '<div class="notice notice-warning"><p>'
+				. esc_html__( 'Klucz API nie jest zapisany — bez niego wtyczka nie wywoła modelu. Uzupełnij go w Ustawieniach.', 'ai-news-portal' )
+				. '</p></div>';
+		}
+
 		if ( ! $zrodla ) {
 			echo '<div class="notice notice-warning"><p>'
 				. esc_html__( 'Lista kanałów RSS jest pusta — dopisz adresy w Ustawieniach.', 'ai-news-portal' )
@@ -545,6 +661,53 @@ final class Admin {
 		self::render_items_table( $pozycje );
 
 		echo '<p><a href="' . esc_url( $lista_artykulow ) . '">' . esc_html__( 'Zarządzaj opublikowanymi artykułami', 'ai-news-portal' ) . '</a> ' . esc_html__( '— tam usuwa się i edytuje artykuły hurtem.', 'ai-news-portal' ) . '</p>';
+		echo '</div>';
+	}
+
+	/**
+	 * Podsumowanie ostatniej publikacji.
+	 *
+	 * Kazda liczba jest tu po to, zeby klient wiedzial, GDZIE poszly wywolania
+	 * z dobowej puli — najczestsze pytanie przy limicie 20 na dobe brzmi
+	 * „dlaczego nic nie przybylo", a odpowiedzia bywa „wszystkie pozycje byly
+	 * poza tematem" albo „sufit wyczerpany".
+	 *
+	 * @return void
+	 */
+	private static function render_pub_notice(): void {
+		$klucz        = self::TRANSIENT_PUB . get_current_user_id();
+		$podsumowanie = get_transient( $klucz );
+
+		if ( ! is_array( $podsumowanie ) ) {
+			return;
+		}
+
+		delete_transient( $klucz );
+
+		echo '<div class="notice notice-success"><p>' . esc_html(
+			sprintf(
+				/* translators: 1: opublikowane, 2: nieudane, 3: odsiane poza tematem, 4: wywolania AI */
+				__( 'Opublikowano artykułów: %1$d. Nieudanych: %2$d. Odsianych poza tematem: %3$d. Wywołań AI w tym przebiegu: %4$d.', 'ai-news-portal' ),
+				(int) $podsumowanie['published'],
+				(int) $podsumowanie['failed'],
+				(int) $podsumowanie['offtopic'],
+				(int) $podsumowanie['calls']
+			)
+		) . '</p>';
+
+		if ( '' !== (string) $podsumowanie['note'] ) {
+			echo '<p><strong>' . esc_html__( 'Przebieg wstrzymany:', 'ai-news-portal' ) . '</strong> '
+				. esc_html( (string) $podsumowanie['note'] ) . '</p>';
+		}
+
+		if ( ! empty( $podsumowanie['budget_hit'] ) ) {
+			echo '<p>' . esc_html__( 'Skończył się budżet czasu przebiegu — kliknij ponownie, żeby wziąć kolejne pozycje.', 'ai-news-portal' ) . '</p>';
+		}
+
+		foreach ( (array) $podsumowanie['errors'] as $id => $blad ) {
+			echo '<p><strong>#' . esc_html( (string) (int) $id ) . '</strong>: ' . esc_html( (string) $blad ) . '</p>';
+		}
+
 		echo '</div>';
 	}
 
@@ -563,7 +726,9 @@ final class Admin {
 			return;
 		}
 
-		echo '<div class="notice notice-warning"><p>' . esc_html__( 'Przygotowanie treści już trwa — poczekaj na jego koniec i odśwież stronę.', 'ai-news-portal' ) . '</p></div>';
+		// Komunikat jest wspolny dla „Przygotuj treści" i „Opublikuj teraz" —
+		// oba biora ten sam zamek, wiec nie moze mowic o jednym z nich.
+		echo '<div class="notice notice-warning"><p>' . esc_html__( 'Przebieg już trwa — poczekaj na jego koniec i odśwież stronę.', 'ai-news-portal' ) . '</p></div>';
 	}
 
 	/**
