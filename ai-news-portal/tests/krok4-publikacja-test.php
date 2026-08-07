@@ -407,9 +407,17 @@ namespace {
 				return 0;
 			}
 
-			preg_match_all( "/(\w+) = '((?:[^'\\\\]|\\\\.)*)'/", $m[1], $pary, PREG_SET_ORDER );
+			/*
+			 * Wartosci CYTOWANE (`%s`) i NIECYTOWANE (`%d`). Pierwsza wersja
+			 * atrapy lapala tylko cytowane, wiec zapis `post_id = 186`
+			 * przechodzil przez nia bez sladu — asercja na te kolumne
+			 * sprawdzalaby wtedy wlasne wyobrazenie, nie zapytanie.
+			 */
+			preg_match_all( "/(\w+) = (?:'((?:[^'\\\\]|\\\\.)*)'|(\d+))/", $m[1], $pary, PREG_SET_ORDER );
 			foreach ( $pary as $para ) {
-				$this->wiersze[ $id ]->{$para[1]} = stripslashes( $para[2] );
+				$this->wiersze[ $id ]->{$para[1]} = ( isset( $para[3] ) && '' !== $para[3] )
+					? (int) $para[3]
+					: stripslashes( $para[2] );
 			}
 
 			return 1;
@@ -429,6 +437,22 @@ namespace AINP {
 		public static function user_agent(): string {
 			return 'AI News Portal/0.3.0';
 		}
+
+		/** Scraping zawsze pada — potrzebne do sciezki `failed` z Kroku 3. */
+		public static function get_article( string $url ): array {
+			return array(
+				'ok'        => false,
+				'code'      => 404,
+				'body'      => '',
+				'error'     => 'Serwer odpowiedział kodem 404',
+				'reason'    => 'status',
+				'truncated' => false,
+			);
+		}
+
+		public static function is_retryable( array $result ): bool {
+			return false;
+		}
 	}
 }
 
@@ -441,6 +465,8 @@ namespace {
 	require_once $root . '/src/Validator.php';
 	require_once $root . '/src/Plugin.php';
 	require_once $root . '/src/Publisher.php';
+	// Sciezka `failed` z Kroku 3 (asercja U5) prowadzi przez `Article`.
+	require_once $root . '/src/Article.php';
 	require_once $root . '/src/Runner.php';
 
 	use AINP\Plugin;
@@ -817,6 +843,96 @@ namespace {
 
 	// ------------------------------------------------------------------
 	echo "\n";
+	// ------------------------------------------------------------------
+	echo "
+-- NAPRAWY PO AUDYCIE KROKU 4 --
+";
+
+	// U1: tryb szkicow NIE kasuje demo. Wczesniej demo znikalo, a artykul
+	// zostawal szkicem — portal robil sie pusty i nie bylo jak tego cofnac,
+	// bo znacznik `ainp_demo_done` zyje dalej.
+	k4x_reset( array( 'save_as_draft' => true ) );
+	$demo_id = k4x_demo();
+	$r       = Publisher::publish( k4x_wiersz(), k4x_dane() );
+
+	k4x_check( true === $r['ok'] && 'draft' === $r['status'], 'U1: w trybie szkicow powstaje szkic' );
+	k4x_check( 0 === $r['demo_removed'], 'U1: demo NIE jest kasowane, dopoki nic nie jest opublikowane' );
+	k4x_check( isset( $GLOBALS['__posts'][ $demo_id ] ), 'U1: demo nadal stoi na portalu' );
+
+	// A gdy przelacznik jest wylaczony — demo znika jak dotad.
+	k4x_reset();
+	$demo_id = k4x_demo();
+	$r       = Publisher::publish( k4x_wiersz(), k4x_dane() );
+	k4x_check( 1 === $r['demo_removed'], 'U1: przy prawdziwej publikacji demo znika bez zmian' );
+
+	// U2: idempotencja PRZED modelem — przerwany przebieg nie pali slotu.
+	$db             = k4x_reset();
+	$db->wiersze[5] = k4x_wiersz();
+	$osierocony     = wp_insert_post(
+		array(
+			'post_type'    => Plugin::CPT,
+			'post_status'  => 'publish',
+			'post_title'   => 'Wpis z przerwanego przebiegu',
+			'post_content' => 'Tresc zapisana przed smiercia procesu.',
+			'meta_input'   => array( Plugin::META_ITEM => 5 ),
+		),
+		true
+	);
+	$GLOBALS['__plan'] = array( k4x_odp( k4x_json() ) );
+
+	$los = Runner::process_item( $db->wiersze[5], null );
+
+	k4x_check( 0 === count( $GLOBALS['__zadania'] ), 'U2: ZERO zadan do modelu, gdy wpis juz istnieje' );
+	k4x_check( 0 === $los['calls'], 'U2: ZERO wywolan z dobowej puli' );
+	k4x_check( 'exists' === $los['outcome'], 'U2: pozycja rozpoznana jako juz opublikowana' );
+	k4x_check( (int) $osierocony === $los['post_id'], 'U2: oddany jest wpis, ktory juz byl' );
+	k4x_check( 'done' === $db->wiersze[5]->status, 'U2: pozycja zamknieta jako `done`' );
+
+	// U3: numer wpisu ladauje w kolumnie `post_id`, nie tylko w meta.
+	k4x_check( (int) $osierocony === (int) $db->wiersze[5]->post_id, 'U3: post_id zapisany takze przy `exists`' );
+
+	$db             = k4x_reset();
+	$db->wiersze[5] = k4x_wiersz();
+	$GLOBALS['__plan'] = array( k4x_odp( k4x_json() ) );
+	$los = Runner::process_item( $db->wiersze[5], null );
+
+	k4x_check( 'published' === $los['outcome'], 'U3: zwykla publikacja przechodzi' );
+	k4x_check( $los['post_id'] > 0 && (int) $db->wiersze[5]->post_id === $los['post_id'], 'U3: post_id zapisany w tabeli po publikacji' );
+
+	// …i przy porazce przypisania kategorii, gdzie wpis zostaje szkicem.
+	$db                = k4x_reset();
+	$db->wiersze[5]    = k4x_wiersz();
+	$GLOBALS['__plan'] = array( k4x_odp( k4x_json() ) );
+	$GLOBALS['__psuj'] = array( 'terms' );
+	$los               = Runner::process_item( $db->wiersze[5], null );
+
+	k4x_check( 'failed' === $los['outcome'], 'U3: nieudana kategoria konczy pozycje na `failed`' );
+	k4x_check( $los['post_id'] > 0 && (int) $db->wiersze[5]->post_id === $los['post_id'], 'U3: post_id szkicu tez jest zapisany' );
+
+	// U5 (wariant B): tresc ZOSTAJE takze na sciezce Kroku 3.
+	$db             = k4x_reset();
+	$krotka         = k4x_wiersz( 9, 'https://psy.pl/krotka/', 'Pies i krotka tresc' );
+	$krotka->content      = 'Za krótka treść z kanału.';
+	$krotka->content_hash = '';
+	$db->wiersze[9] = $krotka;
+
+	/*
+	 * Bez tego bramka pamieci z etapu 3.5 odsyla pozycje na `retry`, ZANIM
+	 * scraping w ogole ruszy — i sciezka `failed`, o ktora tu chodzi, nigdy
+	 * sie nie wykonuje. `-1` znaczy „brak progu" i jest jedynym stanem,
+	 * w ktorym ten test mierzy to, co deklaruje.
+	 */
+	$k4x_limit = ini_get( 'memory_limit' );
+	ini_set( 'memory_limit', '-1' );
+
+	$los = Runner::prepare_item( $db->wiersze[9], array(), array() );
+
+	ini_set( 'memory_limit', $k4x_limit );
+
+	k4x_check( 'failed' === $los, 'U5: nieudany scraping konczy pozycje na `failed`' );
+	k4x_check( 'failed' === $db->wiersze[9]->status, 'U5: status zapisany w tabeli' );
+	k4x_check( 'Za krótka treść z kanału.' === $db->wiersze[9]->content, 'U5: tresc ZOSTAJE — obie sciezki `failed` zachowuja sie tak samo' );
+
 	echo '=== Asercji: ' . $ran . ' | bledow: ' . $fail . " ===\n";
 	if ( 0 === $fail ) {
 		echo "WSZYSTKIE OK\n";

@@ -690,9 +690,28 @@ final class Runner {
 	 * @return array{outcome:string,post_id:int,calls:int,note:string}
 	 */
 	public static function process_item( $row, ?float $remaining = null ): array {
-		$id       = isset( $row->id ) ? (int) $row->id : 0;
-		$werdykt  = self::ask_model( $row, $remaining );
-		$wywolan  = (int) $werdykt['calls'];
+		$id = isset( $row->id ) ? (int) $row->id : 0;
+
+		/*
+		 * IDEMPOTENCJA PRZED MODELEM, nie za nim (ustalenie audytowe U2).
+		 * Ten sam warunek stoi w `Publisher::publish()`, ale tam wykonuje sie
+		 * DOPIERO po zaplaconym wywolaniu. Scenariusz: proces ginie miedzy
+		 * `wp_insert_post()` a `finish()`, wpis istnieje, pozycja nadal jest
+		 * `new` — nastepny przebieg bral slot z dobowej puli 20, dostawal
+		 * gotowy artykul i wyrzucal go, bo wpis juz byl. Jedno z dwudziestu
+		 * wywolan na dobe za nic, w ciszy.
+		 */
+		$istniejacy = Publisher::existing_post( $id );
+
+		if ( $istniejacy > 0 ) {
+			self::finish( $id, self::STATUS_DONE, '' );
+			self::set_post_id( $id, $istniejacy );
+
+			return self::outcome( 'exists', $istniejacy, 0, '' );
+		}
+
+		$werdykt = self::ask_model( $row, $remaining );
+		$wywolan = (int) $werdykt['calls'];
 
 		if ( ! $werdykt['ok'] ) {
 			if ( $werdykt['terminal'] ) {
@@ -717,6 +736,10 @@ final class Runner {
 		if ( ! $wpis['ok'] ) {
 			self::mark( $id, self::STATUS_FAILED, (string) $wpis['error'] );
 
+			// Przy porazce `terms` wpis ISTNIEJE (jako szkic) — bez zapisania
+			// jego numeru nie da sie do niego wrocic inaczej niz szukaniem po meta.
+			self::set_post_id( $id, (int) $wpis['post_id'] );
+
 			return self::outcome( 'failed', (int) $wpis['post_id'], $wywolan, (string) $wpis['error'] );
 		}
 
@@ -726,6 +749,7 @@ final class Runner {
 		 * wymaganych przy kazdym przyszlym przebiegu.
 		 */
 		self::finish( $id, self::STATUS_DONE, '' );
+		self::set_post_id( $id, (int) $wpis['post_id'] );
 
 		return self::outcome(
 			$wpis['created'] ? 'published' : 'exists',
@@ -834,6 +858,35 @@ final class Runner {
 			'calls'   => $calls,
 			'note'    => $note,
 		);
+	}
+
+	/**
+	 * Zapisuje numer utworzonego wpisu do kolumny `post_id`.
+	 *
+	 * Kolumna jest w schemacie z planu od Kroku 1 i do Kroku 4 nikt jej nie
+	 * wypelnial — powiazanie pozycja↔artykul zylo wylacznie w `postmeta`
+	 * (ustalenie audytowe U3). Cichy brak: nic nie padalo, tylko kazdy odczyt
+	 * tej kolumny dostawal zero.
+	 *
+	 * @param int $id      Identyfikator wiersza.
+	 * @param int $post_id Identyfikator wpisu.
+	 *
+	 * @return void
+	 */
+	private static function set_post_id( int $id, int $post_id ): void {
+		global $wpdb;
+
+		if ( $id <= 0 || $post_id <= 0 ) {
+			return;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET post_id = %d WHERE id = %d',
+				$post_id,
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
 	}
 
 	/**
@@ -952,15 +1005,22 @@ final class Runner {
 		$proby = isset( $row->attempts ) ? (int) $row->attempts : 0;
 		$blad  = (string) $pobrane['error'];
 
+		/*
+		 * `mark()`, nie `finish()` — WARIANT B z audytu Kroku 4 (ustalenie U5).
+		 * Plan mowi wprost, ze tresc zostaje w tabeli tylko dla `failed`, bo
+		 * jest tam potrzebna do ponowienia. Kod Kroku 3 zerowal ja takze przy
+		 * `failed`, wiec status znaczyl dwie rozne rzeczy zaleznie od tego,
+		 * ktora sciezka go ustawila. Teraz obie zostawiaja tresc.
+		 */
 		if ( empty( $pobrane['retryable'] ) ) {
-			self::finish( $id, self::STATUS_FAILED, $blad );
+			self::mark( $id, self::STATUS_FAILED, $blad );
 			return 'failed';
 		}
 
 		$proby++;
 
 		if ( $proby >= self::MAX_ATTEMPTS ) {
-			self::finish( $id, self::STATUS_FAILED, $blad . ' (prób: ' . $proby . ')' );
+			self::mark( $id, self::STATUS_FAILED, $blad . ' (prób: ' . $proby . ')' );
 			return 'failed';
 		}
 

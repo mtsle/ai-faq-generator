@@ -132,8 +132,15 @@ final class Publisher {
 			return self::result( false, $post_id, true, 'draft', $blad, 'terms' );
 		}
 
-		// Demo znika dopiero po UDANEJ publikacji, razem z kategoria.
-		$usuniete = self::remove_demo( $post_id );
+		/*
+		 * Demo znika dopiero po UDANEJ PUBLIKACJI, a nie po udanym zapisie.
+		 * Roznica jest cala trescia audytowego ustalenia U1: przy wlaczonym
+		 * przelaczniku „zapisuj jako szkice" artykul powstaje jako `draft`,
+		 * wiec na portalu NIE MA nic — a skasowane demo nie wraca, bo znacznik
+		 * `ainp_demo_done` zyje dalej. Klient dostawal pusty portal i zadnego
+		 * sposobu, zeby to cofnac.
+		 */
+		$usuniete = ( 'publish' === $status ) ? self::remove_demo( $post_id ) : 0;
 
 		return self::result( true, $post_id, true, $status, '', '', $usuniete );
 	}

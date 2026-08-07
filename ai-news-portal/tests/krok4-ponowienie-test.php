@@ -387,9 +387,34 @@ namespace {
 	k4p_check( 1 === k4p_licznik(), 'zuzyty dokladnie jeden slot z puli' );
 	k4p_check( 'Żywienie' === $r['data']['topic'], 'werdykt niesie pola po walidacji' );
 	k4p_check( false === $r['terminal'], 'powodzenie nie jest terminalne' );
-	k4p_check( array() === $GLOBALS['wpdb']->zapytania || 1 === count( $GLOBALS['wpdb']->zapytania ), 'baza ruszana wylacznie przez licznik' );
+	/*
+	 * ALTERNATYWA W ASERCJI = ASERCJA SLEPA. Poprzednia wersja brzmiala
+	 * „0 zapytan LUB 1 zapytanie" i byla prawdziwa praktycznie zawsze,
+	 * a etykieta obiecywala, ze baza jest ruszana wylacznie przez licznik.
+	 * Rozdzielone na dwa JAWNE przypadki, bo mechanizm jest inny w kazdym:
+	 * PIERWSZA rezerwacja w zyciu instalacji idzie przez `add_option()`,
+	 * wiec do `$wpdb->query()` nie trafia nic.
+	 */
+	k4p_check( array() === $GLOBALS['wpdb']->zapytania, 'pierwsza rezerwacja nie robi UPDATE — idzie przez add_option()' );
+	k4p_check( 1 === k4p_licznik(), 'a licznik i tak stoi na 1' );
 
-	// Prompt naprawde zawiera material pozycji.
+	// Drugi przypadek: licznik JUZ istnieje, wiec rezerwacja idzie przez CAS —
+	// dokladnie jeden `UPDATE`, i to na opcji licznika.
+	k4p_reset();
+	$GLOBALS['__opt'][ Settings::OPTION_USAGE ] = serialize(
+		array(
+			'date'  => '2026-08-07',
+			'count' => 3,
+		)
+	);
+	$GLOBALS['__plan'] = array( k4p_odp( 200, k4p_koperta( k4p_dobra() ) ) );
+	Runner::ask_model( k4p_wiersz(), null, $kategorie );
+
+	k4p_check( 1 === count( $GLOBALS['wpdb']->zapytania ), 'przy istniejacym liczniku: DOKLADNIE jeden zapis do bazy' );
+	k4p_check( false !== strpos( (string) $GLOBALS['wpdb']->zapytania[0], 'ainp_usage' ), 'i jest to zapis licznika, nie cokolwiek innego' );
+	k4p_check( 4 === k4p_licznik(), 'licznik podniesiony o jeden' );
+
+	// Prompt naprawde zawiera material pozycji (na zadaniu z drugiego przebiegu).
 	$cialo = json_decode( (string) $GLOBALS['__zadania'][0], true );
 	$tekst = $cialo['contents'][0]['parts'][0]['text'] ?? '';
 	k4p_check( false !== strpos( $tekst, 'Materiał źródłowy o karmieniu psa' ), 'prompt niesie tresc pozycji' );
