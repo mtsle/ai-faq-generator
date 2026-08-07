@@ -85,6 +85,12 @@ final class Gemini {
 	/** Domyslny model, gdy w Ustawieniach jest smiec. */
 	public const FALLBACK_MODEL = 'gemini-2.5-flash';
 
+	/** Poczatek ogrodzenia materialu zrodlowego w promptcie. */
+	public const FENCE_OPEN = '<<<MATERIAL_ZRODLOWY';
+
+	/** Koniec ogrodzenia materialu zrodlowego w promptcie. */
+	public const FENCE_CLOSE = 'MATERIAL_ZRODLOWY>>>';
+
 	/** Powod: brak klucza API w Ustawieniach. */
 	public const NOTE_NO_KEY = 'Brak klucza API w Ustawieniach';
 
@@ -282,6 +288,69 @@ final class Gemini {
 			'propertyOrdering'     => array( 'title', 'lead', 'content', 'topic' ),
 			'additionalProperties' => false,
 		);
+	}
+
+	/**
+	 * Prompt dla jednej pozycji, zbudowany z szablonu z Ustawien.
+	 *
+	 * Cztery znaczniki (`{kategorie}`, `{tytul}`, `{zrodlo}`, `{tresc}`)
+	 * podstawiane sa JEDNYM przebiegiem `strtr()`. To nie jest optymalizacja,
+	 * tylko zabezpieczenie: przy podstawianiu po kolei znacznik stojacy
+	 * w TRESCI artykulu zostalby rozwiniety w nastepnym przebiegu, czyli cudza
+	 * strona decydowalaby o ksztalcie naszego promptu.
+	 *
+	 * Z tego samego powodu material jest opasany ogrodzeniem, a token
+	 * ogrodzenia jest z tresci WYCINANY — inaczej wystarczyloby wpisac go
+	 * w artykul, zeby „wyjsc" z bloku danych i dopisac wlasne polecenie.
+	 *
+	 * @param array<string,mixed>    $item       Pozycja: `title`, `content`, `url`.
+	 * @param array<int,string>|null $categories Kategorie; `null` bierze z Ustawien.
+	 * @param string|null            $template   Szablon; `null` bierze z Ustawien.
+	 *
+	 * @return string
+	 */
+	public static function prompt( array $item, ?array $categories = null, ?string $template = null ): string {
+		$szablon = ( null === $template ) ? (string) Settings::get( 'prompt', '' ) : $template;
+		if ( '' === trim( $szablon ) ) {
+			// Klient wyczyscil pole. Pusty prompt to zmarnowane wywolanie z puli,
+			// wiec wracamy do szablonu domyslnego zamiast wysylac sam material.
+			$domyslne = Settings::defaults();
+			$szablon  = (string) ( $domyslne['prompt'] ?? '' );
+		}
+
+		$kategorie = ( null === $categories ) ? (array) Settings::get( 'categories', array() ) : $categories;
+		$lista     = array();
+		foreach ( $kategorie as $kategoria ) {
+			$kategoria = trim( (string) $kategoria );
+			if ( '' !== $kategoria ) {
+				$lista[] = $kategoria;
+			}
+		}
+
+		$tresc = (string) ( $item['content'] ?? '' );
+		$tresc = str_replace( array( self::FENCE_OPEN, self::FENCE_CLOSE ), '', $tresc );
+		$blok  = self::FENCE_OPEN . "\n" . trim( $tresc ) . "\n" . self::FENCE_CLOSE;
+
+		$gotowy = strtr(
+			$szablon,
+			array(
+				'{kategorie}' => implode( ', ', array_values( array_unique( $lista ) ) ),
+				'{tytul}'     => trim( (string) ( $item['title'] ?? '' ) ),
+				'{zrodlo}'    => trim( (string) ( $item['url'] ?? '' ) ),
+				'{tresc}'     => $blok,
+			)
+		);
+
+		/*
+		 * Szablon bez `{tresc}` to najgrozniejsza pomylka przy edycji pola:
+		 * wywolanie idzie, pula sie zmniejsza, a model nie dostaje materialu
+		 * i pisze z niczego. Dokladamy material na koncu zamiast pozwolic na to.
+		 */
+		if ( false === strpos( $szablon, '{tresc}' ) ) {
+			$gotowy .= "\n\n" . $blok;
+		}
+
+		return $gotowy;
 	}
 
 	/**

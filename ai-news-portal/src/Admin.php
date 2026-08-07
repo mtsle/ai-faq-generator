@@ -241,9 +241,46 @@ final class Admin {
 			self::parse_sources( isset( $dane['ainp_sources'] ) ? (string) $dane['ainp_sources'] : '' )
 		);
 
+		self::save_key( isset( $dane['ainp_key'] ) ? (string) $dane['ainp_key'] : '' );
+
 		Settings::update( self::sanitize_settings( is_array( $dane ) ? $dane : array() ) );
 
 		self::redirect_back( self::SLUG_SETTINGS, 'zapisano' );
+	}
+
+	/**
+	 * Zapisuje klucz API — w osobnej opcji, ZAWSZE bez autoladowania.
+	 *
+	 * Trzy wlasnosci, ktorych nie wolno zgubic:
+	 *
+	 *   1. PUSTE POLE NIE KASUJE KLUCZA. Formularz nigdy nie pokazuje klucza
+	 *      z powrotem, wiec puste pole znaczy „nie zmieniam", a nie „usun".
+	 *      Bez tego kazdy zapis Ustawien kasowalby klucz i wtyczka przestawalaby
+	 *      dzialac po zmianie czegokolwiek innego.
+	 *   2. KASOWANIE JEST JAWNE — przez zaznaczenie pola wyboru.
+	 *   3. `autoload = no`. Klucz nie ma prawa siedziec w `alloptions`
+	 *      ladowanych przy KAZDYM zadaniu, takze na stronie publicznej.
+	 *      `update_option()` na istniejacej opcji autoladowania NIE zmienia,
+	 *      dlatego przy zmianie klucza kasujemy opcje i zakladamy ja od nowa.
+	 *
+	 * @param string $klucz Wartosc z formularza.
+	 *
+	 * @return void
+	 */
+	private static function save_key( string $klucz ): void {
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce sprawdza guard() w handle_save_settings().
+		if ( ! empty( $_POST['ainp_key_clear'] ) ) {
+			delete_option( Settings::OPTION_KEY );
+			return;
+		}
+
+		$klucz = trim( sanitize_text_field( $klucz ) );
+		if ( '' === $klucz ) {
+			return;
+		}
+
+		delete_option( Settings::OPTION_KEY );
+		add_option( Settings::OPTION_KEY, $klucz, '', false );
 	}
 
 	/**
@@ -362,6 +399,21 @@ final class Admin {
 			'categories'     => isset( $dane['ainp_categories'] )
 				? self::parse_list( (string) $dane['ainp_categories'] )
 				: $domyslne['categories'],
+			/*
+			 * Prompt idzie przez `sanitize_textarea_field()`, a NIE przez
+			 * `wp_kses_post()`: to nie jest tresc do wyswietlenia, tylko tekst
+			 * do wyslania do modelu, a znaczniki HTML w promptcie sa czescia
+			 * instrukcji o dozwolonych znacznikach odpowiedzi. Kses wyciąłby
+			 * je razem ze znaczeniem.
+			 *
+			 * Pusty prompt jest dozwolony przy zapisie i znaczy „wroc do
+			 * domyslnego" — `Gemini::prompt()` sam po niego siega. Podstawianie
+			 * domyslnego juz tutaj zamroziloby dzisiejsza tresc szablonu
+			 * w bazie klienta i odcieloby go od poprawek w kolejnych wersjach.
+			 */
+			'prompt'         => isset( $dane['ainp_prompt'] )
+				? sanitize_textarea_field( (string) $dane['ainp_prompt'] )
+				: (string) $domyslne['prompt'],
 		);
 
 		// Pusta lista kategorii unieruchomilaby walidator odpowiedzi AI —
@@ -729,6 +781,35 @@ final class Admin {
 		echo '<p class="description">' . esc_html__( 'Pozycja przechodzi tylko wtedy, gdy w TYTULE albo ZAJAWCE stoi co najmniej jedno z tych słów. Odmiany trzeba wypisać osobno — dopasowanie jest do całego słowa. Puste pole wyłącza ten warunek.', 'ai-news-portal' ) . '</p>';
 		echo '</td></tr>';
 
+		/*
+		 * Klucz API. Pole jest PUSTE nawet wtedy, gdy klucz jest zapisany —
+		 * wartosc nie ma prawa wrocic do HTML-a, bo stamtad ida do przegladarki,
+		 * do pamieci podrecznej i do kazdego rozszerzenia, ktore czyta formularz.
+		 * Klient widzi tylko informacje, CZY klucz jest.
+		 */
+		$ma_klucz = ( '' !== trim( (string) get_option( Settings::OPTION_KEY, '' ) ) );
+
+		echo '<tr><th scope="row"><label for="ainp_key">' . esc_html__( 'Klucz API Gemini', 'ai-news-portal' ) . '</label></th><td>';
+		echo '<input type="password" name="ainp_key" id="ainp_key" class="regular-text" value="" autocomplete="off" />';
+		echo '<p class="description">'
+			. ( $ma_klucz
+				? esc_html__( 'Klucz jest zapisany. Puste pole zostawia go bez zmian.', 'ai-news-portal' )
+				: esc_html__( 'Klucz nie jest jeszcze zapisany — bez niego wtyczka nie wywoła modelu.', 'ai-news-portal' ) )
+			. '</p>';
+		if ( $ma_klucz ) {
+			echo '<label><input type="checkbox" name="ainp_key_clear" value="1" /> '
+				. esc_html__( 'Usuń zapisany klucz', 'ai-news-portal' ) . '</label>';
+		}
+		echo '</td></tr>';
+
+		echo '<tr><th scope="row"><label for="ainp_prompt">' . esc_html__( 'Prompt', 'ai-news-portal' ) . '</label></th><td>';
+		echo '<textarea name="ainp_prompt" id="ainp_prompt" rows="14" cols="70" class="large-text code">'
+			. esc_textarea( (string) $ustawienia['prompt'] ) . '</textarea>';
+		echo '<p class="description">'
+			. esc_html__( 'Znaczniki podstawiane przed wysłaniem: {kategorie}, {tytul}, {zrodlo}, {tresc}. Puste pole przywraca prompt domyślny.', 'ai-news-portal' )
+			. '</p>';
+		echo '</td></tr>';
+
 		echo '<tr><th scope="row"><label for="ainp_model">' . esc_html__( 'Model', 'ai-news-portal' ) . '</label></th><td>';
 		echo '<input type="text" name="ainp_model" id="ainp_model" class="regular-text" value="' . esc_attr( (string) $ustawienia['model'] ) . '" />';
 		echo '</td></tr>';
@@ -747,7 +828,7 @@ final class Admin {
 		submit_button( __( 'Zapisz ustawienia', 'ai-news-portal' ) );
 		echo '</form>';
 
-		echo '<p class="description">' . esc_html__( 'Klucz API i prompt dochodzą w kroku z modelem AI.', 'ai-news-portal' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'Klucz API jest zapisywany osobno i nigdy nie wraca do tego formularza.', 'ai-news-portal' ) . '</p>';
 		echo '</div>';
 	}
 }

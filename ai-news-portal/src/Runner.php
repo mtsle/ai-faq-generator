@@ -86,6 +86,19 @@ final class Runner {
 	 */
 	public const PREPARE_BUDGET = 15;
 
+	/** Ile pozycji oglada jedno zapytanie szukajace kandydata dla modelu. */
+	public const AI_SCAN = 25;
+
+	/**
+	 * Ile razy `pick_for_ai()` ponawia zapytanie, zanim sie podda.
+	 *
+	 * Odsiane pozycje wypadaja z warunku `status = 'new'`, wiec kolejne
+	 * zapytanie widzi juz NASTEPNE wiersze — to jest cale stronicowanie.
+	 * Sufit jest po to, zeby przy kilkuset pozycjach poza tematem jedno
+	 * klikniecie nie przeorywalo calej tabeli.
+	 */
+	public const AI_SCAN_ROUNDS = 4;
+
 	/** Sufit dlugosci adresu — tyle ma kolumna `url varchar(2048)`. */
 	public const MAX_URL_BYTES = 2048;
 
@@ -491,6 +504,91 @@ final class Runner {
 		}
 
 		return 'ready';
+	}
+
+	/**
+	 * Wybiera nastepna pozycje do wyslania do modelu. BRAMKA SLOW WYMAGANYCH.
+	 *
+	 * To jest jedyne miejsce, przez ktore przechodzi kazda droga do Gemini,
+	 * i dlatego stoi tu bramka, a nie tylko w przygotowaniu tresci.
+	 *
+	 * POWOD JEST STRUKTURALNY, NIE HISTORYCZNY. Lista slow wymaganych jest
+	 * polem w Ustawieniach, a `prepare_batch()` bierze wylacznie wiersze BEZ
+	 * odcisku tresci. Kazda zmiana listy przez klienta uniewaznia wiec wiersze
+	 * juz przygotowane i NIGDY ich nie dotknie — powstaje zestaw pozycji poza
+	 * tematem, do ktorego nie siega zaden filtr wczesniejszy. Zmierzone na
+	 * dworku 2026-08-07: 9 z 34 gotowych pozycji bylo poza tematem (wesele,
+	 * pizza, jazda konna, garderoba, obiady wegetarianskie x2, Wi-Fi,
+	 * przedszkole, ogrzewanie). Przy suficie 20 wywolan na dobe to prawie pol
+	 * doby pracy klienta wyrzucone.
+	 *
+	 * Sprawdzenie jest DARMOWE: `finish()` zeruje tylko `content`, wiec `title`
+	 * i `excerpt` — jedyne pola, ktore oglada ta bramka — zostaja w wierszu na
+	 * zawsze. Zero zadan HTTP, zero wywolan AI.
+	 *
+	 * Odrzucona pozycja konczy jako `skipped` z `Filter::NOTE_OFFTOPIC`, tak
+	 * samo jak w `prepare_item()` — jeden powod ma jedna notatke.
+	 *
+	 * @param array<int,string>|null $required Slowa wymagane; `null` z Ustawien.
+	 * @param int|null               $rounds   Ile zapytan; `null` = `AI_SCAN_ROUNDS`.
+	 *
+	 * @return array{row:object|null,offtopic:int,scanned:int}
+	 */
+	public static function pick_for_ai( ?array $required = null, ?int $rounds = null ): array {
+		global $wpdb;
+
+		$wynik = array(
+			'row'      => null,
+			'offtopic' => 0,
+			'scanned'  => 0,
+		);
+
+		$wymagane = ( null === $required ) ? Filter::required_words() : $required;
+		$rund     = ( null === $rounds ) ? self::AI_SCAN_ROUNDS : max( 1, $rounds );
+
+		/*
+		 * Warunek `content <> ''` nie jest ozdobnikiem: pozycja `new` z odciskiem,
+		 * ale z wyzerowana trescia, nie ma czego wyslac do modelu, a wybrana
+		 * w kolko blokowalaby kolejke.
+		 */
+		$sql = 'SELECT id, url, title, excerpt, content, content_hash, status FROM ' . Plugin::table()
+			. ' WHERE status = %s AND content_hash IS NOT NULL AND content_hash <> %s AND content <> %s'
+			. ' ORDER BY id ASC LIMIT %d';
+
+		for ( $runda = 0; $runda < $rund; $runda++ ) {
+			$wiersze = $wpdb->get_results(
+				$wpdb->prepare( $sql, self::STATUS_NEW, '', '', self::AI_SCAN )
+			); // phpcs:ignore WordPress.DB
+
+			if ( ! is_array( $wiersze ) || array() === $wiersze ) {
+				return $wynik;
+			}
+
+			foreach ( $wiersze as $wiersz ) {
+				$wynik['scanned']++;
+
+				/*
+				 * Do bramki idzie sam tytul i zajawka — bez tresci, i to jest
+				 * warunek jej skutecznosci. W tresci artykulu o pizzy slowo
+				 * „pies” pada w stopce albo w boksie powiazanych wpisow, wiec
+				 * bramka ogladajaca tresc nie odsialaby niczego.
+				 */
+				$pozycja = array(
+					'title'   => isset( $wiersz->title ) ? (string) $wiersz->title : '',
+					'excerpt' => isset( $wiersz->excerpt ) ? (string) $wiersz->excerpt : '',
+				);
+
+				if ( Filter::has_required( $pozycja, $wymagane ) ) {
+					$wynik['row'] = $wiersz;
+					return $wynik;
+				}
+
+				self::finish( (int) $wiersz->id, self::STATUS_SKIPPED, Filter::NOTE_OFFTOPIC );
+				$wynik['offtopic']++;
+			}
+		}
+
+		return $wynik;
 	}
 
 	/**
