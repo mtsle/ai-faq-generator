@@ -70,6 +70,7 @@ require_once AINP_PLUGIN_DIR . 'src/Filter.php';
 require_once AINP_PLUGIN_DIR . 'src/Article.php';
 require_once AINP_PLUGIN_DIR . 'src/Gemini.php';
 require_once AINP_PLUGIN_DIR . 'src/Validator.php';
+require_once AINP_PLUGIN_DIR . 'src/Publisher.php';
 require_once AINP_PLUGIN_DIR . 'src/Runner.php';
 require_once AINP_PLUGIN_DIR . 'src/Plugin.php';
 require_once AINP_PLUGIN_DIR . 'src/Admin.php';

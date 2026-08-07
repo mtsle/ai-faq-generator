@@ -59,6 +59,17 @@ final class Runner {
 	/** Status pozycji, ktorej nie udalo sie doprowadzic do konca. */
 	public const STATUS_FAILED = 'failed';
 
+	/** Status pozycji, z ktorej powstal opublikowany artykul. */
+	public const STATUS_DONE = 'done';
+
+	/**
+	 * Ile pozycji bierze jeden przebieg publikacji.
+	 *
+	 * Mniej niz przy przygotowaniu tresci (10), bo tutaj kazda pozycja kosztuje
+	 * slot z dobowej puli 20 — jedno klikniecie nie ma prawa zjesc jej polowy.
+	 */
+	public const AI_BATCH = 3;
+
 	/**
 	 * Ile razy probujemy, zanim pozycja idzie na `failed`.
 	 *
@@ -668,6 +679,193 @@ final class Runner {
 		}
 
 		return self::model_verdict( true, $wynik['data'], '', '', $calls, false );
+	}
+
+	/**
+	 * Przetwarza jedna pozycje: model → kontrakt → publikacja → status.
+	 *
+	 * @param object     $row       Wiersz tabeli.
+	 * @param float|null $remaining Pozostaly budzet czasu w sekundach.
+	 *
+	 * @return array{outcome:string,post_id:int,calls:int,note:string}
+	 */
+	public static function process_item( $row, ?float $remaining = null ): array {
+		$id       = isset( $row->id ) ? (int) $row->id : 0;
+		$werdykt  = self::ask_model( $row, $remaining );
+		$wywolan  = (int) $werdykt['calls'];
+
+		if ( ! $werdykt['ok'] ) {
+			if ( $werdykt['terminal'] ) {
+				/*
+				 * `mark()`, nie `finish()`: przy `failed` tresc ZOSTAJE
+				 * w tabeli, bo jest jedynym materialem do ponowienia. Zerowanie
+				 * nalezy do `done` i `skipped`, gdzie tresc albo przeszla
+				 * do wpisu, albo nie jest juz do niczego potrzebna.
+				 */
+				self::mark( $id, self::STATUS_FAILED, $werdykt['note'] );
+
+				return self::outcome( 'failed', 0, $wywolan, $werdykt['note'] );
+			}
+
+			// Brak klucza, sufit, budzet, transport — pozycja CZEKA. Statusu
+			// nie ruszamy, zeby nastepny przebieg wzial ja bez zmian.
+			return self::outcome( 'waiting', 0, $wywolan, $werdykt['note'] );
+		}
+
+		$wpis = Publisher::publish( $row, $werdykt['data'] );
+
+		if ( ! $wpis['ok'] ) {
+			self::mark( $id, self::STATUS_FAILED, (string) $wpis['error'] );
+
+			return self::outcome( 'failed', (int) $wpis['post_id'], $wywolan, (string) $wpis['error'] );
+		}
+
+		/*
+		 * Dopiero tutaj tresc jest zbedna: zyje we wpisie. `finish()` zeruje
+		 * `content`, zostawiajac tytul i zajawke — na nich stoi bramka slow
+		 * wymaganych przy kazdym przyszlym przebiegu.
+		 */
+		self::finish( $id, self::STATUS_DONE, '' );
+
+		return self::outcome(
+			$wpis['created'] ? 'published' : 'exists',
+			(int) $wpis['post_id'],
+			$wywolan,
+			''
+		);
+	}
+
+	/**
+	 * Partia pozycji do modelu: bramka, wywolanie, publikacja.
+	 *
+	 * Przerywamy na PIERWSZYM braku postepu (`waiting`) — wyczerpany sufit
+	 * albo brak klucza nie naprawia sie w kolejnej iteracji, a pozycja zostaje
+	 * `new`, wiec `pick_for_ai()` oddalby w kolko ta sama i petla nie mialaby
+	 * konca.
+	 *
+	 * @param int        $limit  Ile pozycji najwyzej przetworzyc.
+	 * @param float|null $budget Budzet czasu; `null` bierze `PREPARE_BUDGET`.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function publish_batch( int $limit = self::AI_BATCH, ?float $budget = null ): array {
+		$wynik  = self::publish_summary();
+		$limit  = max( 1, $limit );
+		$start  = microtime( true );
+		$budzet = ( null === $budget ) ? (float) self::PREPARE_BUDGET : max( 0.1, $budget );
+
+		for ( $i = 0; $i < $limit; $i++ ) {
+			$zostalo = $budzet - ( microtime( true ) - $start );
+
+			// Sprawdzenie PRZED wzieciem pozycji: przerwac mozna tylko miedzy
+			// pozycjami, bo pozycja w trakcie musi sie domknac.
+			if ( $zostalo <= 0 ) {
+				$wynik['budget_hit'] = true;
+				break;
+			}
+
+			$kandydat            = self::pick_for_ai();
+			$wynik['offtopic'] += (int) $kandydat['offtopic'];
+
+			if ( null === $kandydat['row'] ) {
+				break;
+			}
+
+			$wynik['taken']++;
+
+			try {
+				$los = self::process_item( $kandydat['row'], $zostalo );
+			} catch ( \Throwable $e ) {
+				$wynik['error']++;
+				$wynik['errors'][ (int) $kandydat['row']->id ] = $e->getMessage();
+				continue;
+			}
+
+			$wynik['calls'] += (int) $los['calls'];
+
+			if ( isset( $wynik[ $los['outcome'] ] ) ) {
+				$wynik[ $los['outcome'] ]++;
+			}
+
+			if ( 'waiting' === $los['outcome'] ) {
+				$wynik['note'] = (string) $los['note'];
+				break;
+			}
+		}
+
+		return $wynik;
+	}
+
+	/**
+	 * Pusty ksztalt podsumowania publikacji.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function publish_summary(): array {
+		return array(
+			'taken'      => 0,
+			'published'  => 0,
+			'exists'     => 0,
+			'failed'     => 0,
+			'waiting'    => 0,
+			'offtopic'   => 0,
+			'error'      => 0,
+			'calls'      => 0,
+			'errors'     => array(),
+			'note'       => '',
+			'budget_hit' => false,
+		);
+	}
+
+	/**
+	 * Staly ksztalt wyniku `process_item()`.
+	 *
+	 * @param string $outcome Los pozycji.
+	 * @param int    $post_id Utworzony wpis.
+	 * @param int    $calls   Ile wywolan modelu poszlo.
+	 * @param string $note    Powod.
+	 *
+	 * @return array{outcome:string,post_id:int,calls:int,note:string}
+	 */
+	private static function outcome( string $outcome, int $post_id, int $calls, string $note ): array {
+		return array(
+			'outcome' => $outcome,
+			'post_id' => $post_id,
+			'calls'   => $calls,
+			'note'    => $note,
+		);
+	}
+
+	/**
+	 * Zapisuje status i powod, ZOSTAWIAJAC tresc.
+	 *
+	 * Roznica wobec `finish()` jest cala trescia decyzji o `failed`: tresc
+	 * pozycji nieudanej jest jedynym materialem, z ktorego da sie ja ponowic,
+	 * a pobranie jej jeszcze raz kosztuje zadanie sieciowe albo — po zmianie
+	 * po stronie zrodla — nie jest juz mozliwe.
+	 *
+	 * @param int    $id     Identyfikator wiersza.
+	 * @param string $status Status.
+	 * @param string $note   Powod.
+	 *
+	 * @return void
+	 */
+	private static function mark( int $id, string $status, string $note ): void {
+		global $wpdb;
+
+		if ( $id <= 0 ) {
+			return;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, note = %s, updated_at = %s WHERE id = %d',
+				$status,
+				self::fit( $note ),
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
 	}
 
 	/**
