@@ -171,6 +171,19 @@ namespace {
 		$GLOBALS['__zadania'][]  = $args['body'] ?? '';
 		$GLOBALS['__timeouty'][] = $args['timeout'] ?? 0;
 
+		/*
+		 * Celowe spowolnienie PIERWSZEGO wywolania. Bez niego caly przebieg
+		 * trwa ulamek milisekundy, wiec `floor()` daje dla obu prob te sama
+		 * liczbe calych sekund — i mutacja „ponowienie bez odliczania budzetu"
+		 * PRZECHODZI, bo asercja `drugi <= pierwszy` jest wtedy prawdziwa
+		 * w obu wersjach kodu. Sprawdzone: to jedyna mutacja Kroku 4, ktora
+		 * przezyla pierwsza serie.
+		 */
+		if ( ! empty( $GLOBALS['__spowolnij'] ) ) {
+			$GLOBALS['__spowolnij'] = false;
+			usleep( 1300000 );
+		}
+
 		if ( array() === $GLOBALS['__plan'] ) {
 			return array( 'response' => array( 'code' => 200 ), 'body' => '{}' );
 		}
@@ -509,7 +522,12 @@ namespace {
 		k4p_odp( 200, k4p_koperta( '{"urwan' ) ),
 		k4p_odp( 200, k4p_koperta( k4p_dobra() ) ),
 	);
-	$r = Runner::ask_model( k4p_wiersz(), 12.0, $kategorie );
+	// Pierwsze wywolanie trwa ~1,3 s (patrz atrapa transportu). Bez tego caly
+	// przebieg mieszczilby sie w ulamku milisekundy i OBIE proby dostawalyby
+	// te sama liczbe calych sekund — asercja nie odroznialaby wtedy kodu, ktory
+	// odlicza budzet, od kodu, ktory go nie odlicza.
+	$GLOBALS['__spowolnij'] = true;
+	$r                      = Runner::ask_model( k4p_wiersz(), 12.0, $kategorie );
 
 	k4p_check( 2 === count( $GLOBALS['__timeouty'] ), 'poszly dwa wywolania' );
 	/*
@@ -522,7 +540,11 @@ namespace {
 		$GLOBALS['__timeouty'][0] >= 11 && $GLOBALS['__timeouty'][0] <= 12,
 		'pierwsza proba dostaje praktycznie caly pozostaly budzet (11–12 s)'
 	);
-	k4p_check( $GLOBALS['__timeouty'][1] <= $GLOBALS['__timeouty'][0], 'ponowienie NIE dostaje wiecej czasu niz pierwsza proba' );
+	k4p_check(
+		$GLOBALS['__timeouty'][1] < $GLOBALS['__timeouty'][0],
+		'ponowienie dostaje MNIEJ czasu — budzet jest odliczany miedzy probami'
+	);
+	k4p_check( $GLOBALS['__timeouty'][1] > 0, 'ale nadal dosc, zeby proba w ogole ruszyla' );
 
 	// Budzet ledwie na jedno wywolanie: ponowienia nie ma z czego zrobic.
 	k4p_reset();
