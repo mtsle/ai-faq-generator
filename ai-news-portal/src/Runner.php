@@ -99,6 +99,17 @@ final class Runner {
 	 */
 	public const AI_SCAN_ROUNDS = 4;
 
+	/**
+	 * Ile razy ponawiamy wywolanie modelu przy niepoprawnym JSON-ie.
+	 *
+	 * JEDEN, i tylko w tym samym przebiegu. Po wymuszeniu schematu (etap 4.1)
+	 * niepoprawny JSON jest praktycznie mozliwy tylko przez obciecie odpowiedzi
+	 * w transporcie, czyli usterke przejsciowa — a taka mija albo nie mija za
+	 * pierwszym razem. Kazde ponowienie kosztuje kolejny slot z dobowej puli
+	 * 20, wiec druga proba to juz 10% dziennego budzetu na jedna pozycje.
+	 */
+	public const AI_JSON_RETRIES = 1;
+
 	/** Sufit dlugosci adresu — tyle ma kolumna `url varchar(2048)`. */
 	public const MAX_URL_BYTES = 2048;
 
@@ -589,6 +600,97 @@ final class Runner {
 		}
 
 		return $wynik;
+	}
+
+	/**
+	 * Pyta model o jedna pozycje i sprawdza odpowiedz. NIE dotyka bazy.
+	 *
+	 * Rozdzial jest celowy: ta metoda odpowiada na pytanie „co model oddal
+	 * i czy to sie nadaje", a nie „co z tym zrobic". Zapis statusu i publikacja
+	 * naleza do etapu 4.5 — dzieki temu ponowienie i kontrakt daja sie sprawdzic
+	 * bez atrapy calej tabeli.
+	 *
+	 * PONOWIENIE. Powtarzamy WYLACZNIE niepoprawny JSON i WYLACZNIE raz.
+	 * Kazdy inny powod — brak klucza, wyczerpany sufit, za maly budzet czasu,
+	 * blad transportu, kod inny niz 200, pusta odpowiedz — konczy sprawe od
+	 * razu: ponawianie ich w tym samym przebiegu zjada dobowa pule i nic nie
+	 * naprawia. Odpowiedz, ktora nie spelnia KONTRAKTU, tez nie jest ponawiana:
+	 * model dostal ten sam material i te sama instrukcje, wiec odda to samo.
+	 *
+	 * BUDZET CZASU JEST ODLICZANY MIEDZY PROBAMI. Ponowienie dostaje to, co
+	 * zostalo po pierwszym wywolaniu — inaczej dwie proby po 30 s mieszczilyby
+	 * sie w „20 s budzetu" na papierze.
+	 *
+	 * @param object                 $row        Wiersz tabeli.
+	 * @param float|null             $remaining  Pozostaly budzet czasu w sekundach.
+	 * @param array<int,string>|null $categories Kategorie; `null` z Ustawien.
+	 *
+	 * @return array{ok:bool,data:array<string,string>,reason:string,note:string,calls:int,terminal:bool}
+	 */
+	public static function ask_model( $row, ?float $remaining = null, ?array $categories = null ): array {
+		$pozycja = array(
+			'title'   => isset( $row->title ) ? (string) $row->title : '',
+			'url'     => isset( $row->url ) ? (string) $row->url : '',
+			'content' => isset( $row->content ) ? (string) $row->content : '',
+		);
+
+		$prompt = Gemini::prompt( $pozycja, $categories );
+		$start  = microtime( true );
+		$calls  = 0;
+		$odp    = array();
+
+		for ( $proba = 0; $proba <= self::AI_JSON_RETRIES; $proba++ ) {
+			$zostalo = ( null === $remaining ) ? null : ( $remaining - ( microtime( true ) - $start ) );
+
+			$odp = Gemini::generate( $prompt, $categories, $zostalo );
+			$calls++;
+
+			if ( $odp['ok'] || 'bad_json' !== $odp['reason'] ) {
+				break;
+			}
+		}
+
+		if ( ! $odp['ok'] ) {
+			/*
+			 * `bad_json` po ponowieniu jest juz TERMINALNY: dwa razy z rzedu
+			 * urwana odpowiedz to nie jest usterka, ktora przejdzie sama,
+			 * a trzecie podejscie kosztowaloby 15% dobowej puli.
+			 */
+			$terminal = ( 'bad_json' === $odp['reason'] );
+
+			return self::model_verdict( false, array(), $odp['reason'], (string) $odp['error'], $calls, $terminal );
+		}
+
+		$wynik = Validator::check( $odp['json'], $categories );
+
+		if ( ! $wynik['ok'] ) {
+			return self::model_verdict( false, array(), 'contract', (string) $wynik['error'], $calls, true );
+		}
+
+		return self::model_verdict( true, $wynik['data'], '', '', $calls, false );
+	}
+
+	/**
+	 * Staly ksztalt werdyktu `ask_model()`.
+	 *
+	 * @param bool                  $ok       Czy jest gotowa tresc.
+	 * @param array<string,string>  $data     Pola po walidacji.
+	 * @param string                $reason   Kod powodu.
+	 * @param string                $note     Powod slowami, prosto do `note`.
+	 * @param int                   $calls    Ile wywolan modelu poszlo.
+	 * @param bool                  $terminal Czy pozycja ma isc na `failed`.
+	 *
+	 * @return array{ok:bool,data:array<string,string>,reason:string,note:string,calls:int,terminal:bool}
+	 */
+	private static function model_verdict( bool $ok, array $data, string $reason, string $note, int $calls, bool $terminal ): array {
+		return array(
+			'ok'       => $ok,
+			'data'     => $data,
+			'reason'   => $reason,
+			'note'     => $note,
+			'calls'    => $calls,
+			'terminal' => $terminal,
+		);
 	}
 
 	/**
