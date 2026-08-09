@@ -587,6 +587,59 @@ namespace {
 		k6k_check( $ma_abspath, "szablon {$plik} ma blokade bezposredniego wywolania" );
 	}
 
+	// ---------------------------------------------------------------------
+	echo "\n-- Arkusz stylow: granice umowy z motywem (etap 6.6) --\n";
+
+	$css = (string) file_get_contents( $katalog . 'portal.css' );
+
+	// Komentarze precz — inaczej slowo z opisu liczy sie jak regula.
+	$reguly = (string) preg_replace( '#/\*.*?\*/#s', '', $css );
+
+	k6k_check(
+		1 === preg_match_all( '/@media/', $reguly ),
+		'DOKLADNIE jeden breakpoint — wymog planu (jest: ' . preg_match_all( '/@media/', $reguly ) . ')'
+	);
+	k6k_check(
+		0 === preg_match_all( '/!\s*important/i', $reguly ),
+		'zero !important — styl wtyczki nie licytuje sie z motywem'
+	);
+	k6k_check(
+		0 === preg_match_all( '/(^|[;{\s])font-family\s*:/i', $reguly ),
+		'arkusz NIE ustawia kroju pisma (decyzja D z etapu 6.0)'
+	);
+	k6k_check(
+		0 === preg_match_all( '/(^|[;{\s])(body|html)\s*[,{]/i', $reguly ),
+		'arkusz nie siega do body ani html — to teren motywu'
+	);
+	k6k_check(
+		false === strpos( $reguly, 'prefers-color-scheme' ),
+		'zero zgadywania trybu systemu — motyw bywa ciemny niezaleznie od ustawien systemu'
+	);
+	k6k_check(
+		substr_count( $reguly, ':focus-visible' ) >= 1,
+		'focus klawiatury ma wlasny, widoczny stan'
+	);
+
+	// Kazdy selektor wlasny musi zaczynac sie od naszego prefiksu — inaczej
+	// arkusz maluje elementy, ktorych nie postawil.
+	$obce = array();
+	foreach ( explode( '}', $reguly ) as $blok ) {
+		$selektor = trim( explode( '{', $blok )[0] );
+		if ( '' === $selektor || 0 === strpos( $selektor, '@' ) ) {
+			continue;
+		}
+		foreach ( explode( ',', $selektor ) as $czesc ) {
+			$czesc = trim( $czesc );
+			if ( '' !== $czesc && 0 !== strpos( $czesc, '.ainp-' ) ) {
+				$obce[] = $czesc;
+			}
+		}
+	}
+	k6k_check(
+		array() === $obce,
+		'kazdy selektor zaczyna sie od .ainp- (obce: ' . implode( ' | ', $obce ) . ')'
+	);
+
 	// --- Sprzatanie --------------------------------------------------------
 	@unlink( $tmp . 'assets/kategorie/zywienie.jpg' );
 	@unlink( $tmp . 'src/templates/card.php' );

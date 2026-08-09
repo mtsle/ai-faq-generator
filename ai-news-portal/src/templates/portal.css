@@ -356,11 +356,29 @@
 	overflow-wrap: anywhere;
 }
 
-/* --- Klawiatura -------------------------------------------------------- */
+/* --- Klawiatura i dostepnosc ------------------------------------------- */
 
+/*
+ * Obrys focusu jest DWUKOLOROWY: cienka obwodka w kolorze tla pod grubszym
+ * obrysem w kolorze tekstu. Dzieki temu widac go i na jasnym, i na ciemnym
+ * motywie — pojedynczy obrys w `currentColor` znika, gdy element ma tlo
+ * zblizone do koloru tekstu (przycisk „Szukaj", zaznaczony przycisk strony).
+ */
 .ainp-portal :focus-visible {
-	outline: 2px solid var(--ainp-accent);
+	outline: 2px solid currentColor;
 	outline-offset: 2px;
+	box-shadow: 0 0 0 4px Canvas;
+}
+
+/*
+ * Dlugie slowa w tytulach z modelu (nazwy preparatow, adresy) potrafia
+ * rozepchnac karte i wypchnac cala strone w poziome przewijanie. Lamiemy je,
+ * zamiast pozwolic im decydowac o szerokosci ukladu.
+ */
+.ainp-card__title,
+.ainp-article__title,
+.ainp-portal__title {
+	overflow-wrap: anywhere;
 }
 
 /* --- Jeden breakpoint -------------------------------------------------- */
@@ -373,5 +391,35 @@
 
 	.ainp-portal__list {
 		grid-template-columns: minmax(0, 1fr);
+	}
+
+	/*
+	 * Na telefonie pole i przycisk ida jedno pod drugim. W jednym rzedzie
+	 * przy szerokosci 360 px na pole zostaje kilkanascie znakow — wpisana
+	 * fraza chowa sie przed wpisujacym.
+	 */
+	.ainp-portal__search {
+		flex-wrap: wrap;
+	}
+
+	.ainp-portal__search input[type="search"] {
+		flex-basis: 100%;
+	}
+
+	/*
+	 * Cel dotyku co najmniej 44 px w pionie — tyle wynosi zalecenie WCAG
+	 * dla palca. Przy 0.3rem odstepu przyciski kategorii mialy 30 px i na
+	 * telefonie trafialo sie w sasiedni.
+	 */
+	.ainp-chip,
+	.ainp-portal__pager .page-numbers {
+		min-height: 44px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.ainp-portal--single {
+		max-width: none;
 	}
 }
