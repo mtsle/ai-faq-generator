@@ -68,6 +68,8 @@ namespace {
 		'wpisy'          => array(),
 		'is_admin'       => false,
 		'lista_terminow' => array(),
+		'paginacja'      => array(),
+		'linki'          => '',
 	);
 	$GLOBALS['__narysowano'] = array();
 
@@ -160,7 +162,13 @@ namespace {
 		return trim( strip_tags( (string) $tekst ) );
 	}
 
-	/** Atrapa `WP_Query` — tyle, ile widzi `Portal::search_query()`. */
+	function paginate_links( $args = array() ) {
+		$GLOBALS['__stan']['paginacja'][] = $args;
+
+		return $GLOBALS['__stan']['linki'];
+	}
+
+	/** Atrapa `WP_Query` — tyle, ile widzi `Portal::filter_query()`. */
 	class Fake_Query {
 		public $glowne;
 		public $ustawione = array();
@@ -366,41 +374,100 @@ namespace {
 	$GLOBALS['__stan']['tax']     = false;
 
 	$q = new Fake_Query();
-	Portal::search_query( $q );
-	k6k_check( array( 's' => 'karma' ) === $q->ustawione, 'na archiwum fraza trafia do zapytania jako s' );
+	Portal::filter_query( $q );
+	k6k_check( 'karma' === ( $q->ustawione['s'] ?? null ), 'na archiwum fraza trafia do zapytania jako s' );
 
 	$GLOBALS['__stan']['tax']     = true;
 	$GLOBALS['__stan']['archive'] = false;
 	$q = new Fake_Query();
-	Portal::search_query( $q );
-	k6k_check( array( 's' => 'karma' ) === $q->ustawione, 'na archiwum kategorii szukanie tez dziala' );
+	Portal::filter_query( $q );
+	k6k_check( 'karma' === ( $q->ustawione['s'] ?? null ), 'na archiwum kategorii szukanie tez dziala' );
 
 	$q = new Fake_Query( false );
-	Portal::search_query( $q );
+	Portal::filter_query( $q );
 	k6k_check( array() === $q->ustawione, 'zapytanie POBOCZNE (widget, powiazane) nie jest ruszane' );
 
 	$GLOBALS['__stan']['is_admin'] = true;
 	$q = new Fake_Query();
-	Portal::search_query( $q );
+	Portal::filter_query( $q );
 	k6k_check( array() === $q->ustawione, 'w kokpicie zapytanie nie jest ruszane' );
 	$GLOBALS['__stan']['is_admin'] = false;
 
 	$GLOBALS['__stan']['tax']     = false;
 	$GLOBALS['__stan']['archive'] = false;
 	$q = new Fake_Query();
-	Portal::search_query( $q );
+	Portal::filter_query( $q );
 	k6k_check( array() === $q->ustawione, 'poza Centrum Wiedzy fraza NIE jest podstawiana do cudzego archiwum' );
 
 	$GLOBALS['__stan']['archive'] = true;
 	unset( $_GET['ainp_s'] );
 	$q = new Fake_Query();
-	Portal::search_query( $q );
-	k6k_check( array() === $q->ustawione, 'bez frazy zapytanie zostaje nietkniete' );
+	Portal::filter_query( $q );
+	k6k_check( ! isset( $q->ustawione['s'] ), 'bez frazy zapytanie NIE dostaje wyszukiwania' );
 
 	$_GET['ainp_s'] = '   ';
 	$q = new Fake_Query();
-	Portal::search_query( $q );
-	k6k_check( array() === $q->ustawione, 'sama spacja to nie jest szukanie' );
+	Portal::filter_query( $q );
+	k6k_check( ! isset( $q->ustawione['s'] ), 'sama spacja to nie jest szukanie' );
+
+	echo "\n-- Liczba artykulow na stronie (etap 6.4) --\n";
+
+	k6k_check( 10 === Portal::PER_PAGE, 'na stronie dziesiec artykulow — decyzja usera z etapu 6.0' );
+
+	unset( $_GET['ainp_s'] );
+	$GLOBALS['__stan']['archive'] = true;
+	$q = new Fake_Query();
+	Portal::filter_query( $q );
+	k6k_check( 10 === ( $q->ustawione['posts_per_page'] ?? null ), 'archiwum dostaje wlasna liczbe na strone' );
+
+	$GLOBALS['__stan']['tax']     = true;
+	$GLOBALS['__stan']['archive'] = false;
+	$q = new Fake_Query();
+	Portal::filter_query( $q );
+	k6k_check( 10 === ( $q->ustawione['posts_per_page'] ?? null ), 'archiwum kategorii tez, inaczej rozjechalaby sie paginacja' );
+
+	$GLOBALS['__stan']['tax'] = false;
+	$q = new Fake_Query();
+	Portal::filter_query( $q );
+	k6k_check(
+		! isset( $q->ustawione['posts_per_page'] ),
+		'poza Centrum Wiedzy liczba wpisow na stronie NIE jest zmieniana cudzemu archiwum'
+	);
+
+	echo "\n-- Paginacja --\n";
+
+	$GLOBALS['__stan']['archive']   = true;
+	$GLOBALS['__stan']['paginacja'] = array();
+	$GLOBALS['__stan']['linki']     = '';
+	k6k_check( '' === Portal::pagination(), 'jedna strona wynikow → zero znacznikow paginacji' );
+
+	$GLOBALS['__stan']['linki'] = '   ';
+	k6k_check( '' === Portal::pagination(), 'same biale znaki z WordPressa tez znacza brak paginacji' );
+
+	$GLOBALS['__stan']['linki'] = '<a class="page-numbers" href="/centrum-wiedzy/page/2/">2</a>';
+	k6k_check( '' !== Portal::pagination(), 'przy wielu stronach paginacja jest rysowana' );
+
+	$GLOBALS['__stan']['paginacja'] = array();
+	unset( $_GET['ainp_s'] );
+	Portal::pagination();
+	k6k_check(
+		! isset( $GLOBALS['__stan']['paginacja'][0]['add_args'] ),
+		'bez szukania paginacja nie doklada pustego parametru do adresu'
+	);
+
+	$GLOBALS['__stan']['paginacja'] = array();
+	$_GET['ainp_s']                 = 'karma dla szczeniaka';
+	Portal::pagination();
+	$args = $GLOBALS['__stan']['paginacja'][0];
+	k6k_check(
+		isset( $args['add_args']['ainp_s'] ),
+		'przy szukaniu fraza jedzie z paginacja — inaczej strona 2 wynikow to strona 2 CALEGO archiwum'
+	);
+	k6k_check(
+		'karma%20dla%20szczeniaka' === $args['add_args']['ainp_s'],
+		'spacje we frazie sa zakodowane w adresie kolejnej strony'
+	);
+	unset( $_GET['ainp_s'] );
 
 	echo "\n-- Naglowek przy szukaniu --\n";
 

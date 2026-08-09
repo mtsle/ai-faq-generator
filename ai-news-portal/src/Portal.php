@@ -53,8 +53,17 @@ final class Portal {
 		add_filter( 'template_include', array( self::class, 'filter_template' ) );
 		add_action( 'template_redirect', array( self::class, 'redirect_taxonomy_base' ) );
 		add_action( 'wp_enqueue_scripts', array( self::class, 'enqueue' ) );
-		add_action( 'pre_get_posts', array( self::class, 'search_query' ) );
+		add_action( 'pre_get_posts', array( self::class, 'filter_query' ) );
 	}
+
+	/**
+	 * Artykulow na stronie archiwum. Decyzja usera z etapu 6.0. Etap 6.4.
+	 *
+	 * Wartosc jest wlasna, nie brana z Ustawien czytania WordPressa: tamta
+	 * ustawia klient pod swojego bloga, a tutaj rzadzi uklad — dwie kolumny
+	 * kart, wiec liczba parzysta wypelnia siatke bez dziury w ostatnim rzedzie.
+	 */
+	public const PER_PAGE = 10;
 
 	/**
 	 * Nazwa parametru wyszukiwania. WLASNA, nie `s`. Etap 6.3.
@@ -69,19 +78,24 @@ final class Portal {
 	public const SEARCH_VAR = 'ainp_s';
 
 	/**
-	 * Przepisuje `ainp_s` na `s` w glownym zapytaniu archiwum. Etap 6.3.
+	 * Poprawki glownego zapytania archiwum: fraza (6.3) i strona (6.4).
 	 *
-	 * `set('s', ...)` w `pre_get_posts` NIE wlacza flagi `is_search()` —
-	 * flagi ustawia `parse_query()`, ktore juz sie wykonalo. To nie jest
-	 * efekt uboczny, tylko caly powod, dla ktorego mechanizm wyglada wlasnie
-	 * tak: dostajemy wyszukiwanie w zapytaniu, nie zmieniajac tego, czym
-	 * zapytanie jest dla hierarchii szablonow.
+	 * PRZEPISANIE `ainp_s` NA `s`: `set('s', ...)` w `pre_get_posts` NIE
+	 * wlacza flagi `is_search()` — flagi ustawia `parse_query()`, ktore juz
+	 * sie wykonalo. To nie jest efekt uboczny, tylko caly powod, dla ktorego
+	 * mechanizm wyglada wlasnie tak: dostajemy wyszukiwanie w zapytaniu, nie
+	 * zmieniajac tego, czym zapytanie jest dla hierarchii szablonow.
+	 *
+	 * OBIE poprawki maja te same bramki wejscia, wiec mieszkaja w jednej
+	 * metodzie. Rozbicie na dwa hooki znaczyloby dwie kopie tych samych
+	 * czterech warunkow i drugie miejsce, w ktorym trzeba pamietac o
+	 * `is_main_query()`.
 	 *
 	 * @param object $zapytanie Obiekt `WP_Query`.
 	 *
 	 * @return void
 	 */
-	public static function search_query( $zapytanie ): void {
+	public static function filter_query( $zapytanie ): void {
 		if ( is_admin() || ! is_object( $zapytanie ) ) {
 			return;
 		}
@@ -94,12 +108,46 @@ final class Portal {
 			return;
 		}
 
+		$zapytanie->set( 'posts_per_page', self::PER_PAGE );
+
 		$fraza = self::search_term();
 		if ( '' === $fraza ) {
 			return;
 		}
 
 		$zapytanie->set( 's', $fraza );
+	}
+
+	/**
+	 * Paginacja numeryczna archiwum. Pusty ciag przy jednej stronie. Etap 6.4.
+	 *
+	 * `add_args` z frazą jest tu KONIECZNE, a nie ozdobne: `paginate_links()`
+	 * sklada adres od nowa i bez tego druga strona wynikow wyszukiwania
+	 * prowadzilaby do drugiej strony CALEGO archiwum. Wyglada to niewinnie —
+	 * strona sie otwiera, ma artykuly — i wlasnie dlatego latwo tego nie
+	 * zauwazyc.
+	 *
+	 * @return string Gotowy HTML albo pusty ciag.
+	 */
+	public static function pagination(): string {
+		$argumenty = array(
+			'mid_size'  => 1,
+			'prev_text' => __( '← Poprzednia', 'ai-news-portal' ),
+			'next_text' => __( 'Następna →', 'ai-news-portal' ),
+		);
+
+		$fraza = self::search_term();
+		if ( '' !== $fraza ) {
+			$argumenty['add_args'] = array( self::SEARCH_VAR => rawurlencode( $fraza ) );
+		}
+
+		$linki = paginate_links( $argumenty );
+
+		if ( ! is_string( $linki ) || '' === trim( $linki ) ) {
+			return '';
+		}
+
+		return $linki;
 	}
 
 	/**

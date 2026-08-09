@@ -240,6 +240,42 @@
 	font-variant-numeric: tabular-nums;
 }
 
+/* --- Paginacja --------------------------------------------------------- */
+
+.ainp-portal__pager {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0.35rem;
+	margin-top: 1.75rem;
+}
+
+.ainp-portal__pager .page-numbers {
+	min-width: 2.25rem;
+	padding: 0.35rem 0.7rem;
+	border: 1px solid var(--ainp-line);
+	border-radius: 7px;
+	text-align: center;
+	text-decoration: none;
+	color: inherit;
+	font-size: 0.9rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.ainp-portal__pager a.page-numbers:hover {
+	background: var(--ainp-wash);
+}
+
+.ainp-portal__pager .page-numbers.current {
+	font-weight: 700;
+	border-color: currentColor;
+	background: var(--ainp-wash);
+}
+
+.ainp-portal__pager .page-numbers.dots {
+	border-color: transparent;
+}
+
 /* --- Klawiatura -------------------------------------------------------- */
 
 .ainp-portal :focus-visible {

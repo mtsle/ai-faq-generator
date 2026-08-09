@@ -85,6 +85,22 @@ get_header();
 			?>
 		</div>
 
+		<?php $ainp_strony = Portal::pagination(); ?>
+		<?php if ( '' !== $ainp_strony ) : ?>
+			<nav class="ainp-portal__pager" aria-label="<?php esc_attr_e( 'Strony artykułów', 'ai-news-portal' ); ?>">
+				<?php
+				/*
+				 * `paginate_links()` oddaje gotowe znaczniki `<a>` i `<span>`
+				 * zbudowane przez WordPressa z adresow, ktore sam przepuscil
+				 * przez `esc_url()`. Powtorne escapowanie zamieniloby je
+				 * w widoczny tekst — dlatego `wp_kses_post()`, a nie
+				 * `esc_html()`.
+				 */
+				echo wp_kses_post( $ainp_strony );
+				?>
+			</nav>
+		<?php endif; ?>
+
 	<?php else : ?>
 
 		<?php if ( '' !== Portal::search_term() ) : ?>
