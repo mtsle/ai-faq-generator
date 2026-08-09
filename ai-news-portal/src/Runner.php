@@ -59,6 +59,28 @@ final class Runner {
 	/** Status pozycji, ktorej nie udalo sie doprowadzic do konca. */
 	public const STATUS_FAILED = 'failed';
 
+	/**
+	 * Status pozycji WZIETEJ przez trwajacy przebieg — etap 5.2.
+	 *
+	 * Do Kroku 5 byl sama etykieta na ekranie Materialow, bo nic go nie nadawalo.
+	 * Nadaje go teraz `claim()`, i tylko on. Pozycja `processing` jest niewidoczna
+	 * dla obu zapytan wybierajacych (`status = 'new'`), wiec drugi przebieg jej
+	 * nie ruszy — na tym polega cale przejecie.
+	 */
+	public const STATUS_PROCESSING = 'processing';
+
+	/**
+	 * Po ilu sekundach `processing` uznajemy za PORZUCONE: 15 minut.
+	 *
+	 * Proces zabity przez `max_execution_time` nie zdazy oddac pozycji, wiec bez
+	 * tego progu jeden zgon zostawialby wiersz zablokowany na zawsze. Prog musi
+	 * byc dluzszy niz najdluzszy mozliwy przebieg (budzet 15 s plus pobranie
+	 * strony) i krotszy niz odstep miedzy tickami (godzina) — inaczej albo
+	 * odbieralby pozycje przebiegowi, ktory wciaz pracuje, albo nie odzyskiwalby
+	 * niczego przed nastepnym tickiem.
+	 */
+	public const STALE_SECONDS = 900;
+
 	/** Status pozycji, z ktorej powstal opublikowany artykul. */
 	public const STATUS_DONE = 'done';
 
@@ -160,11 +182,12 @@ final class Runner {
 	 */
 	public static function tick(): array {
 		$wynik = array(
-			'locked'  => false,
-			'collect' => array(),
-			'prepare' => array(),
-			'publish' => array(),
-			'errors'  => array(),
+			'locked'    => false,
+			'recovered' => 0,
+			'collect'   => array(),
+			'prepare'   => array(),
+			'publish'   => array(),
+			'errors'    => array(),
 		);
 
 		if ( false !== get_transient( Admin::TRANSIENT_LOCK ) ) {
@@ -176,6 +199,20 @@ final class Runner {
 		set_transient( Admin::TRANSIENT_LOCK, time(), Admin::LOCK_TTL );
 
 		try {
+			/*
+			 * ODZYSK PRZED FAZAMI (etap 5.2). Pozycja porzucona przez zabity
+			 * przebieg jest niewidoczna dla obu zapytan wybierajacych, wiec bez
+			 * tego zapytania czekalaby w nieskonczonosc, a nie 15 minut.
+			 * Wewnatrz zamka: gdyby przebieg trwal, jego pozycje sa mlodsze niz
+			 * prog i tak czy tak nie zostalyby odebrane, ale tak jest o jedno
+			 * zalozenie mniej.
+			 */
+			try {
+				$wynik['recovered'] = self::recover_stalled();
+			} catch ( \Throwable $e ) {
+				$wynik['errors']['recover'] = $e->getMessage();
+			}
+
 			foreach ( array( 'collect', 'prepare', 'publish' ) as $faza ) {
 				try {
 					switch ( $faza ) {
@@ -198,6 +235,140 @@ final class Runner {
 		}
 
 		return $wynik;
+	}
+
+	// -----------------------------------------------------------------------
+	// Przejecie pozycji (etap 5.2)
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Bierze pozycje na wylacznosc: `new` → `processing`.
+	 *
+	 * CALA ATOMOWOSC SIEDZI W KLAUZULI `WHERE`, nie w kolejnosci wywolan.
+	 * Wzorzec „sprawdz `SELECT`-em, potem zapisz" ma miedzy odczytem a zapisem
+	 * okno, w ktore wchodzi drugi proces — a cron i przycisk w panelu potrafia
+	 * ruszyc w tej samej sekundzie. Warunek `status = 'new'` w samym `UPDATE`
+	 * daje rozstrzygniecie po stronie bazy: wiersz zmieni sie dla DOKLADNIE
+	 * jednego procesu, a pozostale dostana zero zmienionych wierszy.
+	 *
+	 * Druga galaz warunku odzyskuje pozycje PORZUCONA: `processing` starsze niz
+	 * `STALE_SECONDS` wraca do gry. Bez niej proces zabity w polowie zabieralby
+	 * pozycje na zawsze.
+	 *
+	 * @param int $id Identyfikator wiersza.
+	 *
+	 * @return bool `true`, gdy pozycja nalezy teraz do tego przebiegu.
+	 */
+	public static function claim( int $id ): bool {
+		global $wpdb;
+
+		if ( $id <= 0 ) {
+			return false;
+		}
+
+		$zmienione = $wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, updated_at = %s'
+				. ' WHERE id = %d AND ( status = %s OR ( status = %s AND updated_at < %s ) )',
+				self::STATUS_PROCESSING,
+				current_time( 'mysql' ),
+				$id,
+				self::STATUS_NEW,
+				self::STATUS_PROCESSING,
+				self::stale_before()
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return 1 === (int) $zmienione;
+	}
+
+	/**
+	 * Oddaje pozycje do kolejki: `processing` → `new`.
+	 *
+	 * Warunek `status = 'processing'` jest tu rownie wazny, co przy przejeciu,
+	 * tyle ze chroni przed czym innym: pozycja mogla w miedzyczasie skonczyc
+	 * jako `done`, `skipped` albo `failed`. Bezwarunkowe oddanie wskrzeszałoby
+	 * ja i portal opublikowalby ten sam artykul drugi raz.
+	 *
+	 * Wolane ZAWSZE po obsluzeniu pozycji, takze po wyjatku — dlatego jest
+	 * bezpieczne dla statusow koncowych.
+	 *
+	 * @param int $id Identyfikator wiersza.
+	 *
+	 * @return void
+	 */
+	private static function release( int $id ): void {
+		global $wpdb;
+
+		if ( $id <= 0 ) {
+			return;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, updated_at = %s WHERE id = %d AND status = %s',
+				self::STATUS_NEW,
+				current_time( 'mysql' ),
+				$id,
+				self::STATUS_PROCESSING
+			)
+		); // phpcs:ignore WordPress.DB
+	}
+
+	/**
+	 * Odzyskuje pozycje porzucone przez zabity przebieg.
+	 *
+	 * Sama galaz w `claim()` niczego by nie odzyskala: oba zapytania wybierajace
+	 * biora WYLACZNIE `status = 'new'`, wiec wiersz `processing` nigdy nie
+	 * trafilby do `claim()` i nie mialby okazji sie odblokowac. Dlatego przed
+	 * kazdym tickiem jedno zapytanie zbiorcze wraca je do kolejki.
+	 *
+	 * Miejsce wywolania to `tick()`, nie partie: `prepare_batch()` i
+	 * `publish_batch()` wola takze przyciski panelu, a te maja miec dokladnie
+	 * ten ksztalt zapytan, na ktorym stoja testy Kroku 3 i 4. Klient klikajacy
+	 * przyciski i tak generuje ruch, ktory uruchamia WP-Cron.
+	 *
+	 * @return int Ile pozycji wrocilo do kolejki.
+	 */
+	public static function recover_stalled(): int {
+		global $wpdb;
+
+		$zmienione = $wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, updated_at = %s WHERE status = %s AND updated_at < %s',
+				self::STATUS_NEW,
+				current_time( 'mysql' ),
+				self::STATUS_PROCESSING,
+				self::stale_before()
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return max( 0, (int) $zmienione );
+	}
+
+	/**
+	 * Granica czasu: `processing` starsze od niej jest porzucone.
+	 *
+	 * Liczone z `current_time( 'mysql' )`, a nie z `time()`, bo dokladnie ta
+	 * funkcja zapisuje `updated_at`. Porownywanie dwoch roznych zegarow dawaloby
+	 * przesuniecie o strefe czasowa witryny — na dworku dwie godziny, czyli osiem
+	 * razy wiecej niz caly prog.
+	 *
+	 * Dopisane `UTC` nie zmienia strefy zapisanego czasu, tylko ODBIERA
+	 * `strtotime()` prawo interpretowania go wedlug domyslnej strefy PHP.
+	 * Razem z `gmdate()` daje to zamkniete kolo: cokolwiek wchodzi, wychodzi
+	 * ten sam znacznik pomniejszony o prog — a nie o prog plus strefe.
+	 *
+	 * @return string Znacznik w formacie `Y-m-d H:i:s`.
+	 */
+	private static function stale_before(): string {
+		$teraz = strtotime( (string) current_time( 'mysql' ) . ' UTC' );
+
+		if ( false === $teraz ) {
+			$teraz = time();
+		}
+
+		return gmdate( 'Y-m-d H:i:s', $teraz - self::STALE_SECONDS );
 	}
 
 	// -----------------------------------------------------------------------
@@ -485,6 +656,19 @@ final class Runner {
 				break;
 			}
 
+			$id = isset( $wiersz->id ) ? (int) $wiersz->id : 0;
+
+			/*
+			 * PRZEJECIE PRZED PRACA (etap 5.2). Partia zostala wybrana jednym
+			 * `SELECT`-em, wiec miedzy wyborem a ta linia inny przebieg mogl
+			 * juz wziac ten wiersz. Scraping bez przejecia oznaczalby dwa
+			 * pobrania tej samej strony i dwa zapisy tej samej tresci.
+			 */
+			if ( ! self::claim( $id ) ) {
+				$wynik['busy']++;
+				continue;
+			}
+
 			$wynik['taken']++;
 
 			try {
@@ -494,6 +678,16 @@ final class Runner {
 				// nie ma prawa zatrzymac calego przebiegu.
 				$los                                   = 'error';
 				$wynik['errors'][ (int) $wiersz->id ] = $e->getMessage();
+			} finally {
+				/*
+				 * `finally`, bo pozycja przygotowana poprawnie konczy jako `ready`
+				 * i ZOSTAJE w kolejce — to `processing` jest tu stanem przejsciowym,
+				 * nie koncowym. Bez oddania kazdy udany przebieg zostawialby wiersz
+				 * zablokowany na 15 minut, a wyjatek — do nastepnego ticku.
+				 * `release()` sprawdza status, wiec pozycji zamknietej przez
+				 * `finish()` albo `mark()` nie wskrzesi.
+				 */
+				self::release( $id );
 			}
 
 			if ( isset( $wynik[ $los ] ) ) {
@@ -868,6 +1062,21 @@ final class Runner {
 				break;
 			}
 
+			$id = (int) $kandydat['row']->id;
+
+			/*
+			 * PRZEJECIE PRZED WYWOLANIEM MODELU (etap 5.2). Tu chodzi juz nie
+			 * o podwojna prace, tylko o pieniadze: dwa przebiegi, ktore wziely
+			 * ten sam wiersz, zjadaja dwa sloty z dobowej puli 20 i produkuja
+			 * jeden artykul. Atomowa rezerwacja slotu z etapu 4.1 tego nie lapie —
+			 * ona pilnuje SUFITU, nie tego, czy oba wywolania dotycza tej samej
+			 * pozycji.
+			 */
+			if ( ! self::claim( $id ) ) {
+				$wynik['busy']++;
+				continue;
+			}
+
 			$wynik['taken']++;
 
 			try {
@@ -876,6 +1085,10 @@ final class Runner {
 				$wynik['error']++;
 				$wynik['errors'][ (int) $kandydat['row']->id ] = $e->getMessage();
 				continue;
+			} finally {
+				// Pozycja `waiting` (brak klucza, wyczerpana pula) ma wrocic do
+				// kolejki bez sladu — `release()` omija statusy koncowe.
+				self::release( $id );
 			}
 
 			$wynik['calls'] += (int) $los['calls'];
@@ -901,6 +1114,7 @@ final class Runner {
 	private static function publish_summary(): array {
 		return array(
 			'taken'      => 0,
+			'busy'       => 0,
 			'published'  => 0,
 			'exists'     => 0,
 			'failed'     => 0,
@@ -1246,6 +1460,7 @@ final class Runner {
 	private static function prepare_summary(): array {
 		return array(
 			'taken'      => 0,
+			'busy'       => 0,
 			'ready'      => 0,
 			'skipped'    => 0,
 			'retry'      => 0,

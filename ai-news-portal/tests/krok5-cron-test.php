@@ -141,6 +141,14 @@ class AINP_Fake_WPDB {
 
 	public function query( $sql ) {
 		$GLOBALS['__zapytania'][] = $sql;
+
+		// Odzysk porzuconych pozycji (etap 5.2) — jedyne zapytanie ticku, ktore
+		// nie nalezy do zadnej z trzech faz. Musi paść PRZED nimi, bo pozycja
+		// `processing` jest niewidoczna dla obu zapytan wybierajacych.
+		if ( false !== strpos( $sql, 'WHERE status = %s AND updated_at < %s' ) ) {
+			$GLOBALS['__slad'][] = 'recover';
+		}
+
 		return 0;
 	}
 }
@@ -502,7 +510,8 @@ $GLOBALS['__transient'] = array();
 
 $wynik = Runner::tick();
 
-k5_check( array( 'collect', 'prepare', 'publish' ) === $GLOBALS['__slad'], 'fazy w kolejnosci pobierz → przygotuj → opublikuj (jest: ' . implode( ' → ', $GLOBALS['__slad'] ) . ')' );
+k5_check( array( 'recover', 'collect', 'prepare', 'publish' ) === $GLOBALS['__slad'], 'odzysk PRZED fazami, potem pobierz → przygotuj → opublikuj (jest: ' . implode( ' → ', $GLOBALS['__slad'] ) . ')' );
+k5_check( 0 === $wynik['recovered'], 'nic nie bylo do odzyskania — licznik zero' );
 k5_check( false === $wynik['locked'], 'przebieg ruszyl (locked = false)' );
 k5_check( isset( $wynik['collect']['sources'] ) && 1 === (int) $wynik['collect']['sources'], 'podsumowanie fazy zbierania widzi jeden kanal' );
 k5_check( isset( $wynik['prepare']['taken'] ), 'podsumowanie fazy przygotowania ma wlasny ksztalt' );
@@ -545,7 +554,7 @@ $wynik = Runner::tick();
 $GLOBALS['__wysadz_prepare'] = false;
 
 k5_check( isset( $wynik['errors']['prepare'] ), 'blad fazy zapisany pod jej nazwa' );
-k5_check( array( 'collect', 'publish' ) === $GLOBALS['__slad'], 'pozostale dwie fazy wykonane mimo wyjatku (jest: ' . implode( ' → ', $GLOBALS['__slad'] ) . ')' );
+k5_check( array( 'recover', 'collect', 'publish' ) === $GLOBALS['__slad'], 'pozostale dwie fazy wykonane mimo wyjatku (jest: ' . implode( ' → ', $GLOBALS['__slad'] ) . ')' );
 k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek zdjety w finally, mimo wyjatku w srodku' );
 
 // ---------------------------------------------------------------------------
