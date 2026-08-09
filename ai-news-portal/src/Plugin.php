@@ -110,6 +110,14 @@ final class Plugin {
 
 		// Akcje formularzy panelu (`admin_post_ainp_*`) — etap 2.5.
 		Admin::register_actions();
+
+		/*
+		 * FRONT CENTRUM WIEDZY — etap 6.1. Wybor szablonu i przekierowanie
+		 * golego `/centrum-wiedzy/kategoria/`. Wlasciciel jest jeden: hooki
+		 * frontu mieszkaja w `Portal`, tak jak wykonanie ticku mieszka
+		 * w `Runner`, a nie tutaj.
+		 */
+		Portal::register();
 	}
 
 	/**

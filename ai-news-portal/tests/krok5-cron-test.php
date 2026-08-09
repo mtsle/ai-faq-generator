@@ -409,6 +409,16 @@ function add_action( $hook, $cb, $prio = 10, $args = 1 ) {
 	);
 	return true;
 }
+// Od etapu 6.1 `boot()` wola `Portal::register()`, ktory podpina filtr
+// `template_include`. Filtry zbieramy osobno, zeby asercje o `__actions`
+// (sluchacz ticku, domkniecie harmonogramu) liczyly dalej to samo co wczesniej.
+function add_filter( $hook, $cb, $prio = 10, $args = 1 ) {
+	$GLOBALS['__filters'][] = array(
+		'hook' => $hook,
+		'cb'   => $cb,
+	);
+	return true;
+}
 function register_post_type( $type, $args = array() ) {
 	return true;
 }
@@ -556,6 +566,8 @@ require_once $root . '/src/Gemini.php';
 require_once $root . '/src/Validator.php';
 require_once $root . '/src/Publisher.php';
 require_once $root . '/src/Runner.php';
+// Od etapu 6.1 `Plugin::boot()` wola `Portal::register()`.
+require_once $root . '/src/Portal.php';
 require_once $root . '/src/Plugin.php';
 require_once $root . '/src/Admin.php';
 

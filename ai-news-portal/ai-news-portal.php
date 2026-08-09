@@ -54,8 +54,9 @@ define( 'AINP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
  * `Settings` dopiero w czasie wykonania, nie przy ladowaniu pliku.
  *
  * Krok 1 zamknal sie na trzech klasach. W Kroku 2 doszly: Http (2.1), Feed (2.2),
- * Dedup (2.3). W Kroku 3: Filter (3.1) i Article (3.3); dalej Gemini, Validator,
- * Publisher, Portal.
+ * Dedup (2.3). W Kroku 3: Filter (3.1) i Article (3.3). W Kroku 4: Gemini,
+ * Validator, Publisher. W Kroku 5: Runner. W Kroku 6: Portal (6.1) — ostatnia
+ * klasa z listy w planie.
  *
  * `Filter` stoi PO `Dedup`, bo `Filter::normalize()` wola `Dedup::normalize_text()`.
  * W praktyce kolejnosc i tak nie ma znaczenia (wywolanie nastepuje w czasie
@@ -72,6 +73,7 @@ require_once AINP_PLUGIN_DIR . 'src/Gemini.php';
 require_once AINP_PLUGIN_DIR . 'src/Validator.php';
 require_once AINP_PLUGIN_DIR . 'src/Publisher.php';
 require_once AINP_PLUGIN_DIR . 'src/Runner.php';
+require_once AINP_PLUGIN_DIR . 'src/Portal.php';
 require_once AINP_PLUGIN_DIR . 'src/Plugin.php';
 require_once AINP_PLUGIN_DIR . 'src/Admin.php';
 

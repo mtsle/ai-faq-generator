@@ -157,6 +157,12 @@ function add_action( $hook, $cb, $prio = 10, $args = 1 ) {
 	$GLOBALS['__actions'][] = $hook;
 	return true;
 }
+// Od etapu 6.1 `boot()` wola `Portal::register()`, ktory podpina filtr
+// `template_include`. Bez tej atrapy zestaw padal na nieznanej funkcji.
+function add_filter( $hook, $cb, $prio = 10, $args = 1 ) {
+	$GLOBALS['__filters'][] = $hook;
+	return true;
+}
 function register_post_type( $type, $args = array() ) {
 	$GLOBALS['__log'][]             = 'register_post_type';
 	$GLOBALS['__ptypes'][ $type ]   = $args;
@@ -311,6 +317,8 @@ require_once $root . '/src/Http.php';
 require_once $root . '/src/Feed.php';
 require_once $root . '/src/Dedup.php';
 require_once $root . '/src/Runner.php';
+// Od etapu 6.1 `Plugin::boot()` wola `Portal::register()`.
+require_once $root . '/src/Portal.php';
 require_once $root . '/src/Plugin.php';
 // Od etapu 4.6 ekran Materialow pokazuje stan dobowej puli, wiec `Admin`
 // siega do `Gemini`. Bez tego pliku zestaw pada na brakujacej klasie.
