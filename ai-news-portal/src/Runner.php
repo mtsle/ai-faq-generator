@@ -774,6 +774,8 @@ final class Runner {
 		$start    = microtime( true );
 		$budzet   = ( null === $budget ) ? (float) self::PREPARE_BUDGET : max( 0.1, $budget );
 
+		$wynik['budget'] = $budzet;
+
 		foreach ( $wiersze as $wiersz ) {
 			/*
 			 * Sprawdzenie PRZED wzieciem pozycji, nie po. Pozycja raz zaczeta
@@ -1174,6 +1176,8 @@ final class Runner {
 		$start  = microtime( true );
 		$budzet = ( null === $budget ) ? (float) self::PREPARE_BUDGET : max( 0.1, $budget );
 
+		$wynik['budget'] = $budzet;
+
 		for ( $i = 0; $i < $limit; $i++ ) {
 			$zostalo = $budzet - ( microtime( true ) - $start );
 
@@ -1244,6 +1248,7 @@ final class Runner {
 		return array(
 			'taken'      => 0,
 			'busy'       => 0,
+			'budget'     => 0.0,
 			'published'  => 0,
 			'exists'     => 0,
 			'failed'     => 0,
@@ -1590,6 +1595,7 @@ final class Runner {
 		return array(
 			'taken'      => 0,
 			'busy'       => 0,
+			'budget'     => 0.0,
 			'ready'      => 0,
 			'skipped'    => 0,
 			'retry'      => 0,

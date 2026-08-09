@@ -612,6 +612,27 @@ k5_check( 1 === count( $GLOBALS['__zadania'] ), 'faza zbierania stanela po pierw
 k5_check( true === ( $wynik['collect']['budget_hit'] ?? false ), 'i zglosila to w podsumowaniu' );
 k5_check( 1.0 === $wynik['budget'], 'tick zapamietal budzet, z ktorym pracowal' );
 
+// --- Podzial budzetu miedzy fazy -------------------------------------------
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__transient']  = array();
+$GLOBALS['__http_sleep'] = 0.0;
+
+update_option( Settings::OPTION_SOURCES, array( 'https://a.test/feed/' ) );
+
+$wynik   = Runner::tick( 20.0 );
+$dzialka = 20.0 * Runner::TICK_SHARE;
+
+/*
+ * Podzial jest asymetryczny CELOWO i to jest jedyne miejsce, ktore tego pilnuje.
+ * Przy rownym podziale faza publikacji dostawalaby okolo szesciu sekund,
+ * a `Gemini` nie startuje ponizej osmiu — portal zbieralby material bez konca
+ * i nie opublikowal ani jednego artykulu. Zadna asercja o liczbie wywolan tego
+ * nie zlapie, bo model w tescie i tak nie jest wolany.
+ */
+k5_check( $wynik['prepare']['budget'] <= $dzialka + 0.01, 'przygotowanie dostaje NAJWYZEJ dzialke (jest: ' . round( $wynik['prepare']['budget'], 2 ) . ' z ' . $dzialka . ')' );
+k5_check( $wynik['publish']['budget'] > $dzialka, 'publikacja dostaje CALA reszte budzetu, nie dzialke (jest: ' . round( $wynik['publish']['budget'], 2 ) . ')' );
+k5_check( $wynik['publish']['budget'] >= 8.0, 'i nie mniej, niz `Gemini` potrzebuje, zeby w ogole wystartowac' );
+
 // --- Faza, na ktora nie starczylo czasu, NIE jest odpalana -----------------
 $GLOBALS['__slad']       = array();
 $GLOBALS['__zadania']    = array();

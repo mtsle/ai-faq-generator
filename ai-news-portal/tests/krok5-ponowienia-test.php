@@ -207,17 +207,20 @@ namespace {
 			}
 
 			// Wznowienie zbiorcze: `failed` → `new`, licznik prob na zero.
-			if ( preg_match( "/SET status = '(\w+)', attempts = 0, note = '([^']*)', updated_at = '[^']*' WHERE status = '(\w+)'/", $sql, $m ) ) {
+			if ( preg_match( "/SET status = '(\w+)', attempts = (\d+), note = '([^']*)', updated_at = '[^']*' WHERE status = '(\w+)'/", $sql, $m ) ) {
 				$zmienione = 0;
 
 				foreach ( $this->tabela as $wiersz ) {
-					if ( $m[3] !== $wiersz->status ) {
+					if ( $m[4] !== $wiersz->status ) {
 						continue;
 					}
 
-					$wiersz->status   = $m[1];
-					$wiersz->attempts = 0;
-					$wiersz->note     = $m[2];
+					$wiersz->status = $m[1];
+					// Wartosc licznika bierzemy Z ZAPYTANIA, nie z zalozenia — inaczej
+					// mutacja podmieniajaca `attempts = 0` na cokolwiek innego ginelaby
+					// na sieci asekuracyjnej zamiast na asercji o zerowaniu.
+					$wiersz->attempts = (int) $m[2];
+					$wiersz->note     = $m[3];
 					$zmienione++;
 				}
 
