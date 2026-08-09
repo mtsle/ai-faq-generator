@@ -1,0 +1,563 @@
+<?php
+/**
+ * Krok 5, etap 5.1 — harmonogram crona i tick.
+ *
+ * POKRYWA TEST 18 z tabeli planu w polowie dotyczacej cyklu zycia:
+ * „po aktywacji `ainp_tick` zaplanowany z powtarzalnoscia `hourly`;
+ * po dezaktywacji — ZERO zaplanowanych zdarzen". Druga polowa tego wiersza
+ * („po uninstall — zero") jest dowiedziona w `krok1-uninstall-test.php`
+ * (test 13): tamta fikstura ma w harmonogramie POWTARZALNY `ainp_tick`
+ * i asercja liczy zdarzenia `ainp_*` po odinstalowaniu. Powtarzanie tego tutaj
+ * wymagaloby drugiej atrapy calego `$wpdb` i niczego by nie dodalo.
+ *
+ * Poza tabela planu ten zestaw pilnuje czterech rzeczy, ktore w Kroku 5 sa
+ * nowe i latwo je zepsuc po cichu:
+ *
+ *   1. POWTARZALNOSC, NIE SAMO ISTNIENIE. `wp_next_scheduled()` tylko sprawdza,
+ *      czy cokolwiek jest zaplanowane. Kod, ktory na tym poprzestaje, uzna
+ *      POJEDYNCZE zdarzenie z etapu 4.6 za harmonogram i wtyczka zostanie
+ *      bez cyklu — dziala, a portal milczy.
+ *   2. SLUCHACZ. Zaplanowane zdarzenie bez `add_action()` odpala sie i znika
+ *      bez sladu; do Kroku 5 tak wlasnie bylo i bylo to swiadome.
+ *   3. KOLEJNOSC FAZ w ticku: pobierz → przygotuj → opublikuj. Odwrotna
+ *      kolejnosc odsuwa pierwszy artykul o dwie godziny.
+ *   4. ZAMEK. Ten sam co w panelu, zdejmowany w `finally`, a CUDZEGO zamka
+ *      tick nie rusza.
+ *
+ * Prawdziwe klasy: `Plugin`, `Runner`, `Admin`, `Settings`, `Filter`, `Http`.
+ * Atrapy: funkcje WordPressa, harmonogram, `$wpdb`, transport HTTP.
+ *
+ * URUCHOMIENIE:  php tests/krok5-cron-test.php
+ * Kod wyjscia: 0 = OK, 1 = bledy.
+ *
+ * @package AI_News_Portal
+ */
+
+$root = dirname( __DIR__ );
+$fail = 0;
+$ran  = 0;
+
+/**
+ * Asercja.
+ *
+ * @param bool   $cond  Warunek.
+ * @param string $label Opis.
+ *
+ * @return void
+ */
+function k5_check( $cond, $label ) {
+	global $fail, $ran;
+	$ran++;
+	echo ( $cond ? '  OK   ' : '  FAIL ' ) . $label . "\n";
+	if ( ! $cond ) {
+		$fail++;
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Atrapy WordPressa.
+// ---------------------------------------------------------------------------
+define( 'ABSPATH', __DIR__ . '/atrapy/wp/' );
+
+$GLOBALS['__ainp_dbdelta'] = array();
+$GLOBALS['__opt']          = array();
+$GLOBALS['__transient']    = array();
+$GLOBALS['__cron']         = array();   // [ hook => [ [ time, powtor ], ... ] ]
+$GLOBALS['__cron_cleared'] = array();
+$GLOBALS['__actions']      = array();   // [ [ hook, cb ], ... ]
+$GLOBALS['__slad']         = array();   // Kolejnosc faz ticku.
+$GLOBALS['__zapytania']    = array();
+$GLOBALS['__wysadz_prepare'] = false;   // Wymuszenie wyjatku w fazie „prepare".
+$GLOBALS['__posts']        = array();
+$GLOBALS['__next_post_id'] = 100;
+
+class WP_Post {
+	public $ID = 0;
+	public function __construct( $id = 0 ) {
+		$this->ID = (int) $id;
+	}
+}
+
+class WP_Error {
+	private $code;
+	private $message;
+	public function __construct( $code = '', $message = '' ) {
+		$this->code    = $code;
+		$this->message = $message;
+	}
+	public function get_error_code() {
+		return $this->code;
+	}
+	public function get_error_message() {
+		return $this->message;
+	}
+}
+
+function is_wp_error( $t ) {
+	return $t instanceof WP_Error;
+}
+
+/**
+ * Atrapa `$wpdb` — pusta tabela i log zapytan.
+ *
+ * `get_results()` rozpoznaje, KTORA faza ticku pyta, po ksztalcie warunku:
+ * przygotowanie tresci szuka pozycji BEZ odcisku (`content_hash IS NULL`),
+ * a wybor kandydata dla modelu — pozycji Z odciskiem (`IS NOT NULL`). Na tym
+ * stoi asercja o kolejnosci faz: bez niej „trzy fazy" znaczyloby tylko tyle,
+ * ze funkcja nie wywalila sie po drodze.
+ */
+class AINP_Fake_WPDB {
+	public $prefix   = 'wp_';
+	public $posts    = 'wp_posts';
+	public $postmeta = 'wp_postmeta';
+	public $last_error = '';
+
+	public function get_charset_collate() {
+		return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_520_ci';
+	}
+
+	public function prepare( $sql, ...$args ) {
+		return $sql;
+	}
+
+	public function get_results( $sql ) {
+		$GLOBALS['__zapytania'][] = $sql;
+
+		if ( false !== strpos( $sql, 'content_hash IS NULL' ) ) {
+			if ( $GLOBALS['__wysadz_prepare'] ) {
+				throw new RuntimeException( 'atrapa: baza padla w fazie przygotowania' );
+			}
+			$GLOBALS['__slad'][] = 'prepare';
+		} elseif ( false !== strpos( $sql, 'content_hash IS NOT NULL' ) ) {
+			$GLOBALS['__slad'][] = 'publish';
+		}
+
+		return array();
+	}
+
+	public function get_var( $sql ) {
+		return null;
+	}
+
+	public function query( $sql ) {
+		$GLOBALS['__zapytania'][] = $sql;
+		return 0;
+	}
+}
+$GLOBALS['wpdb'] = new AINP_Fake_WPDB();
+
+// --- Opcje i transienty ----------------------------------------------------
+
+function get_option( $k, $default = false ) {
+	return array_key_exists( $k, $GLOBALS['__opt'] ) ? $GLOBALS['__opt'][ $k ] : $default;
+}
+function update_option( $k, $v, $autoload = null ) {
+	$GLOBALS['__opt'][ $k ] = $v;
+	return true;
+}
+function add_option( $k, $v, $dep = '', $autoload = 'yes' ) {
+	if ( array_key_exists( $k, $GLOBALS['__opt'] ) ) {
+		return false;
+	}
+	$GLOBALS['__opt'][ $k ] = $v;
+	return true;
+}
+function delete_option( $k ) {
+	unset( $GLOBALS['__opt'][ $k ] );
+	return true;
+}
+function get_transient( $k ) {
+	return array_key_exists( $k, $GLOBALS['__transient'] ) ? $GLOBALS['__transient'][ $k ] : false;
+}
+function set_transient( $k, $v, $ttl = 0 ) {
+	$GLOBALS['__transient'][ $k ] = $v;
+	return true;
+}
+function delete_transient( $k ) {
+	unset( $GLOBALS['__transient'][ $k ] );
+	return true;
+}
+
+// --- Harmonogram -----------------------------------------------------------
+
+/*
+ * Atrapa harmonogramu — LISTA zdarzen na uchwyt, tak jak w tescie akcji Kroku 4.
+ * Atrapa trzymajaca JEDNO zdarzenie na uchwyt nadpisywalaby duplikat i asercja
+ * „aktywacja nie dokłada drugiego harmonogramu" bylaby zawsze zielona.
+ *
+ * `wp_next_scheduled()` i `wp_get_scheduled_event()` oddaja zdarzenie
+ * NAJWCZESNIEJSZE, a nie pierwsze wstawione — to nie jest ozdobnik, na tym
+ * stoi sekcja 3: pojedyncze zdarzenie „na juz" wyprzedza harmonogram godzinny.
+ */
+function ainp5_earliest( $hook ) {
+	if ( empty( $GLOBALS['__cron'][ $hook ] ) ) {
+		return null;
+	}
+	$lista = $GLOBALS['__cron'][ $hook ];
+	usort(
+		$lista,
+		function ( $a, $b ) {
+			return $a['time'] <=> $b['time'];
+		}
+	);
+	return $lista[0];
+}
+
+function wp_next_scheduled( $hook, $args = array() ) {
+	$zdarzenie = ainp5_earliest( $hook );
+	return ( null === $zdarzenie ) ? false : (int) $zdarzenie['time'];
+}
+
+function wp_get_scheduled_event( $hook, $args = array(), $timestamp = null ) {
+	$zdarzenie = ainp5_earliest( $hook );
+
+	if ( null === $zdarzenie ) {
+		return false;
+	}
+
+	return (object) array(
+		'hook'      => $hook,
+		'timestamp' => (int) $zdarzenie['time'],
+		'schedule'  => $zdarzenie['powtor'],
+		'args'      => array(),
+	);
+}
+
+function wp_schedule_event( $time, $recurrence, $hook, $args = array() ) {
+	$GLOBALS['__cron'][ $hook ][] = array(
+		'time'   => (int) $time,
+		'powtor' => $recurrence,
+	);
+	return true;
+}
+
+function wp_schedule_single_event( $time, $hook, $args = array() ) {
+	$GLOBALS['__cron'][ $hook ][] = array(
+		'time'   => (int) $time,
+		'powtor' => false,
+	);
+	return true;
+}
+
+function wp_clear_scheduled_hook( $hook, $args = array() ) {
+	$GLOBALS['__cron_cleared'][] = $hook;
+	unset( $GLOBALS['__cron'][ $hook ] );
+	return true;
+}
+
+// --- Reszta rdzenia --------------------------------------------------------
+
+function add_action( $hook, $cb, $prio = 10, $args = 1 ) {
+	$GLOBALS['__actions'][] = array(
+		'hook' => $hook,
+		'cb'   => $cb,
+	);
+	return true;
+}
+function register_post_type( $type, $args = array() ) {
+	return true;
+}
+function register_taxonomy( $tax, $object_type, $args = array() ) {
+	return true;
+}
+function unregister_post_type( $type ) {
+	return true;
+}
+function unregister_taxonomy( $tax ) {
+	return true;
+}
+function flush_rewrite_rules( $hard = true ) {
+	return true;
+}
+function get_page_by_path( $path, $output = null, $post_type = 'page' ) {
+	return null;
+}
+function wp_insert_post( $data, $wp_error = false ) {
+	$id                        = $GLOBALS['__next_post_id']++;
+	$data['ID']                = $id;
+	$GLOBALS['__posts'][ $id ] = $data;
+	return $id;
+}
+function term_exists( $term, $taxonomy = '', $parent = null ) {
+	return null;
+}
+function wp_insert_term( $term, $taxonomy, $args = array() ) {
+	return array(
+		'term_id'          => 5,
+		'term_taxonomy_id' => 5,
+	);
+}
+function wp_set_object_terms( $object_id, $terms, $taxonomy, $append = false ) {
+	return (array) $terms;
+}
+function get_current_user_id() {
+	return 1;
+}
+function get_users( $args = array() ) {
+	return array( 1 );
+}
+function current_user_can( $cap ) {
+	return true;
+}
+function current_time( $typ, $gmt = 0 ) {
+	return ( 'Y-m-d' === $typ ) ? '2026-08-09' : '2026-08-09 12:00:00';
+}
+function wp_parse_url( $url, $component = -1 ) {
+	return parse_url( $url, $component );
+}
+function is_serialized( $d ) {
+	return is_string( $d ) && (bool) preg_match( '/^[aOs]:\d+:/', $d );
+}
+function maybe_serialize( $d ) {
+	return ( is_array( $d ) || is_object( $d ) ) ? serialize( $d ) : $d;
+}
+function maybe_unserialize( $d ) {
+	return is_serialized( $d ) ? unserialize( $d ) : $d;
+}
+function __( $s, $domain = null ) {
+	return $s;
+}
+function esc_html__( $s, $domain = null ) {
+	return htmlspecialchars( (string) $s, ENT_QUOTES, 'UTF-8' );
+}
+function esc_html( $s ) {
+	return htmlspecialchars( (string) $s, ENT_QUOTES, 'UTF-8' );
+}
+function esc_attr( $s ) {
+	return htmlspecialchars( (string) $s, ENT_QUOTES, 'UTF-8' );
+}
+function esc_url( $s ) {
+	return (string) $s;
+}
+function esc_url_raw( $s ) {
+	return (string) $s;
+}
+function wp_kses_post( $s ) {
+	return (string) $s;
+}
+function sanitize_text_field( $s ) {
+	return trim( strip_tags( (string) $s ) );
+}
+function remove_accents( $s ) {
+	return (string) $s;
+}
+function get_edit_post_link( $id = 0, $context = 'display' ) {
+	return '';
+}
+function admin_url( $path = '' ) {
+	return 'https://example.test/wp-admin/' . $path;
+}
+function wp_encode_emoji( $s ) {
+	return (string) $s;
+}
+
+/**
+ * Atrapa transportu — kazde zadanie sieciowe konczy sie bledem transportu.
+ *
+ * Tick ma sie NIE ZATRZYMAC na padnietym kanale (zabezpieczenie nienaruszalne
+ * numer trzy), a przy okazji daje to fazie „collect" slad w tym samym logu,
+ * co dwie pozostale — bez niego kolejnosc faz bylaby nie do sprawdzenia.
+ *
+ * @param string $url  Adres.
+ * @param array  $args Argumenty.
+ *
+ * @return WP_Error
+ */
+function wp_safe_remote_get( $url, $args = array() ) {
+	$GLOBALS['__slad'][] = 'collect';
+	return new WP_Error( 'http_request_failed', 'atrapa: brak sieci' );
+}
+function wp_remote_retrieve_response_code( $r ) {
+	return 0;
+}
+function wp_remote_retrieve_body( $r ) {
+	return '';
+}
+
+require_once $root . '/src/Settings.php';
+require_once $root . '/src/Http.php';
+require_once $root . '/src/Feed.php';
+require_once $root . '/src/Dedup.php';
+require_once $root . '/src/Filter.php';
+require_once $root . '/src/Article.php';
+require_once $root . '/src/Gemini.php';
+require_once $root . '/src/Validator.php';
+require_once $root . '/src/Publisher.php';
+require_once $root . '/src/Runner.php';
+require_once $root . '/src/Plugin.php';
+require_once $root . '/src/Admin.php';
+
+use AINP\Admin;
+use AINP\Plugin;
+use AINP\Runner;
+use AINP\Settings;
+
+// Jeden kanal zamiast czterech domyslnych — log faz ma byc czytelny.
+update_option( Settings::OPTION_SOURCES, array( 'https://kanal.test/feed/' ) );
+
+// ---------------------------------------------------------------------------
+// 1. Aktywacja planuje POWTARZALNY tick.
+// ---------------------------------------------------------------------------
+echo "\n=== 1. TEST 18 — aktywacja planuje ainp_tick z powtarzalnoscia hourly ===\n";
+
+$przed = time();
+Plugin::activate();
+
+$zdarzenia = $GLOBALS['__cron'][ Plugin::CRON_HOOK ] ?? array();
+
+k5_check( 1 === count( $zdarzenia ), 'po aktywacji DOKLADNIE jedno zdarzenie ainp_tick (jest: ' . count( $zdarzenia ) . ')' );
+k5_check( 'hourly' === ( $zdarzenia[0]['powtor'] ?? null ), 'zdarzenie jest POWTARZALNE, powtarzalnosc hourly (jest: ' . var_export( $zdarzenia[0]['powtor'] ?? null, true ) . ')' );
+k5_check( 'hourly' === Plugin::CRON_RECURRENCE, 'powtarzalnosc bierze sie ze stalej Plugin::CRON_RECURRENCE, nie z literalu w wywolaniu' );
+/*
+ * Pierwszy przebieg ma byc „od zaraz", nie za godzine: `wp_schedule_event()`
+ * planuje PIERWSZE wykonanie na podany znacznik, wiec `time() + HOUR` odsunaloby
+ * start portalu o godzine od aktywacji i wygladalo jak wtyczka, ktora nie dziala.
+ */
+k5_check( ( $zdarzenia[0]['time'] ?? 0 ) >= $przed && ( $zdarzenia[0]['time'] ?? 0 ) <= time(), 'pierwsze wykonanie zaplanowane na „juz", nie za godzine' );
+
+// ---------------------------------------------------------------------------
+// 2. Druga aktywacja nie dokłada drugiego harmonogramu.
+// ---------------------------------------------------------------------------
+echo "\n=== 2. Druga aktywacja — zero duplikatow harmonogramu ===\n";
+
+$czas_pierwszego = $zdarzenia[0]['time'];
+
+Plugin::activate();
+
+$zdarzenia = $GLOBALS['__cron'][ Plugin::CRON_HOOK ] ?? array();
+
+k5_check( 1 === count( $zdarzenia ), 'nadal DOKLADNIE jedno zdarzenie (jest: ' . count( $zdarzenia ) . ')' );
+k5_check( $czas_pierwszego === $zdarzenia[0]['time'], 'istniejacy harmonogram NIE zostal przesuniety' );
+
+// ---------------------------------------------------------------------------
+// 3. Pojedyncze zdarzenie nie przeslania BRAKU harmonogramu.
+// ---------------------------------------------------------------------------
+echo "\n=== 3. Pojedyncze zdarzenie z etapu 4.6 nie udaje harmonogramu ===\n";
+
+/*
+ * Sedno sekcji: gdyby warunek brzmial „czy cokolwiek jest zaplanowane"
+ * (samo `wp_next_scheduled()`), to zdarzenie POJEDYNCZE — zaplanowane po
+ * zapisaniu Ustawien — zablokowaloby zalozenie harmonogramu i wtyczka
+ * przetworzylaby material dokladnie raz, a potem zamilkla.
+ */
+$GLOBALS['__cron'] = array();
+wp_schedule_single_event( time(), Plugin::CRON_HOOK );
+
+Plugin::activate();
+
+$zdarzenia   = $GLOBALS['__cron'][ Plugin::CRON_HOOK ] ?? array();
+$powtarzalne = array_values(
+	array_filter(
+		$zdarzenia,
+		function ( $z ) {
+			return 'hourly' === $z['powtor'];
+		}
+	)
+);
+
+k5_check( 2 === count( $zdarzenia ), 'zdarzenia sa dwa: pojedyncze i harmonogram (jest: ' . count( $zdarzenia ) . ')' );
+k5_check( 1 === count( $powtarzalne ), 'DOKLADNIE jedno z nich jest powtarzalne' );
+
+// ---------------------------------------------------------------------------
+// 4. Dezaktywacja — zero zaplanowanych zdarzen.
+// ---------------------------------------------------------------------------
+echo "\n=== 4. TEST 18 — dezaktywacja czysci harmonogram ===\n";
+
+$GLOBALS['__cron_cleared'] = array();
+
+Plugin::deactivate();
+
+k5_check( array() === ( $GLOBALS['__cron'][ Plugin::CRON_HOOK ] ?? array() ), 'po dezaktywacji ZERO zdarzen ainp_tick' );
+k5_check( array( 'ainp_tick' ) === $GLOBALS['__cron_cleared'], 'wyczyszczony dokladnie ten jeden uchwyt, nic wiecej' );
+
+// ---------------------------------------------------------------------------
+// 5. Sluchacz uchwytu.
+// ---------------------------------------------------------------------------
+echo "\n=== 5. Uchwyt ma sluchacza (do Kroku 5 nie mial) ===\n";
+
+$GLOBALS['__actions'] = array();
+
+Plugin::boot();
+
+$sluchacze = array_values(
+	array_filter(
+		$GLOBALS['__actions'],
+		function ( $a ) {
+			return Plugin::CRON_HOOK === $a['hook'];
+		}
+	)
+);
+
+k5_check( 1 === count( $sluchacze ), 'boot() podpina DOKLADNIE jednego sluchacza pod ainp_tick (jest: ' . count( $sluchacze ) . ')' );
+k5_check( array( Runner::class, 'tick' ) === ( $sluchacze[0]['cb'] ?? null ), 'sluchaczem jest Runner::tick — wykonanie mieszka w Runnerze' );
+k5_check( is_callable( $sluchacze[0]['cb'] ?? null ), 'i ten sluchacz naprawde istnieje (zaplanowane zdarzenie bez sluchacza znika bez sladu)' );
+
+// ---------------------------------------------------------------------------
+// 6. Tick — trzy fazy, w tej kolejnosci, pod zamkiem.
+// ---------------------------------------------------------------------------
+echo "\n=== 6. Tick — pobierz, przygotuj, opublikuj ===\n";
+
+$GLOBALS['__slad']      = array();
+$GLOBALS['__transient'] = array();
+
+$wynik = Runner::tick();
+
+k5_check( array( 'collect', 'prepare', 'publish' ) === $GLOBALS['__slad'], 'fazy w kolejnosci pobierz → przygotuj → opublikuj (jest: ' . implode( ' → ', $GLOBALS['__slad'] ) . ')' );
+k5_check( false === $wynik['locked'], 'przebieg ruszyl (locked = false)' );
+k5_check( isset( $wynik['collect']['sources'] ) && 1 === (int) $wynik['collect']['sources'], 'podsumowanie fazy zbierania widzi jeden kanal' );
+k5_check( isset( $wynik['prepare']['taken'] ), 'podsumowanie fazy przygotowania ma wlasny ksztalt' );
+k5_check( isset( $wynik['publish']['published'] ), 'podsumowanie fazy publikacji ma wlasny ksztalt' );
+k5_check( array() === $wynik['errors'], 'zaden blad transportu nie zatrzymal przebiegu' );
+k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek ZDJETY po przebiegu' );
+
+// ---------------------------------------------------------------------------
+// 7. Zajety zamek — tick nie wchodzi w cudza partie.
+// ---------------------------------------------------------------------------
+echo "\n=== 7. Zamek panelu wstrzymuje tick ===\n";
+
+$GLOBALS['__slad'] = array();
+set_transient( Admin::TRANSIENT_LOCK, 1234, Admin::LOCK_TTL );
+
+$wynik = Runner::tick();
+
+k5_check( true === $wynik['locked'], 'tick zglasza, ze przebieg trwa gdzie indziej' );
+k5_check( array() === $GLOBALS['__slad'], 'ZERO faz wykonanych (jest: ' . count( $GLOBALS['__slad'] ) . ')' );
+/*
+ * Cudzy zamek ma przezyc odbicie sie ticku. Gdyby tick zdjal go w `finally`
+ * mimo tego, ze go nie wzial, klient klikajacy „Opublikuj teraz" traciłby
+ * ochrone dokladnie w chwili, gdy cron probuje wejsc — czyli wtedy, kiedy
+ * jest ona potrzebna.
+ */
+k5_check( 1234 === get_transient( Admin::TRANSIENT_LOCK ), 'CUDZY zamek nietkniety' );
+
+delete_transient( Admin::TRANSIENT_LOCK );
+
+// ---------------------------------------------------------------------------
+// 8. Padnieta faza nie zabiera dwoch pozostalych ani nie zostawia zamka.
+// ---------------------------------------------------------------------------
+echo "\n=== 8. Wyjatek w fazie: reszta przebiegu idzie dalej ===\n";
+
+$GLOBALS['__slad']           = array();
+$GLOBALS['__wysadz_prepare'] = true;
+
+$wynik = Runner::tick();
+
+$GLOBALS['__wysadz_prepare'] = false;
+
+k5_check( isset( $wynik['errors']['prepare'] ), 'blad fazy zapisany pod jej nazwa' );
+k5_check( array( 'collect', 'publish' ) === $GLOBALS['__slad'], 'pozostale dwie fazy wykonane mimo wyjatku (jest: ' . implode( ' → ', $GLOBALS['__slad'] ) . ')' );
+k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek zdjety w finally, mimo wyjatku w srodku' );
+
+// ---------------------------------------------------------------------------
+// Podsumowanie.
+// ---------------------------------------------------------------------------
+echo "\n--------------------------------------------------\n";
+echo 'Asercji: ' . $ran . ' | bledow: ' . $fail . "\n";
+
+if ( 0 === $fail ) {
+	echo "WSZYSTKIE ASERCJE OK\n";
+	exit( 0 );
+}
+
+echo "BŁĘDY: " . $fail . "\n";
+exit( 1 );

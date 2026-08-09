@@ -128,6 +128,79 @@ final class Runner {
 	public const MAX_TEXT_BYTES = 65000;
 
 	// -----------------------------------------------------------------------
+	// Tick crona
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Jeden przebieg automatyczny — sluchacz uchwytu `ainp_tick` (etap 5.1).
+	 *
+	 * Trzy fazy w tej samej kolejnosci, w jakiej klient klika trzy przyciski
+	 * w panelu: POBIERZ → PRZYGOTUJ TRESC → OPUBLIKUJ. Kolejnosc nie jest
+	 * dowolna. Pozycja zapisana w pierwszej fazie moze byc przygotowana w tym
+	 * samym przebiegu, a przygotowana — opublikowana; przy odwrotnej kolejnosci
+	 * material zawsze czekalby na nastepna godzine i pierwszy artykul powstawalby
+	 * po trzech tickach zamiast po jednym.
+	 *
+	 * ZAMEK JEST TEN SAM, CO W PANELU, i o to wlasnie chodzi: cron nie moze
+	 * wejsc w partie, ktora wlasnie mieli klient przyciskiem, bo obie wzielyby
+	 * te same wiersze. Zdejmowany w `finally` — przebieg przerwany wyjatkiem nie
+	 * ma prawa zostawic martwych przyciskow na cale `Admin::LOCK_TTL`.
+	 *
+	 * ZADNA FAZA NIE PRZERYWA NASTEPNEJ. Padniete zrodlo, brak klucza API czy
+	 * wyczerpana pula dobowa konczy sie wpisem w podsumowaniu, nie wyjatkiem —
+	 * to trzecie z zabezpieczen nienaruszalnych („nie zatrzymuje sie przy typowym
+	 * bledzie"). Sam `\Throwable` z fazy jest lapany, zeby jedna zepsuta faza nie
+	 * zabrala dwoch pozostalych.
+	 *
+	 * Przejecie pozycji (`status='processing'`) dochodzi w etapie 5.2, a budzety
+	 * czasu i pamieci calego ticku w 5.3 — tu fazy dostaja swoje wartosci domyslne.
+	 *
+	 * @return array<string,mixed> Podsumowanie trzech faz; `locked` mowi, ze
+	 *                             przebieg nie ruszyl, bo trwal inny.
+	 */
+	public static function tick(): array {
+		$wynik = array(
+			'locked'  => false,
+			'collect' => array(),
+			'prepare' => array(),
+			'publish' => array(),
+			'errors'  => array(),
+		);
+
+		if ( false !== get_transient( Admin::TRANSIENT_LOCK ) ) {
+			$wynik['locked'] = true;
+
+			return $wynik;
+		}
+
+		set_transient( Admin::TRANSIENT_LOCK, time(), Admin::LOCK_TTL );
+
+		try {
+			foreach ( array( 'collect', 'prepare', 'publish' ) as $faza ) {
+				try {
+					switch ( $faza ) {
+						case 'collect':
+							$wynik['collect'] = self::collect();
+							break;
+						case 'prepare':
+							$wynik['prepare'] = self::prepare_batch();
+							break;
+						default:
+							$wynik['publish'] = self::publish_batch();
+							break;
+					}
+				} catch ( \Throwable $e ) {
+					$wynik['errors'][ $faza ] = $e->getMessage();
+				}
+			}
+		} finally {
+			delete_transient( Admin::TRANSIENT_LOCK );
+		}
+
+		return $wynik;
+	}
+
+	// -----------------------------------------------------------------------
 	// Przebieg
 	// -----------------------------------------------------------------------
 

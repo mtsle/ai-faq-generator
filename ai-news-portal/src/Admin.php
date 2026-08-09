@@ -111,6 +111,17 @@ final class Admin {
 	 */
 	public const LOCK_TTL = 120;
 
+	/**
+	 * Okno, w ktorym „tick jest juz nalezny" — 10 minut (etap 5.1).
+	 *
+	 * Tyle samo, ile wynosi wlasna ochrona WordPressa przed duplikatem
+	 * w `wp_schedule_single_event()`: zdarzenie zaplanowane blizej niz 10 minut
+	 * od istniejacego i tak zostaloby odrzucone przez rdzen. Trzymanie tej samej
+	 * liczby po naszej stronie sprawia, ze warunek w kodzie mowi to samo,
+	 * co zrobi WordPress — zamiast planowac zdarzenie, ktore ginie po cichu.
+	 */
+	public const FIRST_RUN_WINDOW = 600;
+
 	// -----------------------------------------------------------------------
 	// Rejestracja
 	// -----------------------------------------------------------------------
@@ -310,12 +321,16 @@ final class Admin {
 	 *      Ustawien pod rzad nie zrobilo dziesieciu zdarzen. Ta funkcja TYLKO
 	 *      SPRAWDZA — sama niczego nie planuje.
 	 *   3. `wp_schedule_single_event()`, nie `wp_schedule_event()`: to jest
-	 *      pojedynczy start, a nie harmonogram. Powtarzalny `ainp_tick`
-	 *      zaklada aktywacja w etapie 5.1 i to on jest jego wlascicielem.
+	 *      pojedynczy start, a nie harmonogram. Powtarzalny `ainp_tick` zaklada
+	 *      aktywacja (etap 5.1) i to `Plugin` jest jego wlascicielem.
 	 *
-	 * Uchwyt `ainp_tick` dostaje sluchacza dopiero w Kroku 5. Zaplanowane
-	 * zdarzenie bez sluchacza jest w WordPressie nieszkodliwe: odpala sie,
-	 * nikt go nie lapie, znika z harmonogramu.
+	 * ZMIANA Z ETAPU 5.1: warunek pyta o tick NALEZNY W CIAGU `FIRST_RUN_WINDOW`,
+	 * nie o „jakiekolwiek zaplanowane zdarzenie". Od chwili, gdy aktywacja
+	 * planuje powtarzalny `ainp_tick`, dawny warunek byl spelniony ZAWSZE —
+	 * pierwszy przebieg po zapisaniu Ustawien przestalby powstawac po cichu,
+	 * a klient czekalby na artykul do konca biezacej godziny zamiast sekundy.
+	 * Nowy warunek nadal blokuje dziesiec zapisow pod rzad: pojedyncze zdarzenie
+	 * zaplanowane na „juz" samo miesci sie w oknie.
 	 *
 	 * @return void
 	 */
@@ -329,7 +344,9 @@ final class Admin {
 			return;
 		}
 
-		if ( false !== wp_next_scheduled( Plugin::CRON_HOOK ) ) {
+		$najblizszy = wp_next_scheduled( Plugin::CRON_HOOK );
+
+		if ( false !== $najblizszy && ( (int) $najblizszy - time() ) <= self::FIRST_RUN_WINDOW ) {
 			return;
 		}
 

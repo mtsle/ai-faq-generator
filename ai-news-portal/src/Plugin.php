@@ -31,8 +31,17 @@ final class Plugin {
 	/** Czlon adresu: archiwum CPT, single i archiwa kategorii. */
 	public const ARCHIVE_SLUG = 'centrum-wiedzy';
 
-	/** Zdarzenie crona (jedyne). Planowane w Kroku 5. */
+	/** Zdarzenie crona (jedyne). Planowane przy aktywacji — etap 5.1. */
 	public const CRON_HOOK = 'ainp_tick';
+
+	/**
+	 * Powtarzalnosc `ainp_tick` — nazwa harmonogramu WordPressa.
+	 *
+	 * `hourly` jest wbudowane, wiec wtyczka nie dokłada wlasnego wpisu do
+	 * `cron_schedules`. Czestsze bieganie nie ma sensu: dobowa pula wywolan AI
+	 * to 20, a jeden przebieg publikacji bierze do trzech pozycji.
+	 */
+	public const CRON_RECURRENCE = 'hourly';
 
 	/** Nazwa tabeli bez prefiksu witryny. */
 	public const TABLE = 'ainp_items';
@@ -74,6 +83,15 @@ final class Plugin {
 		add_action( 'init', array( self::class, 'register_content_types' ) );
 		add_action( 'admin_menu', array( Admin::class, 'register_menu' ) );
 		add_action( 'admin_notices', array( self::class, 'render_admin_notices' ) );
+
+		/*
+		 * SLUCHACZ TICKU — etap 5.1. Podpiety BEZWARUNKOWO, tak jak hooki panelu:
+		 * cron odpala sie w zadaniu, ktore nie jest kokpitem, wiec kazde owiniecie
+		 * w `is_admin()` uczynioloby harmonogram martwym. Harmonogram nalezy do
+		 * tego pliku, wykonanie do `Runner::tick()` — jeden wlasciciel kazdej
+		 * z tych dwoch rzeczy.
+		 */
+		add_action( self::CRON_HOOK, array( Runner::class, 'tick' ) );
 
 		// Akcje formularzy panelu (`admin_post_ainp_*`) — etap 2.5.
 		Admin::register_actions();
@@ -209,6 +227,71 @@ final class Plugin {
 
 		self::note_slug_collision();
 		self::maybe_insert_demo();
+
+		/*
+		 * Harmonogram NA KONCU aktywacji, nie na poczatku. Tick czyta i zapisuje
+		 * tabele `ainp_items`, wiec zdarzenie zaplanowane przed `create_table()`
+		 * moze odpalic na wpol zainstalowanej wtyczce, gdyby aktywacja przerwala
+		 * sie w polowie.
+		 */
+		self::schedule_tick();
+	}
+
+	/**
+	 * Powtarzalne zdarzenie `ainp_tick` — cale zrodlo automatyzacji.
+	 *
+	 * DWIE FUNKCJE, KTORYCH NIE WOLNO POMYLIC: `wp_next_scheduled()` TYLKO
+	 * SPRAWDZA, czy zdarzenie o tym uchwycie jest w harmonogramie, i sama
+	 * niczego nie planuje. Powtarzalnosc ustawia wylacznie `wp_schedule_event()`.
+	 * Pomylenie ich daje cron, ktory nigdy nie zatyka — wtyczka wyglada na
+	 * dzialajaca, a portal milczy.
+	 *
+	 * Warunek wejscia jest MOCNIEJSZY niz samo „cos jest zaplanowane": pytamy
+	 * o zdarzenie POWTARZALNE. Inaczej pojedyncze zdarzenie z etapu 4.6
+	 * (pierwszy przebieg po zapisaniu Ustawien) przeslanialoby brak harmonogramu
+	 * i wtyczka zostalaby bez cyklu az do nastepnej reaktywacji.
+	 *
+	 * @return void
+	 */
+	private static function schedule_tick(): void {
+		if ( ! function_exists( 'wp_schedule_event' ) || ! function_exists( 'wp_next_scheduled' ) ) {
+			return;
+		}
+
+		if ( self::has_recurring_tick() ) {
+			return;
+		}
+
+		wp_schedule_event( time(), self::CRON_RECURRENCE, self::CRON_HOOK );
+	}
+
+	/**
+	 * Czy w harmonogramie stoi juz POWTARZALNY `ainp_tick`.
+	 *
+	 * Sciezka odwrotu jest istotna: gdy `wp_get_scheduled_event()` nie istnieje
+	 * (starszy WordPress), zostaje sama odpowiedz „cos jest zaplanowane" i wtedy
+	 * NIE planujemy drugi raz. Duplikat harmonogramu jest gorszy niz jego brak —
+	 * bije w dobowa pule wywolan AI, a brak widac od razu na portalu.
+	 *
+	 * `wp_get_scheduled_event()` oddaje zdarzenie NAJBLIZSZE, wiec pojedyncze
+	 * zdarzenie stojace przed powtarzalnym daloby tu `false`. Na aktywacji jest
+	 * to nieosiagalne: dezaktywacja czysci caly uchwyt, a aktywowac mozna tylko
+	 * wtyczke wylaczona.
+	 *
+	 * @return bool
+	 */
+	private static function has_recurring_tick(): bool {
+		if ( false === wp_next_scheduled( self::CRON_HOOK ) ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'wp_get_scheduled_event' ) ) {
+			return true;
+		}
+
+		$zdarzenie = wp_get_scheduled_event( self::CRON_HOOK );
+
+		return is_object( $zdarzenie ) && self::CRON_RECURRENCE === ( $zdarzenie->schedule ?? '' );
 	}
 
 	/**
