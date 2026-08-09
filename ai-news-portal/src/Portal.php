@@ -53,6 +53,136 @@ final class Portal {
 		add_filter( 'template_include', array( self::class, 'filter_template' ) );
 		add_action( 'template_redirect', array( self::class, 'redirect_taxonomy_base' ) );
 		add_action( 'wp_enqueue_scripts', array( self::class, 'enqueue' ) );
+		add_action( 'pre_get_posts', array( self::class, 'search_query' ) );
+	}
+
+	/**
+	 * Nazwa parametru wyszukiwania. WLASNA, nie `s`. Etap 6.3.
+	 *
+	 * Zwykle `?s=` byloby tu bledem, ktorego nie widac po samym adresie:
+	 * w hierarchii szablonow `is_search()` jest sprawdzane PRZED
+	 * `is_post_type_archive()`, wiec WordPress zaladowalby `search.php`
+	 * motywu i wynik szukania w Centrum Wiedzy wygladalby jak wyszukiwarka
+	 * bloga. Przy `ainp_s` flaga `is_search()` zostaje falszywa, routing nie
+	 * ucieka z archiwum, a adres pozostaje `/centrum-wiedzy/?ainp_s=karma`.
+	 */
+	public const SEARCH_VAR = 'ainp_s';
+
+	/**
+	 * Przepisuje `ainp_s` na `s` w glownym zapytaniu archiwum. Etap 6.3.
+	 *
+	 * `set('s', ...)` w `pre_get_posts` NIE wlacza flagi `is_search()` —
+	 * flagi ustawia `parse_query()`, ktore juz sie wykonalo. To nie jest
+	 * efekt uboczny, tylko caly powod, dla ktorego mechanizm wyglada wlasnie
+	 * tak: dostajemy wyszukiwanie w zapytaniu, nie zmieniajac tego, czym
+	 * zapytanie jest dla hierarchii szablonow.
+	 *
+	 * @param object $zapytanie Obiekt `WP_Query`.
+	 *
+	 * @return void
+	 */
+	public static function search_query( $zapytanie ): void {
+		if ( is_admin() || ! is_object( $zapytanie ) ) {
+			return;
+		}
+
+		if ( ! method_exists( $zapytanie, 'is_main_query' ) || ! $zapytanie->is_main_query() ) {
+			return;
+		}
+
+		if ( ! self::is_archive_view() ) {
+			return;
+		}
+
+		$fraza = self::search_term();
+		if ( '' === $fraza ) {
+			return;
+		}
+
+		$zapytanie->set( 's', $fraza );
+	}
+
+	/**
+	 * Szukana fraza z adresu. Pusty ciag, gdy nie szukamy. Etap 6.3.
+	 *
+	 * Nonce'a tu nie ma i byc nie powinno: to jest odczyt publicznej listy
+	 * przez GET, bez zadnego skutku ubocznego. Nonce chroni przed wykonaniem
+	 * AKCJI w cudzym imieniu, a nie przed czytaniem archiwum — dokladanie go
+	 * do wyszukiwarki zepsuloby adresy do udostepniania i zakladki.
+	 *
+	 * @return string
+	 */
+	public static function search_term(): string {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- publiczny odczyt archiwum, patrz opis.
+		if ( ! isset( $_GET[ self::SEARCH_VAR ] ) ) {
+			return '';
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- j.w.
+		$fraza = sanitize_text_field( wp_unslash( $_GET[ self::SEARCH_VAR ] ) );
+
+		return trim( (string) $fraza );
+	}
+
+	/**
+	 * Czy to widok listy (archiwum CPT albo archiwum kategorii).
+	 *
+	 * @return bool
+	 */
+	public static function is_archive_view(): bool {
+		return is_post_type_archive( Plugin::CPT ) || is_tax( Plugin::TAX );
+	}
+
+	/**
+	 * Kategorie na przyciski — tylko te, ktore maja artykuly. Etap 6.3.
+	 *
+	 * `hide_empty` jest tu istotne: lista kategorii pochodzi z Ustawien i ma
+	 * siedem pozycji od pierwszego dnia, a artykuly przybywaja po kilka
+	 * dziennie. Przycisk prowadzacy do pustego archiwum to obietnica bez
+	 * pokrycia — wiec pokazujemy wylacznie kategorie, w ktorych cos jest.
+	 *
+	 * @return array<int,object>
+	 */
+	public static function categories(): array {
+		$terminy = get_terms(
+			array(
+				'taxonomy'   => Plugin::TAX,
+				'hide_empty' => true,
+				'orderby'    => 'name',
+			)
+		);
+
+		if ( ! is_array( $terminy ) ) {
+			return array();
+		}
+
+		return array_values( array_filter( $terminy, 'is_object' ) );
+	}
+
+	/**
+	 * Adres archiwum Centrum Wiedzy. Etap 6.3.
+	 *
+	 * @return string
+	 */
+	public static function archive_link(): string {
+		$link = get_post_type_archive_link( Plugin::CPT );
+
+		return ( is_string( $link ) && '' !== $link ) ? $link : home_url( '/' );
+	}
+
+	/**
+	 * Slug ogladanej kategorii albo pusty ciag. Etap 6.3.
+	 *
+	 * @return string
+	 */
+	public static function current_term_slug(): string {
+		if ( ! is_tax( Plugin::TAX ) ) {
+			return '';
+		}
+
+		$termin = get_queried_object();
+
+		return ( is_object( $termin ) && isset( $termin->slug ) ) ? (string) $termin->slug : '';
 	}
 
 	/**
@@ -221,6 +351,12 @@ final class Portal {
 	 * @return string
 	 */
 	public static function archive_title(): string {
+		$fraza = self::search_term();
+		if ( '' !== $fraza ) {
+			/* translators: %s: szukana fraza. */
+			return sprintf( __( 'Wyniki wyszukiwania: „%s”', 'ai-news-portal' ), $fraza );
+		}
+
 		if ( is_tax( Plugin::TAX ) ) {
 			$termin = get_queried_object();
 			if ( is_object( $termin ) && isset( $termin->name ) && '' !== (string) $termin->name ) {

@@ -203,13 +203,14 @@ namespace {
 	\AINP\Portal::register();
 	$hooki = $GLOBALS['__stan']['hooki'];
 
-	k6p_check( 3 === count( $hooki ), 'register() podpina dokladnie 3 hooki (jest: ' . count( $hooki ) . ')' );
+	k6p_check( 4 === count( $hooki ), 'register() podpina dokladnie 4 hooki (jest: ' . count( $hooki ) . ')' );
 	k6p_check( 'filter' === $hooki[0][0] && 'template_include' === $hooki[0][1], 'pierwszy to filtr template_include' );
 	k6p_check( 'action' === $hooki[1][0] && 'template_redirect' === $hooki[1][1], 'drugi to akcja template_redirect' );
 	// Dolozone w 6.2. Arkusz stylow ma wlasny zestaw asercji w `krok6-karty-test.php`;
 	// tutaj interesuje nas wylacznie to, ze `register()` jest jedynym miejscem,
 	// w ktorym front wtyczki podpina sie do WordPressa.
 	k6p_check( 'action' === $hooki[2][0] && 'wp_enqueue_scripts' === $hooki[2][1], 'trzeci to akcja wp_enqueue_scripts' );
+	k6p_check( 'action' === $hooki[3][0] && 'pre_get_posts' === $hooki[3][1], 'czwarty to akcja pre_get_posts (etap 6.3)' );
 
 	// ---------------------------------------------------------------------
 	echo "\n-- Archiwum CPT --\n";

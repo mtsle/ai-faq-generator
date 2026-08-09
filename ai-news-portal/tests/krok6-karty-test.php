@@ -63,9 +63,11 @@ namespace {
 		'is404'     => false,
 		'obiekt'    => null,
 		'motyw'     => array(),
-		'style'     => array(),
-		'terminy'   => array(),
-		'wpisy'     => array(),
+		'style'          => array(),
+		'terminy'        => array(),
+		'wpisy'          => array(),
+		'is_admin'       => false,
+		'lista_terminow' => array(),
 	);
 	$GLOBALS['__narysowano'] = array();
 
@@ -133,6 +135,45 @@ namespace {
 
 	function __( $tekst, $domena = '' ) {
 		return $tekst; }
+
+	function is_admin() {
+		return (bool) $GLOBALS['__stan']['is_admin'];
+	}
+
+	function get_post_type_archive_link( $typ ) {
+		return 'https://dworek.local/centrum-wiedzy/';
+	}
+
+	function home_url( $sciezka = '' ) {
+		return 'https://dworek.local' . $sciezka;
+	}
+
+	function get_terms( $args = array() ) {
+		return $GLOBALS['__stan']['lista_terminow'];
+	}
+
+	function wp_unslash( $wartosc ) {
+		return is_string( $wartosc ) ? stripslashes( $wartosc ) : $wartosc;
+	}
+
+	function sanitize_text_field( $tekst ) {
+		return trim( strip_tags( (string) $tekst ) );
+	}
+
+	/** Atrapa `WP_Query` — tyle, ile widzi `Portal::search_query()`. */
+	class Fake_Query {
+		public $glowne;
+		public $ustawione = array();
+		public function __construct( $glowne = true ) {
+			$this->glowne = $glowne;
+		}
+		public function is_main_query() {
+			return $this->glowne;
+		}
+		public function set( $klucz, $wartosc ) {
+			$this->ustawione[ $klucz ] = $wartosc;
+		}
+	}
 
 	function esc_html( $tekst ) {
 		return htmlspecialchars( (string) $tekst, ENT_QUOTES ); }
@@ -300,6 +341,109 @@ namespace {
 	$GLOBALS['__narysowano']    = array();
 	Portal::part( 'nie-ma-takiego.php' );
 	k6k_check( array() === $GLOBALS['__narysowano'], 'brak pliku → cisza, zero bledu krytycznego' );
+
+	// ---------------------------------------------------------------------
+	echo "\n-- Wyszukiwarka: wlasny parametr (etap 6.3) --\n";
+
+	k6k_check( 'ainp_s' === Portal::SEARCH_VAR, 'parametr wyszukiwania to ainp_s, NIE s' );
+
+	unset( $_GET['ainp_s'] );
+	k6k_check( '' === Portal::search_term(), 'bez parametru fraza jest pusta' );
+
+	$_GET['ainp_s'] = '  karma dla szczeniaka  ';
+	k6k_check( 'karma dla szczeniaka' === Portal::search_term(), 'fraza przycinana z bialych znakow' );
+
+	$_GET['ainp_s'] = '<script>alert(1)</script>psy';
+	k6k_check(
+		false === strpos( Portal::search_term(), '<script' ),
+		'znaczniki wycinane z frazy zanim trafi do zapytania i na naglowek'
+	);
+
+	echo "\n-- Przepisanie ainp_s na s --\n";
+
+	$_GET['ainp_s']               = 'karma';
+	$GLOBALS['__stan']['archive'] = true;
+	$GLOBALS['__stan']['tax']     = false;
+
+	$q = new Fake_Query();
+	Portal::search_query( $q );
+	k6k_check( array( 's' => 'karma' ) === $q->ustawione, 'na archiwum fraza trafia do zapytania jako s' );
+
+	$GLOBALS['__stan']['tax']     = true;
+	$GLOBALS['__stan']['archive'] = false;
+	$q = new Fake_Query();
+	Portal::search_query( $q );
+	k6k_check( array( 's' => 'karma' ) === $q->ustawione, 'na archiwum kategorii szukanie tez dziala' );
+
+	$q = new Fake_Query( false );
+	Portal::search_query( $q );
+	k6k_check( array() === $q->ustawione, 'zapytanie POBOCZNE (widget, powiazane) nie jest ruszane' );
+
+	$GLOBALS['__stan']['is_admin'] = true;
+	$q = new Fake_Query();
+	Portal::search_query( $q );
+	k6k_check( array() === $q->ustawione, 'w kokpicie zapytanie nie jest ruszane' );
+	$GLOBALS['__stan']['is_admin'] = false;
+
+	$GLOBALS['__stan']['tax']     = false;
+	$GLOBALS['__stan']['archive'] = false;
+	$q = new Fake_Query();
+	Portal::search_query( $q );
+	k6k_check( array() === $q->ustawione, 'poza Centrum Wiedzy fraza NIE jest podstawiana do cudzego archiwum' );
+
+	$GLOBALS['__stan']['archive'] = true;
+	unset( $_GET['ainp_s'] );
+	$q = new Fake_Query();
+	Portal::search_query( $q );
+	k6k_check( array() === $q->ustawione, 'bez frazy zapytanie zostaje nietkniete' );
+
+	$_GET['ainp_s'] = '   ';
+	$q = new Fake_Query();
+	Portal::search_query( $q );
+	k6k_check( array() === $q->ustawione, 'sama spacja to nie jest szukanie' );
+
+	echo "\n-- Naglowek przy szukaniu --\n";
+
+	$_GET['ainp_s'] = 'karma dla szczeniaka';
+	k6k_check(
+		'Wyniki wyszukiwania: „karma dla szczeniaka”' === Portal::archive_title(),
+		'naglowek pokazuje szukana fraze'
+	);
+
+	$GLOBALS['__stan']['tax']    = true;
+	$GLOBALS['__stan']['obiekt'] = $zywienie;
+	k6k_check(
+		'Wyniki wyszukiwania: „karma dla szczeniaka”' === Portal::archive_title(),
+		'szukanie z poziomu kategorii tez daje naglowek wynikow, nie nazwe kategorii'
+	);
+	unset( $_GET['ainp_s'] );
+
+	echo "\n-- Przyciski kategorii --\n";
+
+	$GLOBALS['__stan']['lista_terminow'] = array(
+		$zywienie,
+		(object) array( 'name' => 'Zdrowie', 'slug' => 'zdrowie' ),
+	);
+	k6k_check( 2 === count( Portal::categories() ), 'lista kategorii oddaje terminy z artykulami' );
+
+	$GLOBALS['__stan']['lista_terminow'] = new \WP_Error( 'brak', 'nie ma taksonomii' );
+	k6k_check( array() === Portal::categories(), 'WP_Error z get_terms() zamienia sie w pusta liste, nie w blad' );
+
+	$GLOBALS['__stan']['lista_terminow'] = array( $zywienie, 'smiec', null );
+	k6k_check( 1 === count( Portal::categories() ), 'wpisy, ktore nie sa obiektami, sa odsiewane' );
+
+	$GLOBALS['__stan']['tax']    = true;
+	$GLOBALS['__stan']['obiekt'] = $zywienie;
+	k6k_check( 'zywienie' === Portal::current_term_slug(), 'na archiwum kategorii znany jest jej slug' );
+
+	$GLOBALS['__stan']['tax']     = false;
+	$GLOBALS['__stan']['archive'] = true;
+	k6k_check( '' === Portal::current_term_slug(), 'na archiwum CPT zadna kategoria nie jest zaznaczona' );
+
+	k6k_check(
+		'https://dworek.local/centrum-wiedzy/' === Portal::archive_link(),
+		'formularz i przycisk Wszystkie celuja w archiwum Centrum Wiedzy'
+	);
 
 	// ---------------------------------------------------------------------
 	echo "\n-- Pliki szablonow --\n";

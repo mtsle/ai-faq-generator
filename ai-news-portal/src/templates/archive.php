@@ -27,6 +27,51 @@ get_header();
 
 	<header class="ainp-portal__head">
 		<h1 class="ainp-portal__title"><?php echo esc_html( Portal::archive_title() ); ?></h1>
+
+		<?php
+		/*
+		 * FORMULARZ GET, zero JavaScriptu. `action` celuje w archiwum, a nie
+		 * w biezacy adres: szukanie z poziomu kategorii ma przeszukiwac CALE
+		 * Centrum Wiedzy, nie zawezac wyniku do kategorii, w ktorej akurat
+		 * stoimy. Inaczej pusty wynik wygladalby jak brak artykulu w portalu.
+		 */
+		?>
+		<form class="ainp-portal__search" role="search" method="get"
+			action="<?php echo esc_url( Portal::archive_link() ); ?>">
+			<label class="screen-reader-text" for="ainp-search">
+				<?php esc_html_e( 'Szukaj w Centrum Wiedzy', 'ai-news-portal' ); ?>
+			</label>
+			<input type="search" id="ainp-search" name="<?php echo esc_attr( Portal::SEARCH_VAR ); ?>"
+				value="<?php echo esc_attr( Portal::search_term() ); ?>"
+				placeholder="<?php esc_attr_e( 'np. karma dla szczeniaka', 'ai-news-portal' ); ?>">
+			<button type="submit"><?php esc_html_e( 'Szukaj', 'ai-news-portal' ); ?></button>
+		</form>
+
+		<?php $ainp_kategorie = Portal::categories(); ?>
+		<?php if ( array() !== $ainp_kategorie ) : ?>
+			<nav class="ainp-portal__cats" aria-label="<?php esc_attr_e( 'Kategorie', 'ai-news-portal' ); ?>">
+				<?php $ainp_biezaca = Portal::current_term_slug(); ?>
+				<a class="ainp-chip<?php echo ( '' === $ainp_biezaca ) ? ' is-current' : ''; ?>"
+					href="<?php echo esc_url( Portal::archive_link() ); ?>"
+					<?php echo ( '' === $ainp_biezaca ) ? ' aria-current="page"' : ''; ?>>
+					<?php esc_html_e( 'Wszystkie', 'ai-news-portal' ); ?>
+				</a>
+				<?php foreach ( $ainp_kategorie as $ainp_termin ) : ?>
+					<?php
+					$ainp_adres = Portal::term_link( $ainp_termin );
+					if ( '' === $ainp_adres ) {
+						continue;
+					}
+					$ainp_tu = ( $ainp_biezaca === (string) $ainp_termin->slug );
+					?>
+					<a class="ainp-chip<?php echo $ainp_tu ? ' is-current' : ''; ?>"
+						href="<?php echo esc_url( $ainp_adres ); ?>"
+						<?php echo $ainp_tu ? ' aria-current="page"' : ''; ?>>
+						<?php echo esc_html( $ainp_termin->name ); ?>
+					</a>
+				<?php endforeach; ?>
+			</nav>
+		<?php endif; ?>
 	</header>
 
 	<?php if ( have_posts() ) : ?>
@@ -42,9 +87,15 @@ get_header();
 
 	<?php else : ?>
 
-		<p class="ainp-portal__empty">
-			<?php esc_html_e( 'Nie ma tu jeszcze żadnych artykułów.', 'ai-news-portal' ); ?>
-		</p>
+		<?php if ( '' !== Portal::search_term() ) : ?>
+			<p class="ainp-portal__empty">
+				<?php esc_html_e( 'Nic nie pasuje do tego zapytania. Spróbuj innego słowa albo zajrzyj do kategorii powyżej.', 'ai-news-portal' ); ?>
+			</p>
+		<?php else : ?>
+			<p class="ainp-portal__empty">
+				<?php esc_html_e( 'Nie ma tu jeszcze żadnych artykułów.', 'ai-news-portal' ); ?>
+			</p>
+		<?php endif; ?>
 
 	<?php endif; ?>
 
