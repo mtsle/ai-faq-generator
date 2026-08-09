@@ -245,6 +245,20 @@ final class Admin {
 		}
 
 		try {
+			/*
+			 * ODZYSK PORZUCONYCH POZYCJI — ustalenie audytowe P2.
+			 *
+			 * Do tej pory odzysk zyl wylacznie w ticku, wiec wiersz zostawiony
+			 * w `processing` przez zabity proces byl niewidoczny dla OBU zapytan
+			 * wybierajacych az do nastepnej godziny — a klient, ktory wlasnie klika,
+			 * widzial pusty przebieg bez jednego slowa wyjasnienia.
+			 *
+			 * Po zamku, nie przed: proces, ktory zamka nie dostal, i tak nic nie
+			 * zrobi, wiec nie ma po co ruszac bazy. Po `guard()`, wiec zadanie bez
+			 * uprawnienia albo bez nonce'a nadal nie wysyla ANI JEDNEGO zapytania.
+			 */
+			Runner::recover_stalled();
+
 			$podsumowanie = Runner::prepare_batch();
 		} finally {
 			self::release_lock();
@@ -274,6 +288,20 @@ final class Admin {
 		}
 
 		try {
+			/*
+			 * ODZYSK PORZUCONYCH POZYCJI — ustalenie audytowe P2.
+			 *
+			 * Do tej pory odzysk zyl wylacznie w ticku, wiec wiersz zostawiony
+			 * w `processing` przez zabity proces byl niewidoczny dla OBU zapytan
+			 * wybierajacych az do nastepnej godziny — a klient, ktory wlasnie klika,
+			 * widzial pusty przebieg bez jednego slowa wyjasnienia.
+			 *
+			 * Po zamku, nie przed: proces, ktory zamka nie dostal, i tak nic nie
+			 * zrobi, wiec nie ma po co ruszac bazy. Po `guard()`, wiec zadanie bez
+			 * uprawnienia albo bez nonce'a nadal nie wysyla ANI JEDNEGO zapytania.
+			 */
+			Runner::recover_stalled();
+
 			$podsumowanie = Runner::publish_batch();
 		} finally {
 			// `finally`, bo wyjatek w polowie partii zostawilby zamek na cale

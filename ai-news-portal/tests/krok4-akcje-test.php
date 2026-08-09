@@ -535,6 +535,46 @@ namespace {
 	k4a_check( array( Admin::ACTION_PREPARE ) === $GLOBALS['__nonce_akcje'], 'przygotowanie pyta o swoj wlasny nonce' );
 
 	// ------------------------------------------------------------------
+	echo "
+-- P2: przycisk odzyskuje pozycje porzucone przez zabity przebieg --
+";
+
+	/*
+	 * Do naprawy P2 odzysk zyl wylacznie w ticku, wiec wiersz zostawiony
+	 * w `processing` byl niewidoczny dla obu zapytan wybierajacych az do
+	 * nastepnej godziny — a klient, ktory wlasnie klikal, widzial pusty
+	 * przebieg bez slowa wyjasnienia.
+	 */
+	foreach ( array( 'handle_prepare', 'handle_publish' ) as $akcja ) {
+		k4a_reset();
+		k4a_akcja( $akcja );
+
+		$odzysk = array_values(
+			array_filter(
+				$GLOBALS['wpdb']->zapytania,
+				function ( $sql ) {
+					return false !== strpos( $sql, "SET status = 'new'" )
+						&& false !== strpos( $sql, "WHERE status = 'processing'" );
+				}
+			)
+		);
+
+		k4a_check( 1 === count( $odzysk ), $akcja . ': odzysk porzuconych pozycji wykonany DOKLADNIE raz (jest: ' . count( $odzysk ) . ')' );
+	}
+
+	/*
+	 * Bramka jest wczesniej niz odzysk: zadanie bez nonce'a ma nadal nie wysylac
+	 * ANI JEDNEGO zapytania. Ta asercja pilnuje kolejnosci, ktorej sam odzysk
+	 * juz nie widzi.
+	 */
+	k4a_reset();
+	$GLOBALS['__nonce_ok'] = false;
+	k4a_akcja( 'handle_prepare' );
+
+	k4a_check( array() === $GLOBALS['wpdb']->zapytania, 'bez poprawnego nonce odzysk NIE rusza bazy (zapytan: ' . count( $GLOBALS['wpdb']->zapytania ) . ')' );
+	$GLOBALS['__nonce_ok'] = true;
+
+	// ------------------------------------------------------------------
 	echo "\n-- Zamek: dwuklik w „Opublikuj teraz” --\n";
 
 	k4a_reset();
