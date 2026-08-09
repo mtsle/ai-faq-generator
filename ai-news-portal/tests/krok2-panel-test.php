@@ -194,8 +194,47 @@ function wp_encode_emoji( $t ) {
 }
 
 /** Atrapa `$wpdb` na potrzeby odczytu tabeli. */
+/**
+ * Emulacja ATOMOWEGO zamka z naprawy A5.
+ *
+ * Zamek nie jest juz transientem, tylko wierszem w tabeli `options` zakladanym
+ * przez `INSERT IGNORE`. Atrapa musi odwzorowac dokladnie to, na czym stoi cala
+ * naprawa: drugi proces dostaje ZERO zmienionych wierszy, a nie wyjatek i nie
+ * ciche nadpisanie.
+ *
+ * @param string $sql Zapytanie po podstawieniu wartosci albo z `%s`.
+ *
+ * @return int|null Liczba zmienionych wierszy albo `null`, gdy to nie zamek.
+ */
+function ainp_zamek_query( $sql ) {
+	if ( false !== strpos( $sql, 'INSERT IGNORE INTO' ) && false !== strpos( $sql, 'option_name' ) ) {
+		if ( null !== $GLOBALS['__lock'] ) {
+			return 0;
+		}
+
+		$GLOBALS['__lock'] = (string) time();
+
+		return 1;
+	}
+
+	if ( false !== strpos( $sql, 'DELETE FROM' ) && false !== strpos( $sql, 'option_name' ) ) {
+		$GLOBALS['__lock'] = null;
+
+		return 1;
+	}
+
+	if ( false !== strpos( $sql, 'SET option_value' ) ) {
+		// CAS przejmujacy zamek po trupie — w tescie zawsze nieudany, bo atrapa
+		// nie stawia zamkow starszych niz `LOCK_TTL`.
+		return 0;
+	}
+
+	return null;
+}
+
 class AINP_Fake_WPDB {
 	public $prefix   = 'wp_';
+	public $options  = 'wp_options';
 	public $prepared = 0;
 	public $queries  = array();
 	public $wiersze  = array();
@@ -214,6 +253,21 @@ class AINP_Fake_WPDB {
 		);
 	}
 
+	/*
+	 * Ekran Materialow liczy od etapu 5.4 pozycje `failed` i te z nich, ktore
+	 * wroca do modelu (ustalenie audytowe A4). Bez tej metody render konczy sie
+	 * bledem krytycznym — atrapa musi znac kazde zapytanie, ktore ekran wysyla.
+	 */
+	public function get_var( $sql ) {
+		if ( false !== strpos( $sql, 'SELECT option_value' ) ) {
+			return $GLOBALS['__lock'];
+		}
+
+		$this->queries[] = $sql;
+
+		return '0';
+	}
+
 	public function get_results( $sql ) {
 		$this->queries[] = $sql;
 
@@ -223,12 +277,18 @@ class AINP_Fake_WPDB {
 		 * byl postawiony — a to jedyne, co ten zamek robi. Odczyt tabeli
 		 * dzieje sie W TRAKCIE partii, wiec tutaj widac stan prawdziwy.
 		 */
-		$GLOBALS['__zamek_w_trakcie'] = array_key_exists( 'ainp_prepare_lock', $GLOBALS['__transient'] );
+		$GLOBALS['__zamek_w_trakcie'] = ( null !== $GLOBALS['__lock'] );
 
 		return $this->wiersze;
 	}
 
 	public function query( $sql ) {
+		$zamek = ainp_zamek_query( $sql );
+
+		if ( null !== $zamek ) {
+			return $zamek;
+		}
+
 		$this->queries[] = $sql;
 		return 1;
 	}
@@ -536,14 +596,14 @@ k2p_check(
 	'zamek STOI w trakcie partii — sprawdzone w chwili odczytu tabeli, nie po fakcie'
 );
 k2p_check(
-	! array_key_exists( Admin::TRANSIENT_LOCK, $GLOBALS['__transient'] ),
+	null === $GLOBALS['__lock'],
 	'zamek ZDJETY po skonczonej partii — inaczej przycisk jest martwy przez ' . Admin::LOCK_TTL . ' s'
 );
 
 $zapytan_po_pierwszym = count( $GLOBALS['wpdb']->queries );
 
 // Drugie klikniecie, gdy zamek jeszcze stoi.
-$GLOBALS['__transient'][ Admin::TRANSIENT_LOCK ] = time();
+$GLOBALS['__lock'] = (string) time();
 
 try {
 	Admin::handle_prepare();
@@ -561,7 +621,7 @@ k2p_check(
 		. ', jest ' . count( $GLOBALS['wpdb']->queries ) . ')'
 );
 k2p_check(
-	array_key_exists( Admin::TRANSIENT_LOCK, $GLOBALS['__transient'] ),
+	null !== $GLOBALS['__lock'],
 	'odbite zadanie NIE zdejmuje cudzego zamka'
 );
 
@@ -621,7 +681,17 @@ k2p_check( false !== strpos( $html, '&lt;script&gt;' ), 'tytul pokazany jako tek
 k2p_check( false !== strpos( $html, 'name="action" value="ainp_fetch"' ), 'formularz wola akcje ainp_fetch' );
 k2p_check( false !== strpos( $html, 'name="_ainp_nonce"' ), 'formularz niesie pole nonce' );
 k2p_check( false !== strpos( $html, 'admin-post.php' ), 'formularz celuje w admin-post.php' );
-k2p_check( 1 === $GLOBALS['wpdb']->prepared, 'odczyt tabeli idzie przez prepare()' );
+/*
+ * Asercja przepisana przy naprawie A4. Liczba 1 pochodzila stad, ze ekran
+ * wysylal wtedy DOKLADNIE jedno zapytanie; od etapu 5.4 dochodza dwa liczniki
+ * pozycji `failed`. Sens asercji nigdy nie byl w liczbie, tylko w tym, ze zadne
+ * zapytanie nie omija `prepare()` — i tak jest teraz zapisany.
+ */
+k2p_check(
+	count( $GLOBALS['wpdb']->queries ) === $GLOBALS['wpdb']->prepared,
+	'KAZDE zapytanie ekranu idzie przez prepare() (zapytan: ' . count( $GLOBALS['wpdb']->queries ) . ', prepare: ' . $GLOBALS['wpdb']->prepared . ')'
+);
+k2p_check( 3 === $GLOBALS['wpdb']->prepared, 'ekran wysyla trzy zapytania: pozycje plus dwa liczniki nieudanych (jest: ' . $GLOBALS['wpdb']->prepared . ')' );
 k2p_check(
 	false !== strpos( $GLOBALS['wpdb']->queries[0], 'LIMIT 50' ),
 	'odczyt ograniczony do 50 pozycji'

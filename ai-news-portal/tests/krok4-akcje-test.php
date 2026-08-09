@@ -64,6 +64,7 @@ namespace {
 	$GLOBALS['__nonce_akcje'] = array();
 	$GLOBALS['__zadania']    = array();
 	$GLOBALS['__plan']       = array();
+	$GLOBALS['__lock']       = null;   // Zamek jako wiersz w `options` (A5).
 
 	function current_user_can( $cap ) {
 		return (bool) $GLOBALS['__cap'];
@@ -328,6 +329,43 @@ namespace {
 	}
 
 	/** Atrapa bazy: tabela pozycji pusta, opcje dzialaja. */
+	/**
+	 * Emulacja ATOMOWEGO zamka z naprawy A5.
+	 *
+	 * Zamek nie jest juz transientem, tylko wierszem w tabeli `options` zakladanym
+	 * przez `INSERT IGNORE`. Atrapa musi odwzorowac dokladnie to, na czym stoi cala
+	 * naprawa: drugi proces dostaje ZERO zmienionych wierszy, a nie wyjatek i nie
+	 * ciche nadpisanie.
+	 *
+	 * @param string $sql Zapytanie po podstawieniu wartosci albo z `%s`.
+	 *
+	 * @return int|null Liczba zmienionych wierszy albo `null`, gdy to nie zamek.
+	 */
+	function ainp_zamek_query( $sql ) {
+		if ( false !== strpos( $sql, 'INSERT IGNORE INTO' ) && false !== strpos( $sql, 'option_name' ) ) {
+			if ( null !== $GLOBALS['__lock'] ) {
+				return 0;
+			}
+	
+			$GLOBALS['__lock'] = (string) time();
+	
+			return 1;
+		}
+	
+		if ( false !== strpos( $sql, 'DELETE FROM' ) && false !== strpos( $sql, 'option_name' ) ) {
+			$GLOBALS['__lock'] = null;
+	
+			return 1;
+		}
+	
+		if ( false !== strpos( $sql, 'SET option_value' ) ) {
+			// CAS przejmujacy zamek po trupie — w tescie zawsze nieudany, bo atrapa
+			// nie stawia zamkow starszych niz `LOCK_TTL`.
+			return 0;
+		}
+	
+		return null;
+	}
 	class AINP_Fake_WPDB_K4A {
 
 		public $options   = 'wp_options';
@@ -353,12 +391,22 @@ namespace {
 		}
 
 		public function get_var( $sql ) {
+			if ( false !== strpos( $sql, 'SELECT option_value' ) ) {
+				return $GLOBALS['__lock'];
+			}
+
 			preg_match_all( "/'((?:[^'\\\\]|\\\\.)*)'/", $sql, $m );
 			$key = $m[1][0] ?? '';
 			return array_key_exists( $key, $GLOBALS['__opt'] ) ? (string) $GLOBALS['__opt'][ $key ] : null;
 		}
 
 		public function query( $sql ) {
+			$zamek = ainp_zamek_query( $sql );
+
+			if ( null !== $zamek ) {
+				return $zamek;
+			}
+
 			$this->zapytania[] = $sql;
 			return 0;
 		}
@@ -492,12 +540,12 @@ namespace {
 	k4a_reset();
 	$los = k4a_akcja( 'handle_publish' );
 	k4a_check( 'redirect' === $los, 'pierwsze klikniecie konczy sie przekierowaniem' );
-	k4a_check( ! isset( $GLOBALS['__transient'][ Admin::TRANSIENT_LOCK ] ), 'zamek zdjety po skonczonej partii' );
+	k4a_check( null === $GLOBALS['__lock'], 'zamek zdjety po skonczonej partii' );
 	k4a_check( isset( $GLOBALS['__transient'][ Admin::TRANSIENT_PUB . 3 ] ), 'podsumowanie zapisane dla tego uzytkownika' );
 
 	// Zamek trzymany przez inne zadanie.
 	k4a_reset();
-	$GLOBALS['__transient'][ Admin::TRANSIENT_LOCK ] = time();
+	$GLOBALS['__lock'] = (string) time();
 	$przed_opt                                       = $GLOBALS['__opt'];
 
 	$los = k4a_akcja( 'handle_publish' );
@@ -505,7 +553,7 @@ namespace {
 	k4a_check( 'redirect' === $los, 'drugie klikniecie tez konczy sie przekierowaniem' );
 	k4a_check( ! isset( $GLOBALS['__transient'][ Admin::TRANSIENT_PUB . 3 ] ), 'ale NIE zapisuje podsumowania — partia sie nie odbyla' );
 	k4a_check( $przed_opt === $GLOBALS['__opt'], 'i nie rusza licznika wywolan AI' );
-	k4a_check( isset( $GLOBALS['__transient'][ Admin::TRANSIENT_LOCK ] ), 'cudzy zamek zostaje nietkniety' );
+	k4a_check( null !== $GLOBALS['__lock'], 'cudzy zamek zostaje nietkniety' );
 
 	// ------------------------------------------------------------------
 	echo "\n-- Pierwszy przebieg planowany po zapisaniu Ustawien --\n";
@@ -559,7 +607,18 @@ namespace {
 	k4a_check( false !== strpos( $html, 'value="ainp_publish"' ), 'formularz publikacji jest na ekranie' );
 	k4a_check( false !== strpos( $html, 'Opublikuj teraz' ), 'przycisk ma etykiete' );
 	k4a_check( false !== strpos( $html, 'Wywołań AI dziś: 0 z 20' ), 'ekran pokazuje stan dobowej puli' );
-	k4a_check( false === strpos( $html, 'disabled' ), 'przy zapisanym kluczu przycisk jest aktywny' );
+	/*
+	 * Asercja zawezona przy naprawie A4. Do etapu 5.4 na ekranie byl tylko JEDEN
+	 * przycisk, ktory dalo sie wygasic, wiec szukanie slowa `disabled` w calym
+	 * HTML-u wystarczalo. Od kiedy „Wznow nieudane" tez sie wygasza — przy zerze
+	 * nieudanych pozycji — takie szukanie mowi o przypadkowym przycisku.
+	 * Sprawdzamy wiec fragment formularza PUBLIKACJI, nie caly ekran.
+	 */
+	$formularz_publikacji = substr( $html, (int) strpos( $html, 'value="ainp_publish"' ) );
+	$formularz_publikacji = substr( $formularz_publikacji, 0, (int) strpos( $formularz_publikacji, '</form>' ) );
+
+	k4a_check( false === strpos( $formularz_publikacji, 'disabled' ), 'przy zapisanym kluczu przycisk publikacji jest aktywny' );
+	k4a_check( false !== strpos( $html, 'Wznów nieudane' ), 'obok stoi przycisk wznowienia (etap 5.4)' );
 	k4a_check( false === strpos( $html, 'AIzaTESTOWY' ), 'klucz NIE wycieka na ekran Materiałów' );
 
 	// Bez klucza przycisk jest wylaczony i jest o tym slowo.

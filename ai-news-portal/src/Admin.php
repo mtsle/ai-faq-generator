@@ -106,7 +106,7 @@ final class Admin {
 	public const TRANSIENT_RETRY = 'ainp_last_retry_';
 
 	/**
-	 * Zamek na czas przygotowywania partii — DLUG D-8 Z AUDYTU KROKU 3.
+	 * Zamek na czas przebiegu — dawny DLUG D-8, domkniety naprawa A5.
 	 *
 	 * Zamek jest WSPOLNY dla calej witryny, bez identyfikatora uzytkownika:
 	 * chodzi o to, ze ta sama partia wierszy nie ma byc scrapowana dwa razy,
@@ -120,7 +120,7 @@ final class Admin {
 	 * status='new'`) nalezy do etapu 5.2, razem z tickiem crona, ktory jest
 	 * jedynym miejscem, gdzie rownoczesnosc powstaje sama z siebie.
 	 */
-	public const TRANSIENT_LOCK = 'ainp_prepare_lock';
+	public const OPTION_LOCK = 'ainp_run_lock';
 
 	/**
 	 * Zycie zamka w sekundach.
@@ -240,14 +240,14 @@ final class Admin {
 		 * w srodku partii zostawialby zamek na cale `LOCK_TTL` i klient
 		 * mialby przycisk martwy przez dwie minuty bez zadnego wyjasnienia.
 		 */
-		if ( ! self::claim_prepare_lock() ) {
+		if ( ! self::claim_lock() ) {
 			self::redirect_back( self::SLUG_ITEMS, 'zajete' );
 		}
 
 		try {
 			$podsumowanie = Runner::prepare_batch();
 		} finally {
-			delete_transient( self::TRANSIENT_LOCK );
+			self::release_lock();
 		}
 
 		set_transient( self::TRANSIENT_PREP . get_current_user_id(), $podsumowanie, 300 );
@@ -269,7 +269,7 @@ final class Admin {
 	public static function handle_publish(): void {
 		self::guard( self::ACTION_PUBLISH );
 
-		if ( ! self::claim_prepare_lock() ) {
+		if ( ! self::claim_lock() ) {
 			self::redirect_back( self::SLUG_ITEMS, 'zajete' );
 		}
 
@@ -278,7 +278,7 @@ final class Admin {
 		} finally {
 			// `finally`, bo wyjatek w polowie partii zostawilby zamek na cale
 			// `LOCK_TTL` i przycisk bylby martwy przez dwie minuty bez slowa.
-			delete_transient( self::TRANSIENT_LOCK );
+			self::release_lock();
 		}
 
 		set_transient( self::TRANSIENT_PUB . get_current_user_id(), $podsumowanie, 300 );
@@ -287,19 +287,82 @@ final class Admin {
 	}
 
 	/**
-	 * Bierze zamek na przygotowanie partii. Patrz `TRANSIENT_LOCK`.
+	 * Bierze zamek na przebieg — ATOMOWO. Patrz `OPTION_LOCK`.
 	 *
 	 * @return bool `true`, gdy zamek zostal wziety; `false`, gdy trzyma go
 	 *              inne zadanie.
 	 */
-	private static function claim_prepare_lock(): bool {
-		if ( false !== get_transient( self::TRANSIENT_LOCK ) ) {
+	public static function claim_lock(): bool {
+		global $wpdb;
+
+		$teraz = (string) time();
+
+		/*
+		 * O ZAMEK PYTA BAZA, NIE KOD — ta sama zasada, ktora rzadzi dedupem
+		 * pozycji. `INSERT IGNORE` na kolumnie z kluczem UNIQUE (`option_name`)
+		 * przechodzi dla DOKLADNIE jednego procesu; pozostale dostaja zero
+		 * zmienionych wierszy. Poprzednia wersja czytala transient i dopiero
+		 * potem go zapisywala — w okno miedzy tymi dwoma krokami cron wchodzil
+		 * SAM, co godzine i bez niczyjego udzialu (ustalenie audytowe A5).
+		 *
+		 * Nie uzywamy `add_option()` mimo pozornego podobienstwa: broni sie
+		 * NIEATOMOWO (odczyt, potem zapis), co jest osobnym, znanym dlugiem U6.
+		 * Zapis wprost do tabeli omija tez cache opcji, ktory przy zamku bylby
+		 * czysta szkoda.
+		 */
+		$wziety = $wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO {$wpdb->options} ( option_name, option_value, autoload ) VALUES ( %s, %s, 'no' )",
+				self::OPTION_LOCK,
+				$teraz
+			)
+		); // phpcs:ignore WordPress.DB
+
+		if ( 1 === (int) $wziety ) {
+			return true;
+		}
+
+		/*
+		 * Zamek juz jest. Zostaje pytanie, czy trzyma go proces, ktory zyje —
+		 * proces zabity przez `max_execution_time` nie zdazyl go zdjac, a zamek
+		 * po trupie blokowalby przyciski i tick az do konca swiata.
+		 *
+		 * Przejecie idzie przez CAS: warunek `option_value = <stara wartosc>`
+		 * sprawia, ze przy dwoch procesach czekajacych na ten sam wygasly zamek
+		 * przejmie go dokladnie jeden. To ta sama konstrukcja, co przy rezerwacji
+		 * slotu z dobowej puli AI.
+		 */
+		$stara = $wpdb->get_var(
+			$wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::OPTION_LOCK )
+		); // phpcs:ignore WordPress.DB
+
+		if ( null === $stara || ( time() - (int) $stara ) < self::LOCK_TTL ) {
 			return false;
 		}
 
-		set_transient( self::TRANSIENT_LOCK, time(), self::LOCK_TTL );
+		$przejety = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+				$teraz,
+				self::OPTION_LOCK,
+				(string) $stara
+			)
+		); // phpcs:ignore WordPress.DB
 
-		return true;
+		return 1 === (int) $przejety;
+	}
+
+	/**
+	 * Zdejmuje zamek. Bezpieczne takze wtedy, gdy zamka nie bylo.
+	 *
+	 * @return void
+	 */
+	public static function release_lock(): void {
+		global $wpdb;
+
+		$wpdb->query(
+			$wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name = %s", self::OPTION_LOCK )
+		); // phpcs:ignore WordPress.DB
 	}
 
 	/**
@@ -706,9 +769,18 @@ final class Admin {
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION_RETRY ) . '" />';
 		wp_nonce_field( self::ACTION_RETRY, self::NONCE_FIELD );
 		echo '<p>';
-		submit_button( __( 'Wznów nieudane', 'ai-news-portal' ), 'secondary', 'submit', false );
+		$nieudane = Runner::failed_counts();
+
+		submit_button( __( 'Wznów nieudane', 'ai-news-portal' ), 'secondary', 'submit', false, $nieudane['total'] > 0 ? array() : array( 'disabled' => 'disabled' ) );
 		echo ' <span class="description">'
-			. esc_html__( 'Pozycje ze statusem „nieudane” wracają do kolejki z wyzerowanym licznikiem prób. Klikaj dopiero po usunięciu przyczyny — na przykład po uzupełnieniu klucza API.', 'ai-news-portal' )
+			. esc_html(
+				sprintf(
+					/* translators: 1: liczba nieudanych pozycji, 2: ile z nich wroci do modelu */
+					__( 'Nieudanych pozycji: %1$d, w tym %2$d takich, które padły dopiero przy modelu — każda z nich zajmie kolejne wywołanie z dobowej puli. Klikaj po usunięciu przyczyny.', 'ai-news-portal' ),
+					$nieudane['total'],
+					$nieudane['ai']
+				)
+			)
 			. '</span>';
 		echo '</p>';
 		echo '</form>';
@@ -834,9 +906,21 @@ final class Admin {
 			sprintf(
 				/* translators: %d: liczba wznowionych pozycji */
 				__( 'Wznowionych pozycji: %d.', 'ai-news-portal' ),
-				(int) $wznowione
+				(int) ( $wznowione['revived'] ?? 0 )
 			)
-		) . '</p></div>';
+		) . '</p>';
+
+		if ( ! empty( $wznowione['ai'] ) ) {
+			echo '<p>' . esc_html(
+				sprintf(
+					/* translators: %d: liczba pozycji wracajacych do modelu */
+					__( 'W tym %d, które padły dopiero przy modelu — każda zajmie kolejne wywołanie z dobowej puli.', 'ai-news-portal' ),
+					(int) $wznowione['ai']
+				)
+			) . '</p>';
+		}
+
+		echo '</div>';
 	}
 
 	/**

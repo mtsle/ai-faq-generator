@@ -181,6 +181,27 @@ namespace {
 				return isset( $this->tabela[ $id ] ) ? (string) $this->tabela[ $id ]->content_hash : '';
 			}
 
+			// Liczniki pozycji `failed` (A4) — liczone ze stanu tabeli, zeby
+			// asercja o koszcie wznowienia nie sprawdzala wlasnego zalozenia.
+			if ( preg_match( "/SELECT COUNT\(\*\) FROM \S+ WHERE status = '(\w+)'(.*)$/", $sql, $m ) ) {
+				$tylko_z_odciskiem = ( false !== strpos( $m[2], 'content_hash IS NOT NULL' ) );
+				$ile               = 0;
+
+				foreach ( $this->tabela as $wiersz ) {
+					if ( $m[1] !== $wiersz->status ) {
+						continue;
+					}
+
+					if ( $tylko_z_odciskiem && '' === (string) $wiersz->content_hash ) {
+						continue;
+					}
+
+					$ile++;
+				}
+
+				return (string) $ile;
+			}
+
 			return '';
 		}
 
@@ -488,9 +509,25 @@ namespace {
 	k5r_wiersz( $wpdb, 4, 'https://psy.pl/4/', '', 'skipped' );
 	k5r_wiersz( $wpdb, 5, 'https://psy.pl/5/', '', 'new' );
 
+	// Jedna z nieudanych padla dopiero przy modelu — ma odcisk tresci.
+	$padnieta->content_hash = str_repeat( 'f', 64 );
+
+	$przed = Runner::failed_counts();
+
+	k5r_check( 2 === $przed['total'], 'licznik widzi obie nieudane pozycje (jest: ' . $przed['total'] . ')' );
+	/*
+	 * A4: odcisk tresci jest granica miedzy „ponowienie kosztuje zadanie HTTP"
+	 * a „ponowienie kosztuje slot z dobowej puli 20". Bez tej liczby klient
+	 * klikal w ciemno i potrafil oddac polowe doby za pozycje, ktore i tak
+	 * padna ponownie na tym samym warunku.
+	 */
+	k5r_check( 1 === $przed['ai'], 'i rozpoznaje, ze TYLKO jedna wroci do modelu (jest: ' . $przed['ai'] . ')' );
+
 	$wznowione = Runner::revive_failed();
 
-	k5r_check( 2 === $wznowione, 'wznowione DOKLADNIE dwie pozycje (jest: ' . $wznowione . ')' );
+	k5r_check( 2 === $wznowione['revived'], 'wznowione DOKLADNIE dwie pozycje (jest: ' . $wznowione['revived'] . ')' );
+	k5r_check( 1 === $wznowione['ai'], 'i wynik niesie koszt: jedna z nich zajmie wywolanie AI' );
+	k5r_check( 0 === Runner::failed_counts()['total'], 'po wznowieniu nie ma juz czego wznawiac' );
 	k5r_check( 'new' === $wpdb->tabela[1]->status && 'new' === $wpdb->tabela[2]->status, 'obie wrocily jako `new`' );
 	/*
 	 * Zerowanie licznika nie jest kosmetyka: bez niego pozycja wraca z licznikiem

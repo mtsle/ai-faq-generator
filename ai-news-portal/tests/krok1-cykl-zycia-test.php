@@ -104,6 +104,15 @@ class AINP_Fake_WPDB {
 	public function prepare( $sql, ...$args ) {
 		return $sql;
 	}
+	/*
+	 * Ekran Materialow liczy od etapu 5.4 pozycje `failed` i te z nich, ktore
+	 * wroca do modelu (ustalenie audytowe A4). Bez tej metody render konczy sie
+	 * bledem krytycznym — atrapa musi znac kazde zapytanie, ktore ekran wysyla.
+	 */
+	public function get_var( $sql ) {
+		return '0';
+	}
+
 	public function get_results( $sql ) {
 		return array();
 	}

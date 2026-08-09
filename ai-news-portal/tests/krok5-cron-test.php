@@ -72,6 +72,7 @@ $GLOBALS['__posts']        = array();
 $GLOBALS['__zadania']      = array();   // Adresy, o ktore poprosila faza zbierania.
 $GLOBALS['__http_sleep']   = 0.0;       // Sztuczne spowolnienie transportu.
 $GLOBALS['__db_sleep']     = 0.0;       // Sztuczne spowolnienie odzysku.
+$GLOBALS['__lock']         = null;      // Zamek jako wiersz w `options` (A5).
 $GLOBALS['__next_post_id'] = 100;
 
 class WP_Post {
@@ -109,8 +110,48 @@ function is_wp_error( $t ) {
  * stoi asercja o kolejnosci faz: bez niej „trzy fazy" znaczyloby tylko tyle,
  * ze funkcja nie wywalila sie po drodze.
  */
+
+/**
+ * Emulacja ATOMOWEGO zamka z naprawy A5.
+ *
+ * Zamek nie jest juz transientem, tylko wierszem w tabeli `options` zakladanym
+ * przez `INSERT IGNORE`. Atrapa musi odwzorowac dokladnie to, na czym stoi cala
+ * naprawa: drugi proces dostaje ZERO zmienionych wierszy, a nie wyjatek i nie
+ * ciche nadpisanie.
+ *
+ * @param string $sql Zapytanie po podstawieniu wartosci albo z `%s`.
+ *
+ * @return int|null Liczba zmienionych wierszy albo `null`, gdy to nie zamek.
+ */
+function ainp_zamek_query( $sql ) {
+	if ( false !== strpos( $sql, 'INSERT IGNORE INTO' ) && false !== strpos( $sql, 'option_name' ) ) {
+		if ( null !== $GLOBALS['__lock'] ) {
+			return 0;
+		}
+
+		$GLOBALS['__lock'] = (string) time();
+
+		return 1;
+	}
+
+	if ( false !== strpos( $sql, 'DELETE FROM' ) && false !== strpos( $sql, 'option_name' ) ) {
+		$GLOBALS['__lock'] = null;
+
+		return 1;
+	}
+
+	if ( false !== strpos( $sql, 'SET option_value' ) ) {
+		// CAS przejmujacy zamek po trupie — w tescie zawsze nieudany, bo atrapa
+		// nie stawia zamkow starszych niz `LOCK_TTL`.
+		return 0;
+	}
+
+	return null;
+}
+
 class AINP_Fake_WPDB {
 	public $prefix   = 'wp_';
+	public $options  = 'wp_options';
 	public $posts    = 'wp_posts';
 	public $postmeta = 'wp_postmeta';
 	public $last_error = '';
@@ -139,11 +180,21 @@ class AINP_Fake_WPDB {
 	}
 
 	public function get_var( $sql ) {
+		if ( false !== strpos( $sql, 'SELECT option_value' ) ) {
+			return $GLOBALS['__lock'];
+		}
+
 		return null;
 	}
 
 	public function query( $sql ) {
 		$GLOBALS['__zapytania'][] = $sql;
+
+		$zamek = ainp_zamek_query( $sql );
+
+		if ( null !== $zamek ) {
+			return $zamek;
+		}
 
 		// Odzysk porzuconych pozycji (etap 5.2) — jedyne zapytanie ticku, ktore
 		// nie nalezy do zadnej z trzech faz. Musi paść PRZED nimi, bo pozycja
@@ -577,7 +628,7 @@ k5_check( isset( $wynik['collect']['sources'] ) && 1 === (int) $wynik['collect']
 k5_check( isset( $wynik['prepare']['taken'] ), 'podsumowanie fazy przygotowania ma wlasny ksztalt' );
 k5_check( isset( $wynik['publish']['published'] ), 'podsumowanie fazy publikacji ma wlasny ksztalt' );
 k5_check( array() === $wynik['errors'], 'zaden blad transportu nie zatrzymal przebiegu' );
-k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek ZDJETY po przebiegu' );
+k5_check( null === $GLOBALS['__lock'], 'zamek ZDJETY po przebiegu' );
 
 // --- NAPRAWA A3: przebieg zostawia slad ------------------------------------
 $slad = get_transient( Admin::TRANSIENT_TICK );
@@ -594,12 +645,40 @@ k5_check( is_array( get_transient( Admin::TRANSIENT_TICK ) ), 'i przezywa odczyt
 k5_check( 0 === strpos( Admin::TRANSIENT_TICK, 'ainp_' ), 'nazwa zaczyna sie od `ainp_` — inaczej `uninstall.php` jej nie zamiecie' );
 
 // ---------------------------------------------------------------------------
+// 6b. NAPRAWA A5 — zamek rozstrzyga BAZA, nie kod.
+// ---------------------------------------------------------------------------
+echo "
+=== 6b. A5: zamek atomowy ===
+";
+
+$GLOBALS['__lock'] = null;
+
+k5_check( true === Admin::claim_lock(), 'pierwszy proces bierze zamek' );
+/*
+ * SEDNO A5. Poprzednia wersja czytala transient i dopiero potem go zapisywala;
+ * dwa procesy, ktore weszly w okno miedzy tymi krokami, dostawaly zgode OBA.
+ * Teraz o wynik pyta `INSERT IGNORE` na kluczu UNIQUE kolumny `option_name`,
+ * wiec drugi dostaje zero zmienionych wierszy — tak samo, jak przy dedupie
+ * pozycji o duplikat pyta baza, nie kod.
+ */
+k5_check( false === Admin::claim_lock(), 'drugi dostaje ODMOWE, mimo ze pyta w tej samej sekundzie' );
+
+Admin::release_lock();
+
+k5_check( null === $GLOBALS['__lock'], 'zdjecie zamka kasuje wiersz, nie zostawia pustej wartosci' );
+k5_check( true === Admin::claim_lock(), 'po zdjeciu zamek znowu da sie wziac' );
+
+Admin::release_lock();
+
+k5_check( 0 === strpos( Admin::OPTION_LOCK, 'ainp_' ), 'nazwa opcji zaczyna sie od `ainp_` — inaczej `uninstall.php` zostawilby ja w bazie' );
+
+// ---------------------------------------------------------------------------
 // 7. Zajety zamek — tick nie wchodzi w cudza partie.
 // ---------------------------------------------------------------------------
 echo "\n=== 7. Zamek panelu wstrzymuje tick ===\n";
 
 $GLOBALS['__slad'] = array();
-set_transient( Admin::TRANSIENT_LOCK, 1234, Admin::LOCK_TTL );
+$GLOBALS['__lock'] = (string) time();   // ktos inny wlasnie pracuje
 
 $wynik = Runner::tick();
 
@@ -611,9 +690,9 @@ k5_check( array() === $GLOBALS['__slad'], 'ZERO faz wykonanych (jest: ' . count(
  * ochrone dokladnie w chwili, gdy cron probuje wejsc — czyli wtedy, kiedy
  * jest ona potrzebna.
  */
-k5_check( 1234 === get_transient( Admin::TRANSIENT_LOCK ), 'CUDZY zamek nietkniety' );
+k5_check( null !== $GLOBALS['__lock'], 'CUDZY zamek nietkniety' );
 
-delete_transient( Admin::TRANSIENT_LOCK );
+$GLOBALS['__lock'] = null;
 
 // ---------------------------------------------------------------------------
 // 8. Padnieta faza nie zabiera dwoch pozostalych ani nie zostawia zamka.
@@ -629,7 +708,7 @@ $GLOBALS['__wysadz_prepare'] = false;
 
 k5_check( isset( $wynik['errors']['prepare'] ), 'blad fazy zapisany pod jej nazwa' );
 k5_check( array( 'recover', 'collect', 'publish' ) === $GLOBALS['__slad'], 'pozostale dwie fazy wykonane mimo wyjatku (jest: ' . implode( ' → ', $GLOBALS['__slad'] ) . ')' );
-k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek zdjety w finally, mimo wyjatku w srodku' );
+k5_check( null === $GLOBALS['__lock'], 'zamek zdjety w finally, mimo wyjatku w srodku' );
 
 // ---------------------------------------------------------------------------
 // 9. Budzet czasu ticku (etap 5.3).
@@ -706,7 +785,7 @@ $GLOBALS['__db_sleep'] = 0.0;
 
 k5_check( array( 'collect', 'prepare', 'publish' ) === $wynik['skipped'], 'zjedzony budzet pomija WSZYSTKIE trzy fazy, nie odpala ich „na chwile" (jest: ' . implode( ', ', $wynik['skipped'] ) . ')' );
 k5_check( array( 'recover' ) === $GLOBALS['__slad'], 'i zadna z nich nie ruszyla ani bazy, ani sieci' );
-k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek zdjety mimo wyczerpanego budzetu' );
+k5_check( null === $GLOBALS['__lock'], 'zamek zdjety mimo wyczerpanego budzetu' );
 
 // --- Podzial budzetu miedzy fazy -------------------------------------------
 $GLOBALS['__zadania']    = array();

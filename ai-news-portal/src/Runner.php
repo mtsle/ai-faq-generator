@@ -227,13 +227,17 @@ final class Runner {
 			'errors'    => array(),
 		);
 
-		if ( false !== get_transient( Admin::TRANSIENT_LOCK ) ) {
+		/*
+		 * ZAMEK ATOMOWY (ustalenie audytowe A5). Do naprawy byla to para
+		 * odczyt-zapis, w ktorej okno miedzy sprawdzeniem a zalozeniem wymagalo
+		 * dwukliku czlowieka. Cron wchodzi w nie SAM — a dwa ticki naraz pobieraja
+		 * wszystkie kanaly dwa razy.
+		 */
+		if ( ! Admin::claim_lock() ) {
 			$wynik['locked'] = true;
 
 			return $wynik;
 		}
-
-		set_transient( Admin::TRANSIENT_LOCK, time(), Admin::LOCK_TTL );
 
 		try {
 			$budzet  = ( null === $budget ) ? self::tick_budget() : max( 1.0, $budget );
@@ -298,7 +302,7 @@ final class Runner {
 				}
 			}
 		} finally {
-			delete_transient( Admin::TRANSIENT_LOCK );
+			Admin::release_lock();
 		}
 
 		/*
@@ -477,8 +481,14 @@ final class Runner {
 	 *
 	 * @return int Ile pozycji wrocilo do kolejki.
 	 */
-	public static function revive_failed(): int {
+	public static function revive_failed(): array {
 		global $wpdb;
+
+		/*
+		 * Liczymy PRZED zmiana, bo po niej nie ma juz czego liczyc — a klient ma
+		 * zobaczyc nie tylko „wznowiono N", tylko ile z tego wroci do MODELU (A4).
+		 */
+		$przed = self::failed_counts();
 
 		$zmienione = $wpdb->query(
 			$wpdb->prepare(
@@ -490,7 +500,50 @@ final class Runner {
 			)
 		); // phpcs:ignore WordPress.DB
 
-		return max( 0, (int) $zmienione );
+		return array(
+			'revived' => max( 0, (int) $zmienione ),
+			'ai'      => $przed['ai'],
+		);
+	}
+
+	/**
+	 * Ile pozycji czeka jako `failed` i ile z nich kosztuje wywolanie AI.
+	 *
+	 * USTALENIE AUDYTOWE A4. Wznowienie nie odroznialo bledu trwalego od
+	 * przejsciowego, a klient nie mial jak zobaczyc, ile go to kosztuje.
+	 * Dziesiec pozycji, ktore padly na kontrakcie modelu, wraca do kolejki
+	 * i zjada dziesiec slotow z dobowej puli DWUDZIESTU — po czym pada ponownie
+	 * na tym samym warunku.
+	 *
+	 * ROZROZNIENIE JEST W DANYCH, nie w nowej kolumnie. Pozycja, ktora padla
+	 * przy pobieraniu albo przygotowaniu tresci, nie ma jeszcze odcisku —
+	 * `claim_content()` nie zdazyl go zapisac. Pozycja z odciskiem przeszla
+	 * przygotowanie i moze byla wybrana przez `pick_for_ai()`, wiec jej porazka
+	 * zdarzyla sie przy modelu albo przy publikacji. Odcisk jest wiec granica
+	 * miedzy „ponowienie kosztuje zadanie HTTP" a „ponowienie kosztuje slot".
+	 *
+	 * @return array{total:int,ai:int}
+	 */
+	public static function failed_counts(): array {
+		global $wpdb;
+
+		$wszystkie = $wpdb->get_var(
+			$wpdb->prepare( 'SELECT COUNT(*) FROM ' . Plugin::table() . ' WHERE status = %s', self::STATUS_FAILED )
+		); // phpcs:ignore WordPress.DB
+
+		$modelowe = $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COUNT(*) FROM ' . Plugin::table()
+					. ' WHERE status = %s AND content_hash IS NOT NULL AND content_hash <> %s',
+				self::STATUS_FAILED,
+				''
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return array(
+			'total' => max( 0, (int) $wszystkie ),
+			'ai'    => max( 0, (int) $modelowe ),
+		);
 	}
 
 	/**
