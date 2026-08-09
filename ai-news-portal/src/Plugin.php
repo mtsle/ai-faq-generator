@@ -80,6 +80,19 @@ final class Plugin {
 	 * @return void
 	 */
 	public static function boot(): void {
+		/*
+		 * TLUMACZENIA — ustalenie audytowe D3.
+		 *
+		 * Naglowek wtyczki deklaruje `Text Domain`, a kazdy napis widoczny
+		 * dla uzytkownika przechodzi przez `__()` z ta domena — ale domena
+		 * nie byla nigdzie ladowana, wiec zaden plik `.mo` nie mial jak
+		 * wejsc. Kod obiecywal tlumaczalnosc, ktorej nie bylo.
+		 *
+		 * NA `init`, NIE WCZESNIEJ: od WordPressa 6.7 ladowanie domeny przed
+		 * `init` konczy sie ostrzezeniem `_load_textdomain_just_in_time`.
+		 */
+		add_action( 'init', array( self::class, 'load_textdomain' ) );
+
 		add_action( 'init', array( self::class, 'register_content_types' ) );
 		add_action( 'admin_menu', array( Admin::class, 'register_menu' ) );
 		add_action( 'admin_notices', array( self::class, 'render_admin_notices' ) );
@@ -118,6 +131,25 @@ final class Plugin {
 		 * w `Runner`, a nie tutaj.
 		 */
 		Portal::register();
+	}
+
+	/**
+	 * Ladowanie tlumaczen wtyczki. Etap 6.1+, naprawa D3.
+	 *
+	 * Katalog `languages/` w paczce jeszcze nie istnieje i to jest w porzadku:
+	 * `load_plugin_textdomain()` szuka najpierw w `wp-content/languages/plugins/`,
+	 * gdzie trafiaja tlumaczenia wgrywane przez wlasciciela witryny. Wpis
+	 * `Domain Path` w naglowku mowi, gdzie szukac w SAMEJ paczce, gdy
+	 * kiedykolwiek dolozymy tam plik `.mo`.
+	 *
+	 * @return void
+	 */
+	public static function load_textdomain(): void {
+		load_plugin_textdomain(
+			'ai-news-portal',
+			false,
+			dirname( AINP_PLUGIN_BASENAME ) . '/languages'
+		);
 	}
 
 	/**

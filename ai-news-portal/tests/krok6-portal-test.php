@@ -65,6 +65,7 @@ namespace {
 		'singular'     => false,
 		'tax'          => false,
 		'archive'      => false,
+		'embed'        => false,
 		'is404'        => false,
 		'obiekt'       => null,
 		'motyw'        => array(),   // Pliki, ktore „ma" motyw.
@@ -121,6 +122,10 @@ namespace {
 
 	function is_404() {
 		return (bool) $GLOBALS['__stan']['is404'];
+	}
+
+	function is_embed() {
+		return (bool) $GLOBALS['__stan']['embed'];
 	}
 
 	function get_queried_object() {
@@ -298,6 +303,55 @@ namespace {
 	k6p_check(
 		'/motyw/single-ainp_article.php' === \AINP\Portal::filter_template( '/motyw/single.php' ),
 		'motyw z single-ainp_article.php bije wtyczke'
+	);
+
+	// ---------------------------------------------------------------------
+	echo "\n-- Embed: NIE nasza galaz (naprawa audytowa P1) --\n";
+
+	/*
+	 * Przy `/centrum-wiedzy/tytul/embed/` WordPress ustawia OBIE flagi naraz:
+	 * `is_embed()` i `is_singular()`. Przed naprawa wygrywal `is_singular()`
+	 * i w ramce oEmbed ladowala cala strona portalu z naglowkiem i stopka
+	 * motywu. Te asercje sa jedynym miejscem, ktore trzyma poprawna kolejnosc
+	 * sprawdzania — zadna inna nawet nie dotyka `is_embed()`.
+	 */
+	k6p_stan(
+		array(
+			'singular' => true,
+			'embed'    => true,
+			'motyw'    => array(),
+			'obiekt'   => (object) array( 'post_name' => 'karma-dla-szczeniaka' ),
+		)
+	);
+	$wynik = \AINP\Portal::filter_template( '/motyw/embed-ainp_article.php' );
+
+	k6p_check( '/motyw/embed-ainp_article.php' === $wynik, 'embed artykulu zostaje przy szablonie WordPressa' );
+	k6p_check( array() === $GLOBALS['__stan']['pytania'], 'przy embedzie motyw NIE jest w ogole pytany o nasze szablony' );
+
+	k6p_stan( array( 'singular' => true, 'embed' => true, 'motyw' => array( 'single-ainp_article.php' ) ) );
+	k6p_check(
+		'/motyw/embed-ainp_article.php' === \AINP\Portal::filter_template( '/motyw/embed-ainp_article.php' ),
+		'nawet gdy motyw MA single-ainp_article.php, embed go nie dostaje'
+	);
+
+	// Ta sama trasa BEZ embeda — dowod, ze bramka nie wylaczyla zwyklego artykulu.
+	k6p_stan(
+		array(
+			'singular' => true,
+			'embed'    => false,
+			'motyw'    => array(),
+			'obiekt'   => (object) array( 'post_name' => 'karma-dla-szczeniaka' ),
+		)
+	);
+	k6p_check(
+		\AINP\Portal::filter_template( '/motyw/single.php' ) === $tmp . 'src/templates/single.php',
+		'zwykly artykul (bez embeda) nadal dostaje szablon wtyczki'
+	);
+
+	k6p_stan( array( 'archive' => true, 'embed' => true, 'motyw' => array() ) );
+	k6p_check(
+		'/motyw/archive.php' === \AINP\Portal::filter_template( '/motyw/archive.php' ),
+		'embed nie przepuszcza tez galezi archiwum'
 	);
 
 	// ---------------------------------------------------------------------

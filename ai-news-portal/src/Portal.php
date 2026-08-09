@@ -108,7 +108,22 @@ final class Portal {
 			return;
 		}
 
-		$zapytanie->set( 'posts_per_page', self::PER_PAGE );
+		/*
+		 * FEED ARCHIWUM ZOSTAJE PRZY USTAWIENIU WITRYNY — ustalenie audytowe D1.
+		 *
+		 * `/centrum-wiedzy/feed/` ma `is_post_type_archive()` rowne PRAWDA,
+		 * wiec bramka wyzej go przepuszczala i `posts_per_page` nadpisywalo
+		 * `posts_per_rss`. Klient, ktory w Ustawieniach → Czytanie wpisze
+		 * „pokaz ostatnio 25 elementow", dostawalby w kanale 10 — i nie
+		 * mialby jak zgadnac, dlaczego. Nasza liczba na stronie jest decyzja
+		 * o UKLADZIE (dwie kolumny kart), a kanal RSS zadnego ukladu nie ma.
+		 *
+		 * Fraza wyszukiwania nizej dotyczy feedu tak samo jak strony, wiec
+		 * wychodzimy dopiero TUTAJ, po ustawieniu liczby, a nie na wejsciu.
+		 */
+		if ( ! $zapytanie->is_feed() ) {
+			$zapytanie->set( 'posts_per_page', self::PER_PAGE );
+		}
 
 		$fraza = self::search_term();
 		if ( '' === $fraza ) {
@@ -331,6 +346,24 @@ final class Portal {
 	 *                                                  albo `null`, gdy to nie nasze zapytanie.
 	 */
 	private static function resolve(): ?array {
+		/*
+		 * EMBED MA WLASNA GALAZ HIERARCHII — ustalenie audytowe P1.
+		 *
+		 * Przy zadaniu `/centrum-wiedzy/tytul/embed/` WordPress ustawia OBIE
+		 * flagi: `is_embed()` i `is_singular()`. Warunek nizej lapal wiec
+		 * takze embed i podstawial pelnostronicowy szablon z `get_header()`
+		 * i `get_footer()` — w ramce oEmbed ladowala cala strona portalu
+		 * z menu i stopka motywu zamiast karty. Zmierzone przed naprawa:
+		 * 39 736 bajtow i zero znacznikow `wp-embed` (poprawny embed strony
+		 * WordPressa na tej samej witrynie: 19 729 bajtow).
+		 *
+		 * `is_embed()` musi stac PRZED `is_singular()`, bo embed jest
+		 * przypadkiem szczegolnym singla, nie odwrotnie.
+		 */
+		if ( is_embed() ) {
+			return null;
+		}
+
 		if ( is_singular( Plugin::CPT ) ) {
 			$kandydaci = array( 'single-' . Plugin::CPT . '.php' );
 
@@ -388,9 +421,25 @@ final class Portal {
 
 		$sciezka = ( is_string( $z_motywu ) && '' !== $z_motywu ) ? $z_motywu : self::own_template( $plik );
 
-		if ( file_exists( $sciezka ) ) {
-			require $sciezka;
+		if ( ! file_exists( $sciezka ) ) {
+			return;
 		}
+
+		/*
+		 * `load_template()`, a NIE `require` — ustalenie audytowe D2.
+		 *
+		 * Gole `require` wykonywalo sie w zasiegu tej metody statycznej, wiec
+		 * szablon nie widzial ani `$post`, ani zmiennych zapytania. Nasz
+		 * `card.php` tego nie zauwazyl, bo siega po `get_the_ID()`
+		 * i `the_permalink()` — te czytaja globalny `$post` same. Ale motyw,
+		 * ktory skorzysta z reklamowanej tu podmiany i napisze karte
+		 * po WordPressowemu, przez `$post->post_title`, dostawalby ostrzezenie
+		 * o nieistniejacej zmiennej i pusta karte.
+		 *
+		 * DRUGI ARGUMENT MUSI BYC `false`: karta jest wstawiana raz na wpis
+		 * w petli, a `require_once` narysowalby wylacznie pierwsza.
+		 */
+		load_template( $sciezka, false );
 	}
 
 	/**

@@ -71,6 +71,8 @@ namespace {
 		'paginacja'      => array(),
 		'linki'          => '',
 		'meta'           => array(),
+		'embed'          => false,
+		'load_template'  => array(),
 	);
 	$GLOBALS['__narysowano'] = array();
 
@@ -180,15 +182,42 @@ namespace {
 		return $GLOBALS['__stan']['linki'];
 	}
 
+	function is_embed() {
+		return (bool) ( $GLOBALS['__stan']['embed'] ?? false );
+	}
+
+	/**
+	 * Atrapa `load_template()` — odwzorowuje kontrakt rdzenia.
+	 *
+	 * Prawdziwa funkcja udostepnia szablonowi `$post` i zmienne zapytania.
+	 * Atrapa robi DOKLADNIE to samo, bo od tego zalezy naprawa D2: gdyby
+	 * `Portal::part()` wrocilo do golego `require`, szablon motywu przestalby
+	 * widziec `$post`, a ta atrapa to zobaczy.
+	 */
+	function load_template( $sciezka, $raz = true, $args = array() ) {
+		global $post, $wp_query;
+		$GLOBALS['__stan']['load_template'][] = array( $sciezka, $raz );
+		if ( $raz ) {
+			require_once $sciezka;
+		} else {
+			require $sciezka;
+		}
+	}
+
 	/** Atrapa `WP_Query` — tyle, ile widzi `Portal::filter_query()`. */
 	class Fake_Query {
 		public $glowne;
+		public $feed      = false;
 		public $ustawione = array();
-		public function __construct( $glowne = true ) {
+		public function __construct( $glowne = true, $feed = false ) {
 			$this->glowne = $glowne;
+			$this->feed   = $feed;
 		}
 		public function is_main_query() {
 			return $this->glowne;
+		}
+		public function is_feed() {
+			return $this->feed;
 		}
 		public function set( $klucz, $wartosc ) {
 			$this->ustawione[ $klucz ] = $wartosc;
@@ -363,6 +392,51 @@ namespace {
 	Portal::part( 'nie-ma-takiego.php' );
 	k6k_check( array() === $GLOBALS['__narysowano'], 'brak pliku → cisza, zero bledu krytycznego' );
 
+	/*
+	 * LUKA TESTOWA L3 z audytu — kontrakt zmiennych szablonu.
+	 *
+	 * Karta wstawiana golym `require` wykonywala sie w zasiegu metody
+	 * statycznej i NIE widziala `$post`. Nasz `card.php` tego nie zauwazyl,
+	 * bo chodzi na `get_the_ID()`, ale motyw piszacy karte po WordPressowemu
+	 * dostawal ostrzezenie o nieistniejacej zmiennej i pusta karte. Ta
+	 * asercja pilnuje, ze `part()` idzie przez `load_template()`.
+	 */
+	echo "\n-- Kontrakt zmiennych szablonu (naprawa D2) --\n";
+
+	$GLOBALS['post']                     = (object) array( 'ID' => 7, 'post_title' => 'Karma dla szczeniaka' );
+	$GLOBALS['wp_query']                 = (object) array( 'query_vars' => array() );
+	$GLOBALS['__stan']['load_template']  = array();
+
+	file_put_contents(
+		$motyw_dir . 'ai-news-portal/motywowa.php',
+		'<?php $GLOBALS["__widziany_post"] = isset( $post ) ? $post->post_title : null;'
+	);
+	$GLOBALS['__widziany_post'] = 'NIE USTAWIONO';
+	$GLOBALS['__stan']['motyw'] = array( 'ai-news-portal/motywowa.php' );
+
+	Portal::part( 'motywowa.php' );
+
+	k6k_check(
+		'Karma dla szczeniaka' === $GLOBALS['__widziany_post'],
+		'szablon motywu widzi $post — czyli part() idzie przez load_template(), nie przez gole require'
+	);
+	k6k_check( 1 === count( $GLOBALS['__stan']['load_template'] ), 'load_template() wolane dokladnie raz' );
+	k6k_check(
+		false === $GLOBALS['__stan']['load_template'][0][1],
+		'drugi argument to FALSE — inaczej w petli narysowalaby sie tylko pierwsza karta'
+	);
+
+	// Dowod na „tylko pierwsza karta": trzy wstawienia = trzy rysowania.
+	$GLOBALS['__narysowano']    = array();
+	$GLOBALS['__stan']['motyw'] = array();
+	Portal::part( 'card.php' );
+	Portal::part( 'card.php' );
+	Portal::part( 'card.php' );
+	k6k_check(
+		array( 'wtyczka', 'wtyczka', 'wtyczka' ) === $GLOBALS['__narysowano'],
+		'karta wstawiona trzy razy rysuje sie trzy razy, nie raz'
+	);
+
 	// ---------------------------------------------------------------------
 	echo "\n-- Wyszukiwarka: wlasny parametr (etap 6.3) --\n";
 
@@ -447,6 +521,39 @@ namespace {
 		'poza Centrum Wiedzy liczba wpisow na stronie NIE jest zmieniana cudzemu archiwum'
 	);
 
+	echo "\n-- Feed archiwum NIE dostaje naszej liczby na strone (naprawa D1) --\n";
+
+	/*
+	 * `/centrum-wiedzy/feed/` ma `is_post_type_archive()` rowne PRAWDA, wiec
+	 * przechodzi przez te sama bramke co strona. Kanal RSS nie ma ukladu
+	 * w dwie kolumny, wiec nasza liczba nie ma tam czego pilnowac — rzadzi
+	 * ustawienie witryny (`posts_per_rss`).
+	 */
+	$GLOBALS['__stan']['archive'] = true;
+	$GLOBALS['__stan']['tax']     = false;
+	unset( $_GET['ainp_s'] );
+
+	$q = new Fake_Query( true, true );
+	Portal::filter_query( $q );
+	k6k_check(
+		! isset( $q->ustawione['posts_per_page'] ),
+		'feed archiwum zostaje przy ustawieniu witryny, nie przy naszej liczbie'
+	);
+
+	$_GET['ainp_s'] = 'karma';
+	$q = new Fake_Query( true, true );
+	Portal::filter_query( $q );
+	k6k_check( 'karma' === ( $q->ustawione['s'] ?? null ), 'ale szukanie w feedzie dziala dalej' );
+	k6k_check(
+		! isset( $q->ustawione['posts_per_page'] ),
+		'szukanie w feedzie nadal nie narzuca liczby na strone'
+	);
+	unset( $_GET['ainp_s'] );
+
+	$q = new Fake_Query( true, false );
+	Portal::filter_query( $q );
+	k6k_check( 10 === ( $q->ustawione['posts_per_page'] ?? null ), 'zwykle archiwum (nie feed) dostaje liczbe dalej' );
+
 	echo "\n-- Paginacja --\n";
 
 	$GLOBALS['__stan']['archive']   = true;
@@ -476,9 +583,47 @@ namespace {
 		isset( $args['add_args']['ainp_s'] ),
 		'przy szukaniu fraza jedzie z paginacja — inaczej strona 2 wynikow to strona 2 CALEGO archiwum'
 	);
+
+	/*
+	 * LUKA TESTOWA L2 z audytu — asercja mierzyla martwa wartosc.
+	 *
+	 * Poprzednia wersja sprawdzala doslowne `karma%20dla%20szczeniaka`
+	 * i przechodzila, ale niczego nie broniła: `paginate_links()` scala
+	 * parametry z BIEZACEGO adresu i one nadpisuja nasze `add_args`
+	 * (rdzen, `general-template.php`, „Merge additional query vars found
+	 * in the original URL"). Zmierzone przy audycie: to samo wywolanie
+	 * z PUSTYM `add_args` daje identyczny adres strony 2.
+	 *
+	 * Nasza wartosc dochodzi do skutku wylacznie wtedy, gdy adres bazowy
+	 * nie ma juz tego parametru. Wtedy jednak MUSI byc zakodowana, bo
+	 * `add_query_arg()` w tym WordPressie wartosci NIE koduje (zmierzone:
+	 * `add_query_arg( array( 'q' => 'a b' ), 'http://e/' )` → `q=a b`).
+	 * Dlatego asercja pyta teraz o NIEZMIENNIK — „fraza nie rozbije
+	 * adresu" — a nie o konkretny napis.
+	 */
+	$rozbijaki = array( ' ', '&', '?', '#', '=' );
+	$obecne    = array();
+	foreach ( $rozbijaki as $znak ) {
+		if ( false !== strpos( (string) $args['add_args']['ainp_s'], $znak ) ) {
+			$obecne[] = $znak;
+		}
+	}
 	k6k_check(
-		'karma%20dla%20szczeniaka' === $args['add_args']['ainp_s'],
-		'spacje we frazie sa zakodowane w adresie kolejnej strony'
+		array() === $obecne,
+		'fraza w add_args jest zakodowana — zaden znak rozbijajacy adres (obecne: ' . implode( '', $obecne ) . ')'
+	);
+
+	$GLOBALS['__stan']['paginacja'] = array();
+	$_GET['ainp_s']                 = 'karma & woda?psy=tak';
+	Portal::pagination();
+	$args2 = $GLOBALS['__stan']['paginacja'][0];
+	k6k_check(
+		$args2['add_args']['ainp_s'] === rawurlencode( 'karma & woda?psy=tak' ),
+		'fraza ze znakami sterujacymi adresu jedzie zakodowana w calosci'
+	);
+	k6k_check(
+		'karma & woda?psy=tak' === rawurldecode( $args2['add_args']['ainp_s'] ),
+		'zakodowana fraza po odkodowaniu wraca identyczna — zero podwojnego kodowania'
 	);
 	unset( $_GET['ainp_s'] );
 

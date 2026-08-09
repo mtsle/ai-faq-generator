@@ -12,6 +12,7 @@
  * License:           GPLv2
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain:       ai-news-portal
+ * Domain Path:       /languages
  *
  * @package AI_News_Portal
  *
