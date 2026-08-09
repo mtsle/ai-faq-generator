@@ -165,8 +165,10 @@ namespace {
 	}
 
 	function get_terms( $args = array() ) {
+		$GLOBALS['__stan']['ostatnie_args'] = $args;
 		return $GLOBALS['__stan']['lista_terminow'];
 	}
+
 
 	function wp_unslash( $wartosc ) {
 		return is_string( $wartosc ) ? stripslashes( $wartosc ) : $wartosc;
@@ -668,6 +670,26 @@ namespace {
 	k6k_check(
 		'https://dworek.local/centrum-wiedzy/' === Portal::archive_link(),
 		'formularz i przycisk Wszystkie celuja w archiwum Centrum Wiedzy'
+	);
+
+	// ---------------------------------------------------------------------
+	echo "\n-- Przyciski pokazuja takze puste kategorie --\n";
+
+	/*
+	 * Zakladanie terminow (`Plugin::ensure_topics()`) jest sprawdzane
+	 * w `krok1-cykl-zycia-test.php`, gdzie `Plugin` jest PRAWDZIWY. Tutaj
+	 * `Plugin` to atrapa ze stalymi, wiec asercja o nim mierzylaby atrape.
+	 */
+
+	$GLOBALS['__stan']['lista_terminow'] = array(
+		$zywienie,
+		(object) array( 'name' => 'Rasy', 'slug' => 'rasy' ),
+	);
+	$GLOBALS['__stan']['ostatnie_args']  = array();
+	Portal::categories();
+	k6k_check(
+		false === ( $GLOBALS['__stan']['ostatnie_args']['hide_empty'] ?? true ),
+		'get_terms pytany z hide_empty=false — inaczej swiezy portal pokazuje jeden przycisk'
 	);
 
 	// ---------------------------------------------------------------------

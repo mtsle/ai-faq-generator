@@ -204,6 +204,10 @@ function wp_insert_post( $data, $wp_error = false ) {
 	$GLOBALS['__posts'][ $id ] = $data;
 	return $id;
 }
+// Od 2026-08-09 `Plugin::ensure_topics()` liczy odcisk listy kategorii.
+function wp_json_encode( $dane, $flagi = 0, $glebokosc = 512 ) {
+	return json_encode( $dane, $flagi, $glebokosc );
+}
 function term_exists( $term, $taxonomy = '', $parent = null ) {
 	foreach ( $GLOBALS['__terms'] as $id => $t ) {
 		if ( $t['name'] === $term && $t['taxonomy'] === $taxonomy ) {
@@ -553,6 +557,59 @@ k1_check( in_array( 'admin_menu', $GLOBALS['__actions'], true ), 'menu podpiete 
 k1_check( in_array( 'admin_notices', $GLOBALS['__actions'], true ), 'komunikaty podpiete pod admin_notices' );
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Kategorie istnieja od pierwszego dnia — decyzja usera 2026-08-09.
+//
+// Termin taksonomii powstawal dotad dopiero przy publikacji, bo tworzy go
+// `wp_set_object_terms()` w locie. Klient po wlaczeniu wtyczki widzial JEDEN
+// przycisk kategorii zamiast siedmiu i portal, ktory nic o sobie nie mowil.
+// ---------------------------------------------------------------------------
+echo "\n=== Zakladanie kategorii z Ustawien ===\n";
+
+$GLOBALS['__terms'] = array();
+$GLOBALS['__opt']   = array();
+
+Plugin::ensure_topics();
+
+$k1_nazwy = array_column( $GLOBALS['__terms'], 'name' );
+k1_check( 7 === count( $GLOBALS['__terms'] ), 'zalozone wszystkie siedem kategorii domyslnych (jest: ' . count( $GLOBALS['__terms'] ) . ')' );
+k1_check( in_array( 'Żywienie', $k1_nazwy, true ), 'kategoria z ogonkiem zalozona poprawnie' );
+k1_check( in_array( 'Życie z psem', $k1_nazwy, true ), 'kategoria wielowyrazowa zalozona poprawnie' );
+
+$k1_tax_ok = true;
+foreach ( $GLOBALS['__terms'] as $k1_t ) {
+	if ( 'ainp_topic' !== $k1_t['taxonomy'] ) { $k1_tax_ok = false; }
+}
+k1_check( $k1_tax_ok, 'kazdy termin trafil do taksonomii ainp_topic' );
+
+// Drugie wywolanie: odcisk listy sie zgadza, wiec zero pracy.
+Plugin::ensure_topics();
+k1_check( 7 === count( $GLOBALS['__terms'] ), 'drugie wywolanie NIE dubluje terminow' );
+
+// Trzecie wywolanie po recznym skasowaniu odcisku — terminy juz sa,
+// wiec `term_exists()` chroni przed duplikatem nawet bez opcji.
+delete_option( Plugin::OPTION_TOPICS_SEEDED );
+Plugin::ensure_topics();
+k1_check( 7 === count( $GLOBALS['__terms'] ), 'bez odcisku terminy tez sie nie dubluja — chroni term_exists()' );
+
+// Klient dopisuje wlasna kategorie w Ustawieniach.
+Settings::update( array( 'categories' => array_merge( Settings::get( 'categories' ), array( 'Podróże z psem' ) ) ) );
+Plugin::ensure_topics();
+k1_check( 8 === count( $GLOBALS['__terms'] ), 'dopisanie kategorii w Ustawieniach samo doklada brakujacy termin' );
+
+// Klient usuwa kategorie z Ustawien — termin ZOSTAJE, bo mogl miec artykuly.
+$k1_bez = Settings::get( 'categories' );
+array_pop( $k1_bez );
+Settings::update( array( 'categories' => $k1_bez ) );
+Plugin::ensure_topics();
+k1_check( 8 === count( $GLOBALS['__terms'] ), 'usuniecie kategorii z Ustawien NIE kasuje terminu' );
+
+// Pusta lista kategorii nie zaklada niczego i nie wywraca sie.
+$GLOBALS['__terms'] = array();
+Settings::update( array( 'categories' => array() ) );
+Plugin::ensure_topics();
+k1_check( array() === $GLOBALS['__terms'], 'pusta lista kategorii nie zaklada zadnego terminu' );
+
 echo "\n===================================================================\n";
 echo 'Asercji: ' . $ran . ' | Niezaliczonych: ' . $fail . "\n";
 if ( 0 === $fail ) {

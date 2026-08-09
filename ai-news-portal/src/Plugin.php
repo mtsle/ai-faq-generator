@@ -59,6 +59,16 @@ final class Plugin {
 	public const OPTION_SLUG_COLLISION = 'ainp_slug_collision';
 
 	/**
+	 * Opcja-odcisk: dla jakiej listy kategorii zalozono juz terminy.
+	 *
+	 * Trzyma skrot listy z Ustawien, nie flage — dzieki temu dopisanie przez
+	 * klienta osmej kategorii samo doklada brakujacy termin, bez zadnego
+	 * przycisku „odswiez". Uninstall kasuje ja razem z reszta opcji
+	 * (wzorzec `ainp_%`).
+	 */
+	public const OPTION_TOPICS_SEEDED = 'ainp_topics_seeded';
+
+	/**
 	 * Pelna nazwa tabeli z prefiksem witryny.
 	 *
 	 * @return string
@@ -94,6 +104,26 @@ final class Plugin {
 		add_action( 'init', array( self::class, 'load_textdomain' ) );
 
 		add_action( 'init', array( self::class, 'register_content_types' ) );
+
+		/*
+		 * KATEGORIE ISTNIEJA OD PIERWSZEGO DNIA — decyzja usera z 2026-08-09.
+		 *
+		 * Bez tego taksonomia zapelniala sie dopiero przy publikacji, bo termin
+		 * tworzy `wp_set_object_terms()` w locie. Klient po wlaczeniu wtyczki
+		 * widzial JEDEN przycisk kategorii zamiast siedmiu i pusty portal, ktory
+		 * niczego o sobie nie mowil.
+		 *
+		 * PRIORYTET 20, nie domyslny: taksonomia musi byc juz zarejestrowana,
+		 * inaczej `wp_insert_term()` nie ma do czego wstawiac.
+		 *
+		 * Domkniecie na `init`, a nie tylko przy aktywacji — z tego samego
+		 * powodu co harmonogram (naprawa A1): `register_activation_hook` nie
+		 * odpala sie przy podmianie plikow dzialajacej wtyczki, wiec kazda
+		 * istniejaca instalacja zostalaby bez kategorii. Koszt jest zerowy,
+		 * bo `ensure_topics()` wychodzi po porownaniu dwoch autoladowanych
+		 * opcji, zanim dotknie bazy.
+		 */
+		add_action( 'init', array( self::class, 'ensure_topics' ), 20 );
 		add_action( 'admin_menu', array( Admin::class, 'register_menu' ) );
 		add_action( 'admin_notices', array( self::class, 'render_admin_notices' ) );
 
@@ -150,6 +180,47 @@ final class Plugin {
 			false,
 			dirname( AINP_PLUGIN_BASENAME ) . '/languages'
 		);
+	}
+
+	/**
+	 * Zaklada terminy taksonomii dla kategorii z Ustawien.
+	 *
+	 * IDEMPOTENTNA I TANIA. Odcisk listy w opcji `ainp_topics_seeded` sprawia,
+	 * ze typowe zadanie konczy sie na porownaniu dwoch napisow — do bazy
+	 * siegamy wylacznie wtedy, gdy lista kategorii naprawde sie zmienila.
+	 *
+	 * CZEGO TA METODA NIE ROBI: nie kasuje terminow, ktorych nie ma juz
+	 * w Ustawieniach. Termin usuniety z listy moze mieć przypisane artykuly,
+	 * a ciche skasowanie go zabraloby im kategorie. Osierocony przycisk
+	 * z zerem artykulow klient usuwa sam w kokpicie — to jego decyzja,
+	 * nie nasza.
+	 *
+	 * @return void
+	 */
+	public static function ensure_topics(): void {
+		$kategorie = Settings::get( 'categories' );
+
+		if ( ! is_array( $kategorie ) || array() === $kategorie ) {
+			return;
+		}
+
+		$odcisk = md5( wp_json_encode( $kategorie ) );
+
+		if ( get_option( self::OPTION_TOPICS_SEEDED ) === $odcisk ) {
+			return;
+		}
+
+		foreach ( $kategorie as $nazwa ) {
+			$nazwa = trim( (string) $nazwa );
+
+			if ( '' === $nazwa || term_exists( $nazwa, self::TAX ) ) {
+				continue;
+			}
+
+			wp_insert_term( $nazwa, self::TAX );
+		}
+
+		update_option( self::OPTION_TOPICS_SEEDED, $odcisk );
 	}
 
 	/**
@@ -279,6 +350,9 @@ final class Plugin {
 
 		self::register_content_types();
 		flush_rewrite_rules();
+
+		// Kategorie od pierwszego dnia — PO rejestracji taksonomii.
+		self::ensure_topics();
 
 		self::note_slug_collision();
 		self::maybe_insert_demo();

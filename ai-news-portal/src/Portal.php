@@ -199,10 +199,17 @@ final class Portal {
 	/**
 	 * Kategorie na przyciski — tylko te, ktore maja artykuly. Etap 6.3.
 	 *
-	 * `hide_empty` jest tu istotne: lista kategorii pochodzi z Ustawien i ma
-	 * siedem pozycji od pierwszego dnia, a artykuly przybywaja po kilka
-	 * dziennie. Przycisk prowadzacy do pustego archiwum to obietnica bez
-	 * pokrycia — wiec pokazujemy wylacznie kategorie, w ktorych cos jest.
+	 * POKAZUJEMY TAKZE PUSTE — decyzja usera z 2026-08-09, zmiana wobec 6.3.
+	 *
+	 * Pierwotnie stalo tu `hide_empty => true` z uzasadnieniem, ze przycisk
+	 * prowadzacy do pustego archiwum to obietnica bez pokrycia. W praktyce
+	 * wyszlo odwrotnie: swiezo wlaczona wtyczka pokazywala JEDEN przycisk
+	 * i portal nie mowil o sobie nic — ani jakie tematy obejmuje, ani ze
+	 * bedzie ich siedem. Puste archiwum odpowiada zrozumialym komunikatem,
+	 * a zdjecie kategorii niesie tresc samo z siebie.
+	 *
+	 * Terminy zaklada `Plugin::ensure_topics()`; bez tego samo przelaczenie
+	 * flagi niczego by nie dalo, bo `get_terms()` nie mialoby czego zwrocic.
 	 *
 	 * @return array<int,object>
 	 */
@@ -210,7 +217,7 @@ final class Portal {
 		$terminy = get_terms(
 			array(
 				'taxonomy'   => Plugin::TAX,
-				'hide_empty' => true,
+				'hide_empty' => false,
 				'orderby'    => 'name',
 			)
 		);

@@ -443,6 +443,10 @@ function wp_insert_post( $data, $wp_error = false ) {
 	$GLOBALS['__posts'][ $id ] = $data;
 	return $id;
 }
+// Od 2026-08-09 `Plugin::ensure_topics()` liczy odcisk listy kategorii.
+function wp_json_encode( $dane, $flagi = 0, $glebokosc = 512 ) {
+	return json_encode( $dane, $flagi, $glebokosc );
+}
 function term_exists( $term, $taxonomy = '', $parent = null ) {
 	return null;
 }
