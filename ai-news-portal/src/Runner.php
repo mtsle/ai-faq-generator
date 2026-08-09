@@ -143,6 +143,29 @@ final class Runner {
 	 */
 	public const AI_JSON_RETRIES = 1;
 
+	/**
+	 * Budzet czasu CALEGO ticku: 20 sekund — etap 5.3.
+	 *
+	 * WP-Cron chodzi we wlasnym zadaniu HTTP, wiec obowiazuje go zwykly
+	 * `max_execution_time` hostingu — typowo 30 s. Tick, ktory go przekroczy,
+	 * ginie w polowie: pozycja zostaje `processing` (odzyska ja dopiero prog
+	 * 15 minut), a podsumowanie nie powstaje. Dwadziescia sekund zostawia zapas
+	 * na dopiecie pozycji, ktora akurat trwa.
+	 */
+	public const TICK_BUDGET = 20;
+
+	/**
+	 * Ile z budzetu ticku wolno zjesc fazie zbierania i fazie przygotowania.
+	 *
+	 * Po jednej czwartej kazda, reszta — czyli przynajmniej polowa — nalezy
+	 * do publikacji, i to nie jest podzial „po rowno przez trzy". `Gemini`
+	 * nie startuje ponizej OSMIU sekund pozostalego budzetu, wiec faza
+	 * publikacji z dwudziestu procent budzetu nie wywolalaby modelu ANI RAZU:
+	 * portal zbieralby material w nieskonczonosc i nigdy nic nie opublikowal.
+	 * Faza, ktora skonczy wczesniej, oddaje swoja reszte nastepnym.
+	 */
+	public const TICK_SHARE = 0.25;
+
 	/** Sufit dlugosci adresu — tyle ma kolumna `url varchar(2048)`. */
 	public const MAX_URL_BYTES = 2048;
 
@@ -177,13 +200,18 @@ final class Runner {
 	 * Przejecie pozycji (`status='processing'`) dochodzi w etapie 5.2, a budzety
 	 * czasu i pamieci calego ticku w 5.3 — tu fazy dostaja swoje wartosci domyslne.
 	 *
+	 * @param float|null $budget Budzet czasu w sekundach; `null` bierze
+	 *                           `tick_budget()`.
+	 *
 	 * @return array<string,mixed> Podsumowanie trzech faz; `locked` mowi, ze
 	 *                             przebieg nie ruszyl, bo trwal inny.
 	 */
-	public static function tick(): array {
+	public static function tick( ?float $budget = null ): array {
 		$wynik = array(
 			'locked'    => false,
 			'recovered' => 0,
+			'budget'    => 0.0,
+			'skipped'   => array(),
 			'collect'   => array(),
 			'prepare'   => array(),
 			'publish'   => array(),
@@ -213,17 +241,40 @@ final class Runner {
 				$wynik['errors']['recover'] = $e->getMessage();
 			}
 
+			$budzet = ( null === $budget ) ? self::tick_budget() : max( 1.0, $budget );
+			$start  = microtime( true );
+			$dzialka = $budzet * self::TICK_SHARE;
+
+			$wynik['budget'] = $budzet;
+
 			foreach ( array( 'collect', 'prepare', 'publish' ) as $faza ) {
+				$zostalo = $budzet - ( microtime( true ) - $start );
+
+				/*
+				 * Faza, na ktora nie ma juz czasu, nie jest ODPALANA — nie jest
+				 * odpalana „na chwile". Partia z zerowym budzetem i tak zwrocilaby
+				 * `budget_hit` po jednym zapytaniu, ale to zapytanie i tak by padlo,
+				 * a przy fazie publikacji doszlaby jeszcze proba wywolania modelu
+				 * z budzetem, przy ktorym `Gemini` i tak odmawia startu.
+				 */
+				if ( $zostalo <= 0 ) {
+					$wynik['skipped'][] = $faza;
+					continue;
+				}
+
 				try {
 					switch ( $faza ) {
 						case 'collect':
-							$wynik['collect'] = self::collect();
+							$wynik['collect'] = self::collect( null, min( $dzialka, $zostalo ) );
 							break;
 						case 'prepare':
-							$wynik['prepare'] = self::prepare_batch();
+							$wynik['prepare'] = self::prepare_batch( self::PREPARE_BATCH, min( $dzialka, $zostalo ) );
 							break;
 						default:
-							$wynik['publish'] = self::publish_batch();
+							// CALA reszta budzetu, nie dzialka: to jedyna faza,
+							// ktorej praca ma wartosc dla klienta, i jedyna,
+							// ktora ma prog wejscia (osiem sekund na model).
+							$wynik['publish'] = self::publish_batch( self::AI_BATCH, $zostalo );
 							break;
 					}
 				} catch ( \Throwable $e ) {
@@ -235,6 +286,30 @@ final class Runner {
 		}
 
 		return $wynik;
+	}
+
+	/**
+	 * Budzet czasu jednego ticku, przyciety do mozliwosci hostingu.
+	 *
+	 * `TICK_BUDGET` jest zalozeniem, `max_execution_time` — faktem. Na hostingu
+	 * z limitem 15 s tick liczacy na 20 s zginalby przed oddaniem pozycji
+	 * i przed zapisaniem podsumowania, i to CO GODZINE. Bierzemy 80% limitu,
+	 * zeby zostal zapas na domkniecie pozycji, ktora akurat trwa — ta sama
+	 * proporcja, ktora rzadzi budzetem pamieci w `Article`.
+	 *
+	 * Limit `0` znaczy „bez ograniczenia" (tak jest w CLI) i wtedy obowiazuje
+	 * samo zalozenie.
+	 *
+	 * @return float
+	 */
+	public static function tick_budget(): float {
+		$limit = (int) ini_get( 'max_execution_time' );
+
+		if ( $limit <= 0 ) {
+			return (float) self::TICK_BUDGET;
+		}
+
+		return min( (float) self::TICK_BUDGET, $limit * 0.8 );
 	}
 
 	// -----------------------------------------------------------------------
@@ -383,13 +458,29 @@ final class Runner {
 	 *
 	 * @return array<string,mixed> Podsumowanie w ksztalcie z `summary()`.
 	 */
-	public static function collect( ?array $sources = null ): array {
+	public static function collect( ?array $sources = null, ?float $budget = null ): array {
 		$sources = ( null === $sources ) ? self::sources() : self::clean_sources( $sources );
 		$wynik   = self::summary();
+		$start   = microtime( true );
 
 		$wynik['sources'] = count( $sources );
 
 		foreach ( $sources as $url ) {
+			/*
+			 * Budzet czasu — etap 5.3. Sprawdzany MIEDZY kanalami, bo kanal
+			 * w trakcie musi sie domknac. Cztery kanaly po `TIMEOUT_FEED`
+			 * kazdy to w najgorszym razie minuta w jednym zadaniu, a caly tick
+			 * ma miescic sie w dwudziestu sekundach. Kanal pominiety wraca
+			 * w nastepnym ticku, bo nic go nie oznacza jako przetworzony.
+			 *
+			 * `null` znaczy „bez budzetu" — tak wola przycisk „Pobierz teraz",
+			 * gdzie na koncu siedzi czlowiek, ktory poczeka.
+			 */
+			if ( null !== $budget && ( microtime( true ) - $start ) >= $budget ) {
+				$wynik['budget_hit'] = true;
+				break;
+			}
+
 			try {
 				$jedno = self::collect_source( $url );
 			} catch ( \Throwable $e ) {
@@ -1583,6 +1674,7 @@ final class Runner {
 			'invalid'    => 0,
 			'dropped'    => 0,
 			'failed'     => 0,
+			'budget_hit' => false,
 			'errors'     => array(),
 			'per_source' => array(),
 		);

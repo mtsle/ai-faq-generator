@@ -69,6 +69,8 @@ $GLOBALS['__slad']         = array();   // Kolejnosc faz ticku.
 $GLOBALS['__zapytania']    = array();
 $GLOBALS['__wysadz_prepare'] = false;   // Wymuszenie wyjatku w fazie „prepare".
 $GLOBALS['__posts']        = array();
+$GLOBALS['__zadania']      = array();   // Adresy, o ktore poprosila faza zbierania.
+$GLOBALS['__http_sleep']   = 0.0;       // Sztuczne spowolnienie transportu.
 $GLOBALS['__next_post_id'] = 100;
 
 class WP_Post {
@@ -372,7 +374,15 @@ function wp_encode_emoji( $s ) {
  * @return WP_Error
  */
 function wp_safe_remote_get( $url, $args = array() ) {
-	$GLOBALS['__slad'][] = 'collect';
+	$GLOBALS['__slad'][]    = 'collect';
+	$GLOBALS['__zadania'][] = $url;
+
+	// Spowolnienie na zadanie — inaczej caly tick trwa mniej niz milisekunde
+	// i budzet nigdy nie ma szans zadzialac (etap 5.3).
+	if ( $GLOBALS['__http_sleep'] > 0 ) {
+		usleep( (int) ( $GLOBALS['__http_sleep'] * 1000000 ) );
+	}
+
 	return new WP_Error( 'http_request_failed', 'atrapa: brak sieci' );
 }
 function wp_remote_retrieve_response_code( $r ) {
@@ -556,6 +566,67 @@ $GLOBALS['__wysadz_prepare'] = false;
 k5_check( isset( $wynik['errors']['prepare'] ), 'blad fazy zapisany pod jej nazwa' );
 k5_check( array( 'recover', 'collect', 'publish' ) === $GLOBALS['__slad'], 'pozostale dwie fazy wykonane mimo wyjatku (jest: ' . implode( ' → ', $GLOBALS['__slad'] ) . ')' );
 k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek zdjety w finally, mimo wyjatku w srodku' );
+
+// ---------------------------------------------------------------------------
+// 9. Budzet czasu ticku (etap 5.3).
+// ---------------------------------------------------------------------------
+echo "
+=== 9. Budzet czasu: dzialki faz i faza pominieta ===
+";
+
+k5_check( 20 === Runner::TICK_BUDGET, 'zalozony budzet ticku to 20 sekund' );
+
+$stary_limit = ini_get( 'max_execution_time' );
+
+ini_set( 'max_execution_time', '0' );
+k5_check( 20.0 === Runner::tick_budget(), 'bez limitu wykonania obowiazuje samo zalozenie' );
+
+/*
+ * Hosting z limitem 10 s: tick liczacy na 20 zginalby przed oddaniem pozycji,
+ * i to co godzine. Bierzemy 80% limitu — ta sama proporcja, co przy pamieci.
+ */
+ini_set( 'max_execution_time', '10' );
+k5_check( 8.0 === Runner::tick_budget(), 'limit 10 s przycina budzet do 8 s (80%)' );
+
+ini_set( 'max_execution_time', (string) $stary_limit );
+
+// --- Dzialka fazy zbierania ------------------------------------------------
+update_option(
+	Settings::OPTION_SOURCES,
+	array( 'https://a.test/feed/', 'https://b.test/feed/', 'https://c.test/feed/' )
+);
+
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__transient']  = array();
+$GLOBALS['__http_sleep'] = 0.4;
+
+$wynik = Runner::tick( 1.0 );
+
+/*
+ * Trzy kanaly po 0,4 s przy dzialce 0,25 s: pierwszy kanal wchodzi bez pytania
+ * (budzet sprawdzany PRZED kanalem, a przed pierwszym nic sie jeszcze nie
+ * zuzylo), drugi juz nie. Asercja jest na LICZBIE zadan, nie na czasie —
+ * pomiar czasu w asercji bywa raz zielony, raz czerwony.
+ */
+k5_check( 1 === count( $GLOBALS['__zadania'] ), 'faza zbierania stanela po pierwszym kanale (zadan: ' . count( $GLOBALS['__zadania'] ) . ')' );
+k5_check( true === ( $wynik['collect']['budget_hit'] ?? false ), 'i zglosila to w podsumowaniu' );
+k5_check( 1.0 === $wynik['budget'], 'tick zapamietal budzet, z ktorym pracowal' );
+
+// --- Faza, na ktora nie starczylo czasu, NIE jest odpalana -----------------
+$GLOBALS['__slad']       = array();
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__transient']  = array();
+$GLOBALS['__http_sleep'] = 1.2;
+
+update_option( Settings::OPTION_SOURCES, array( 'https://a.test/feed/' ) );
+
+$wynik = Runner::tick( 1.0 );
+
+k5_check( array( 'prepare', 'publish' ) === $wynik['skipped'], 'obie pozostale fazy pominiete, nie odpalone „na chwile" (jest: ' . implode( ', ', $wynik['skipped'] ) . ')' );
+k5_check( array( 'recover', 'collect' ) === $GLOBALS['__slad'], 'i zadna z nich nie ruszyla bazy' );
+k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek zdjety mimo wyczerpanego budzetu' );
+
+$GLOBALS['__http_sleep'] = 0.0;
 
 // ---------------------------------------------------------------------------
 // Podsumowanie.
