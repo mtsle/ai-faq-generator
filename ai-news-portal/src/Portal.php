@@ -504,6 +504,60 @@ final class Portal {
 	}
 
 	/**
+	 * Adres zrodla artykulu. Pusty ciag, gdy go nie ma. Etap 6.5.
+	 *
+	 * Link do zrodla jest obowiazkowy i nieusuwalny — portal przepisuje cudze
+	 * teksty modelem, wiec wskazanie oryginalu to minimum przyzwoitosci wobec
+	 * autora i jedyne, co odroznia ten portal od skrobaczki tresci.
+	 *
+	 * SITO NA SCHEMAT: przepuszczamy wylacznie `http` i `https`. Wartosc
+	 * bierze sie z meta wpisu, a te da sie ustawic z kokpitu — `javascript:`
+	 * w atrybucie `href` byloby wtedy wykonywalnym kodem na froncie.
+	 * `esc_url()` w szablonie odsiewa to samo, ale bramka stoi w miejscu,
+	 * ktore decyduje, CZY ramke zrodla w ogole rysowac: adres odrzucony ma
+	 * nie zostawiac pustej ramki z napisem „Zrodlo:".
+	 *
+	 * @param int $post_id Identyfikator wpisu.
+	 *
+	 * @return string
+	 */
+	public static function source_url( int $post_id ): string {
+		$adres = trim( (string) get_post_meta( $post_id, Plugin::META_SOURCE, true ) );
+
+		if ( '' === $adres ) {
+			return '';
+		}
+
+		$schemat = strtolower( (string) wp_parse_url( $adres, PHP_URL_SCHEME ) );
+
+		if ( 'http' !== $schemat && 'https' !== $schemat ) {
+			return '';
+		}
+
+		return $adres;
+	}
+
+	/**
+	 * Host adresu zrodla, do pokazania w ramce. Etap 6.5.
+	 *
+	 * Sam adres bywa dlugi na trzy linie i na telefonie rozpycha uklad.
+	 * W ramce stoi wiec nazwa serwisu, a pelny adres zostaje w `href`.
+	 *
+	 * @param string $adres Adres zrodla.
+	 *
+	 * @return string
+	 */
+	public static function source_host( string $adres ): string {
+		$host = strtolower( (string) wp_parse_url( $adres, PHP_URL_HOST ) );
+
+		if ( '' === $host ) {
+			return '';
+		}
+
+		return ( 0 === strpos( $host, 'www.' ) ) ? substr( $host, 4 ) : $host;
+	}
+
+	/**
 	 * Zajawka artykulu na karte. Etap 6.2.
 	 *
 	 * Bierzemy `post_excerpt` — pole, ktore `Publisher` wypelnia leadem

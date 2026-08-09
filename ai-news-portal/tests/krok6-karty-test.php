@@ -70,6 +70,7 @@ namespace {
 		'lista_terminow' => array(),
 		'paginacja'      => array(),
 		'linki'          => '',
+		'meta'           => array(),
 	);
 	$GLOBALS['__narysowano'] = array();
 
@@ -128,6 +129,17 @@ namespace {
 
 	function get_post( $post_id ) {
 		return $GLOBALS['__stan']['wpisy'][ $post_id ] ?? null;
+	}
+
+	function get_post_meta( $post_id, $klucz, $pojedyncza = false ) {
+		if ( '_ainp_source_url' !== $klucz ) {
+			return '';
+		}
+		return $GLOBALS['__stan']['meta'][ $post_id ] ?? '';
+	}
+
+	function wp_parse_url( $url, $component = -1 ) {
+		return parse_url( $url, $component );
 	}
 
 	function get_the_excerpt( $post_id = null ) {
@@ -202,6 +214,7 @@ namespace AINP {
 		public const CPT          = 'ainp_article';
 		public const TAX          = 'ainp_topic';
 		public const ARCHIVE_SLUG = 'centrum-wiedzy';
+		public const META_SOURCE  = '_ainp_source_url';
 	}
 }
 
@@ -513,16 +526,47 @@ namespace {
 	);
 
 	// ---------------------------------------------------------------------
+	echo "\n-- Zrodlo artykulu (etap 6.5) --\n";
+
+	$GLOBALS['__stan']['meta'] = array(
+		7  => 'https://www.psy.pl/karma-dla-szczeniaka/',
+		8  => '',
+		9  => '   ',
+		10 => 'javascript:alert(1)',
+		11 => 'ftp://plik.example/psy.txt',
+		12 => 'psy.pl/bez-schematu/',
+		13 => 'http://ccw24.pl/artykul/',
+	);
+
+	k6k_check(
+		'https://www.psy.pl/karma-dla-szczeniaka/' === Portal::source_url( 7 ),
+		'adres zrodla bierze sie z meta wpisu'
+	);
+	k6k_check( 'http://ccw24.pl/artykul/' === Portal::source_url( 13 ), 'zwykly http tez przechodzi' );
+	k6k_check( '' === Portal::source_url( 8 ), 'brak adresu → pusty ciag, ramka zrodla sie nie rysuje' );
+	k6k_check( '' === Portal::source_url( 9 ), 'same biale znaki → pusty ciag' );
+	k6k_check( '' === Portal::source_url( 10 ), 'schemat javascript: ODRZUCONY' );
+	k6k_check( '' === Portal::source_url( 11 ), 'schemat ftp: odrzucony' );
+	k6k_check( '' === Portal::source_url( 12 ), 'adres bez schematu odrzucony' );
+
+	k6k_check(
+		'psy.pl' === Portal::source_host( 'https://www.psy.pl/karma-dla-szczeniaka/' ),
+		'w ramce stoi nazwa serwisu bez www, pelny adres zostaje w href'
+	);
+	k6k_check( 'ccw24.pl' === Portal::source_host( 'http://ccw24.pl/artykul/' ), 'host bez www zostaje jak jest' );
+	k6k_check( '' === Portal::source_host( 'to nie jest adres' ), 'smiec zamiast adresu → pusta nazwa, bez bledu' );
+
+	// ---------------------------------------------------------------------
 	echo "\n-- Pliki szablonow --\n";
 
-	$szablony = array( 'archive.php', 'card.php', 'portal.css' );
+	$szablony = array( 'archive.php', 'single.php', 'card.php', 'portal.css' );
 	$katalog  = dirname( __DIR__ ) . '/src/templates/';
 
 	foreach ( $szablony as $plik ) {
 		k6k_check( file_exists( $katalog . $plik ), "szablon {$plik} istnieje" );
 	}
 
-	foreach ( array( 'archive.php', 'card.php' ) as $plik ) {
+	foreach ( array( 'archive.php', 'single.php', 'card.php' ) as $plik ) {
 		$tresc = (string) file_get_contents( $katalog . $plik );
 		$ok    = true;
 		try {
