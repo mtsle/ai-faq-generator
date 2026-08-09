@@ -52,6 +52,39 @@ final class Portal {
 	public static function register(): void {
 		add_filter( 'template_include', array( self::class, 'filter_template' ) );
 		add_action( 'template_redirect', array( self::class, 'redirect_taxonomy_base' ) );
+		add_action( 'wp_enqueue_scripts', array( self::class, 'enqueue' ) );
+	}
+
+	/**
+	 * Arkusz stylow portalu — TYLKO na widokach Centrum Wiedzy. Etap 6.2.
+	 *
+	 * Warunek nie jest oszczednoscia na bajtach, tylko uprzejmoscia wobec
+	 * motywu: styl wtyczki ustawia siatke i typografie kart, a na cudzej
+	 * stronie nie ma czego ustawiac. Wersja z `AINP_VERSION` daje przegladarce
+	 * sygnal do odswiezenia cache'u przy kazdym wydaniu.
+	 *
+	 * @return void
+	 */
+	public static function enqueue(): void {
+		if ( ! self::is_portal_view() ) {
+			return;
+		}
+
+		wp_enqueue_style(
+			'ainp-portal',
+			AINP_PLUGIN_URL . self::TEMPLATE_DIR . 'portal.css',
+			array(),
+			AINP_VERSION
+		);
+	}
+
+	/**
+	 * Czy biezace zapytanie nalezy do Centrum Wiedzy.
+	 *
+	 * @return bool
+	 */
+	public static function is_portal_view(): bool {
+		return null !== self::resolve();
 	}
 
 	/**
@@ -158,6 +191,155 @@ final class Portal {
 	 */
 	public static function own_template( string $plik ): string {
 		return AINP_PLUGIN_DIR . self::TEMPLATE_DIR . $plik;
+	}
+
+	/**
+	 * Wstawia fragment szablonu — z motywu, jesli motyw go ma. Etap 6.2.
+	 *
+	 * Ta sama kolejnosc pierwszenstwa co przy calych szablonach, tylko
+	 * katalogiem motywu jest `ai-news-portal/`. Motyw, ktory chce inaczej
+	 * rysowac karte, kladzie u siebie `ai-news-portal/card.php` i nie musi
+	 * podmieniac calego archiwum.
+	 *
+	 * @param string $plik Nazwa pliku w `src/templates/`.
+	 *
+	 * @return void
+	 */
+	public static function part( string $plik ): void {
+		$z_motywu = locate_template( array( 'ai-news-portal/' . $plik ) );
+
+		$sciezka = ( is_string( $z_motywu ) && '' !== $z_motywu ) ? $z_motywu : self::own_template( $plik );
+
+		if ( file_exists( $sciezka ) ) {
+			require $sciezka;
+		}
+	}
+
+	/**
+	 * Naglowek archiwum: nazwa kategorii albo nazwa portalu. Etap 6.2.
+	 *
+	 * @return string
+	 */
+	public static function archive_title(): string {
+		if ( is_tax( Plugin::TAX ) ) {
+			$termin = get_queried_object();
+			if ( is_object( $termin ) && isset( $termin->name ) && '' !== (string) $termin->name ) {
+				return (string) $termin->name;
+			}
+		}
+
+		return __( 'Centrum Wiedzy', 'ai-news-portal' );
+	}
+
+	/**
+	 * Kategoria artykulu. Etap 6.2.
+	 *
+	 * Artykul ma DOKLADNIE jedna kategorie — `Publisher` przypisuje ja jednym
+	 * `wp_set_object_terms()` z jednoelementowa tablica, a walidator odrzuca
+	 * odpowiedz modelu z kategoria spoza listy. Bierzemy wiec pierwszy termin
+	 * i nie udajemy, ze moze ich byc wiecej.
+	 *
+	 * @param int $post_id Identyfikator wpisu.
+	 *
+	 * @return object|null
+	 */
+	public static function primary_term( int $post_id ): ?object {
+		$terminy = get_the_terms( $post_id, Plugin::TAX );
+
+		if ( ! is_array( $terminy ) || array() === $terminy ) {
+			return null;
+		}
+
+		$pierwszy = reset( $terminy );
+
+		return is_object( $pierwszy ) ? $pierwszy : null;
+	}
+
+	/**
+	 * Adres archiwum kategorii. Pusty ciag, gdy WordPress go nie zna.
+	 *
+	 * @param object $termin Termin taksonomii.
+	 *
+	 * @return string
+	 */
+	public static function term_link( object $termin ): string {
+		$link = get_term_link( $termin );
+
+		return is_string( $link ) ? $link : '';
+	}
+
+	/**
+	 * Adres zdjecia kategorii albo pusty ciag. Etap 6.2.
+	 *
+	 * Zdjecia jada w paczce wtyczki, po jednym na kategorie domyslna, a nazwa
+	 * pliku jest slugiem kategorii. Klient moze w Ustawieniach dopisac wlasna
+	 * kategorie — wtedy pliku nie ma i karta rysuje kafelek z inicjalem.
+	 * To nie jest sytuacja wyjatkowa, tylko drugi normalny stan karty.
+	 *
+	 * SITO NA SLUG jest tu mimo tego, ze slug z WordPressa jest juz
+	 * oczyszczony: ta funkcja sklada SCIEZKE PLIKU, a jedyny sensowny moment
+	 * na sprawdzenie skladnika sciezki to chwila tuz przed jej zlozeniem.
+	 * Slug spoza `[a-z0-9-]` konczy sie odmowa bez dotykania dysku.
+	 *
+	 * @param string $slug Slug kategorii.
+	 *
+	 * @return string
+	 */
+	public static function category_image_url( string $slug ): string {
+		if ( 1 !== preg_match( '/^[a-z0-9-]+$/', $slug ) ) {
+			return '';
+		}
+
+		$wzgledna = 'assets/kategorie/' . $slug . '.jpg';
+
+		if ( ! file_exists( AINP_PLUGIN_DIR . $wzgledna ) ) {
+			return '';
+		}
+
+		return AINP_PLUGIN_URL . $wzgledna;
+	}
+
+	/**
+	 * Pierwsza litera nazwy kategorii — na kafelek zapasowy. Etap 6.2.
+	 *
+	 * `mb_*`, bo nazwy sa polskie: `substr('Żywienie', 0, 1)` oddaje POLOWE
+	 * dwubajtowej litery i przegladarka rysuje w tym miejscu znak zapytania.
+	 *
+	 * @param string $nazwa Nazwa kategorii.
+	 *
+	 * @return string
+	 */
+	public static function initial( string $nazwa ): string {
+		$nazwa = trim( $nazwa );
+
+		if ( '' === $nazwa ) {
+			return '';
+		}
+
+		return mb_strtoupper( mb_substr( $nazwa, 0, 1 ) );
+	}
+
+	/**
+	 * Zajawka artykulu na karte. Etap 6.2.
+	 *
+	 * Bierzemy `post_excerpt` — pole, ktore `Publisher` wypelnia leadem
+	 * z modelu. Swiadomie NIE siegamy po `get_the_excerpt()`: ta funkcja przy
+	 * pustym polu tnie tresc artykulu na 55 slow i doklada wielokropek, czyli
+	 * podstawia surowy poczatek tekstu tam, gdzie ma stac napisany lead.
+	 * Lepiej pokazac sama tytul niz obciety akapit.
+	 *
+	 * @param int $post_id Identyfikator wpisu.
+	 *
+	 * @return string
+	 */
+	public static function lead( int $post_id ): string {
+		$wpis = get_post( $post_id );
+
+		if ( ! is_object( $wpis ) || ! isset( $wpis->post_excerpt ) ) {
+			return '';
+		}
+
+		return trim( (string) $wpis->post_excerpt );
 	}
 
 	/**
