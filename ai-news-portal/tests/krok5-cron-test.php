@@ -71,6 +71,7 @@ $GLOBALS['__wysadz_prepare'] = false;   // Wymuszenie wyjatku w fazie „prepare
 $GLOBALS['__posts']        = array();
 $GLOBALS['__zadania']      = array();   // Adresy, o ktore poprosila faza zbierania.
 $GLOBALS['__http_sleep']   = 0.0;       // Sztuczne spowolnienie transportu.
+$GLOBALS['__db_sleep']     = 0.0;       // Sztuczne spowolnienie odzysku.
 $GLOBALS['__next_post_id'] = 100;
 
 class WP_Post {
@@ -149,6 +150,12 @@ class AINP_Fake_WPDB {
 		// `processing` jest niewidoczna dla obu zapytan wybierajacych.
 		if ( false !== strpos( $sql, 'WHERE status = %s AND updated_at < %s' ) ) {
 			$GLOBALS['__slad'][] = 'recover';
+
+			// Odzysk jest jedyna czescia ticku BEZ wlasnego timeoutu — na nim
+			// da sie uczciwie sprawdzic galaz „faza bez czasu nie startuje".
+			if ( $GLOBALS['__db_sleep'] > 0 ) {
+				usleep( (int) ( $GLOBALS['__db_sleep'] * 1000000 ) );
+			}
 		}
 
 		return 0;
@@ -647,7 +654,14 @@ k5_check( 8.0 === Runner::tick_budget(), 'limit 10 s przycina budzet do 8 s (80%
 
 ini_set( 'max_execution_time', (string) $stary_limit );
 
-// --- Dzialka fazy zbierania ------------------------------------------------
+// --- Budzet za maly na UCZCIWA probe: zadanie nie startuje wcale -----------
+/*
+ * NAPRAWA A2. Do audytu budzet byl sprawdzany dopiero MIEDZY kanalami, wiec
+ * pierwszy kanal wchodzil zawsze i mogl isc az do wlasnego timeoutu (10 s).
+ * Teraz timeout zadania jest przycinany do pozostalego budzetu, a ponizej
+ * `Http::MIN_SECONDS` zadanie nie rusza w ogole — bo porazka po dwoch sekundach
+ * nie jest wina serwisu, a mimo to podbijalaby licznik prob.
+ */
 update_option(
 	Settings::OPTION_SOURCES,
 	array( 'https://a.test/feed/', 'https://b.test/feed/', 'https://c.test/feed/' )
@@ -659,15 +673,40 @@ $GLOBALS['__http_sleep'] = 0.4;
 
 $wynik = Runner::tick( 1.0 );
 
+k5_check( 0 === count( $GLOBALS['__zadania'] ), 'przy budzecie 0,25 s faza zbierania NIE wysyla zadania (jest: ' . count( $GLOBALS['__zadania'] ) . ')' );
+k5_check( true === ( $wynik['collect']['budget_hit'] ?? false ), 'i zglasza brak budzetu, a nie awarie kanalu' );
+k5_check( array() === ( $wynik['collect']['errors'] ?? array() ), 'kanal, ktorego nie zapytano, NIE trafia na liste bledow' );
+
+// --- Dzialka ogranicza liczbe kanalow w jednym przebiegu -------------------
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__transient']  = array();
+$GLOBALS['__http_sleep'] = 4.0;
+
+$wynik = Runner::tick( 20.0 );
+
 /*
- * Trzy kanaly po 0,4 s przy dzialce 0,25 s: pierwszy kanal wchodzi bez pytania
- * (budzet sprawdzany PRZED kanalem, a przed pierwszym nic sie jeszcze nie
- * zuzylo), drugi juz nie. Asercja jest na LICZBIE zadan, nie na czasie —
- * pomiar czasu w asercji bywa raz zielony, raz czerwony.
+ * Dzialka zbierania to 5 s. Pierwszy kanal miesci sie w progu (timeout przyciety
+ * do 5 s), po nim zostaje okolo sekundy — mniej niz `Http::MIN_SECONDS`, wiec
+ * drugi kanal nie startuje. Asercja jest na LICZBIE zadan, nie na czasie.
  */
-k5_check( 1 === count( $GLOBALS['__zadania'] ), 'faza zbierania stanela po pierwszym kanale (zadan: ' . count( $GLOBALS['__zadania'] ) . ')' );
-k5_check( true === ( $wynik['collect']['budget_hit'] ?? false ), 'i zglosila to w podsumowaniu' );
-k5_check( 1.0 === $wynik['budget'], 'tick zapamietal budzet, z ktorym pracowal' );
+k5_check( 1 === count( $GLOBALS['__zadania'] ), 'dzialka przepuszcza jeden kanal, drugiego juz nie (zadan: ' . count( $GLOBALS['__zadania'] ) . ')' );
+k5_check( true === ( $wynik['collect']['budget_hit'] ?? false ), 'faza zbierania zglasza wyczerpanie dzialki' );
+k5_check( 20.0 === $wynik['budget'], 'tick zapamietal budzet, z ktorym pracowal' );
+
+// --- Faza, na ktora nie starczylo czasu, NIE jest odpalana -----------------
+$GLOBALS['__slad']       = array();
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__transient']  = array();
+$GLOBALS['__http_sleep'] = 0.0;
+$GLOBALS['__db_sleep']   = 1.2;
+
+$wynik = Runner::tick( 1.0 );
+
+$GLOBALS['__db_sleep'] = 0.0;
+
+k5_check( array( 'collect', 'prepare', 'publish' ) === $wynik['skipped'], 'zjedzony budzet pomija WSZYSTKIE trzy fazy, nie odpala ich „na chwile" (jest: ' . implode( ', ', $wynik['skipped'] ) . ')' );
+k5_check( array( 'recover' ) === $GLOBALS['__slad'], 'i zadna z nich nie ruszyla ani bazy, ani sieci' );
+k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek zdjety mimo wyczerpanego budzetu' );
 
 // --- Podzial budzetu miedzy fazy -------------------------------------------
 $GLOBALS['__zadania']    = array();
@@ -689,22 +728,6 @@ $dzialka = 20.0 * Runner::TICK_SHARE;
 k5_check( $wynik['prepare']['budget'] <= $dzialka + 0.01, 'przygotowanie dostaje NAJWYZEJ dzialke (jest: ' . round( $wynik['prepare']['budget'], 2 ) . ' z ' . $dzialka . ')' );
 k5_check( $wynik['publish']['budget'] > $dzialka, 'publikacja dostaje CALA reszte budzetu, nie dzialke (jest: ' . round( $wynik['publish']['budget'], 2 ) . ')' );
 k5_check( $wynik['publish']['budget'] >= 8.0, 'i nie mniej, niz `Gemini` potrzebuje, zeby w ogole wystartowac' );
-
-// --- Faza, na ktora nie starczylo czasu, NIE jest odpalana -----------------
-$GLOBALS['__slad']       = array();
-$GLOBALS['__zadania']    = array();
-$GLOBALS['__transient']  = array();
-$GLOBALS['__http_sleep'] = 1.2;
-
-update_option( Settings::OPTION_SOURCES, array( 'https://a.test/feed/' ) );
-
-$wynik = Runner::tick( 1.0 );
-
-k5_check( array( 'prepare', 'publish' ) === $wynik['skipped'], 'obie pozostale fazy pominiete, nie odpalone „na chwile" (jest: ' . implode( ', ', $wynik['skipped'] ) . ')' );
-k5_check( array( 'recover', 'collect' ) === $GLOBALS['__slad'], 'i zadna z nich nie ruszyla bazy' );
-k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek zdjety mimo wyczerpanego budzetu' );
-
-$GLOBALS['__http_sleep'] = 0.0;
 
 // ---------------------------------------------------------------------------
 // Podsumowanie.

@@ -64,6 +64,20 @@ final class Http {
 	/** Timeout pobrania `robots.txt` — krotszy, bo to zadanie poboczne. */
 	public const ROBOTS_TIMEOUT = 5;
 
+	/**
+	 * Ponizej tylu sekund nie zaczynamy zadania — ustalenie audytowe A2.
+	 *
+	 * Zadanie z timeoutem 2 s przy wolnym serwisie skonczy sie porazka, ktora
+	 * NIE jest wina serwisu, a mimo to podbilaby licznik prob — po trzech takich
+	 * przebiegach zdrowa pozycja ladowalaby na `failed`. Lepiej nie zaczynac
+	 * i zostawic ja nietknieta do nastepnego ticku.
+	 *
+	 * TRZY, nie piec: dzialka fazy zbierania to cwiartka budzetu ticku, czyli
+	 * przy zalozonych 20 s dokladnie 5 s. Prog rowny dzialce odrzucalby PIERWSZY
+	 * kanal kazdego przebiegu — o ulamek sekundy, ktory zdazyl uplynac.
+	 */
+	public const MIN_SECONDS = 3;
+
 	/** Sufit odpowiedzi dla `robots.txt`: 64 KB. */
 	public const ROBOTS_LIMIT = 65536;
 
@@ -118,8 +132,8 @@ final class Http {
 	 *
 	 * @return array<string,mixed> Wynik w ksztalcie z `result()`.
 	 */
-	public static function get_feed( string $url ): array {
-		return self::get( $url, self::FEED );
+	public static function get_feed( string $url, ?float $remaining = null ): array {
+		return self::get( $url, self::FEED, $remaining );
 	}
 
 	/**
@@ -132,12 +146,30 @@ final class Http {
 	 *
 	 * @return array<string,mixed> Wynik w ksztalcie z `result()`.
 	 */
-	public static function get_article( string $url ): array {
-		if ( ! self::allowed( $url ) ) {
+	public static function get_article( string $url, ?float $remaining = null ): array {
+		$start = microtime( true );
+
+		/*
+		 * Bramka budzetu PRZED `robots.txt`, nie za nim. `allowed()` bez budzetu
+		 * oddaje `false`, czyli „nie pobieraj" — a to jest powod TRWALY i odeslaloby
+		 * zdrowa pozycje na `failed` za brak czasu, nie za cudzy zakaz.
+		 */
+		if ( self::timeout_for( self::TIMEOUT_ARTICLE, $remaining ) <= 0 ) {
+			return self::result( false, 0, '', 'Za mało czasu w tym przebiegu na pobranie strony', 'budget' );
+		}
+
+		if ( ! self::allowed( $url, $remaining ) ) {
 			return self::result( false, 0, '', 'robots.txt serwisu zabrania pobierania', 'robots' );
 		}
 
-		return self::get( $url, self::ARTICLE );
+		/*
+		 * `robots.txt` to OSOBNE zadanie i osobny kawalek budzetu — przy pierwszym
+		 * kontakcie z hostem kosztuje do `ROBOTS_TIMEOUT`. Bez odjecia go tutaj
+		 * pobranie strony dostaloby budzet, ktorego czesc juz nie istnieje.
+		 */
+		$zostalo = ( null === $remaining ) ? null : $remaining - ( microtime( true ) - $start );
+
+		return self::get( $url, self::ARTICLE, $zostalo );
 	}
 
 	/**
@@ -148,7 +180,7 @@ final class Http {
 	 *
 	 * @return array<string,mixed> Wynik w ksztalcie z `result()`.
 	 */
-	public static function get( string $url, string $kind = self::FEED ): array {
+	public static function get( string $url, string $kind = self::FEED, ?float $remaining = null ): array {
 		$url = trim( $url );
 
 		if ( ! self::is_http_url( $url ) ) {
@@ -157,11 +189,23 @@ final class Http {
 
 		$is_feed = ( self::FEED === $kind );
 		$limit   = $is_feed ? self::LIMIT_FEED : self::LIMIT_ARTICLE;
+		$timeout = self::timeout_for( $is_feed ? self::TIMEOUT_FEED : self::TIMEOUT_ARTICLE, $remaining );
+
+		/*
+		 * USTALENIE AUDYTOWE A2. Bez przyciecia jedno zadanie potrafilo przekroczyc
+		 * budzet CALEGO ticku: budzet sprawdzany jest miedzy pozycjami, a pozycja
+		 * w trakcie ma prawo isc az do wlasnego timeoutu. Zmierzone: tick z budzetem
+		 * 20 s trwal 30 s (kanal 10 s + robots.txt 5 s + strona 15 s), faza publikacji
+		 * wypadala w calosci, a na hostingu z `max_execution_time` 30 s proces ginal.
+		 */
+		if ( $timeout <= 0 ) {
+			return self::result( false, 0, '', 'Za mało czasu w tym przebiegu na pobranie adresu', 'budget' );
+		}
 
 		$response = wp_safe_remote_get(
 			$url,
 			array(
-				'timeout'             => $is_feed ? self::TIMEOUT_FEED : self::TIMEOUT_ARTICLE,
+				'timeout'             => $timeout,
 				'redirection'         => self::REDIRECTS,
 				'limit_response_size' => $limit,
 				'user-agent'          => self::user_agent(),
@@ -303,6 +347,29 @@ final class Http {
 	 *
 	 * @return string
 	 */
+	/**
+	 * Timeout zadania przyciety do pozostalego budzetu przebiegu.
+	 *
+	 * `null` znaczy „bez budzetu" — tak wola panel, gdzie na koncu czeka
+	 * czlowiek. Zwrocone `0` znaczy „nie zaczynaj".
+	 *
+	 * @param int        $domyslny  Timeout wlasciwy dla rodzaju zadania.
+	 * @param float|null $remaining Pozostaly budzet w sekundach.
+	 *
+	 * @return int
+	 */
+	public static function timeout_for( int $domyslny, ?float $remaining = null ): int {
+		if ( null === $remaining ) {
+			return $domyslny;
+		}
+
+		if ( $remaining < self::MIN_SECONDS ) {
+			return 0;
+		}
+
+		return (int) min( $domyslny, floor( $remaining ) );
+	}
+
 	public static function user_agent(): string {
 		$version = defined( 'AINP_VERSION' ) ? AINP_VERSION : '0';
 		$home    = function_exists( 'home_url' ) ? home_url( '/' ) : '';
@@ -331,7 +398,7 @@ final class Http {
 	 * @return bool `true` takze wtedy, gdy `robots.txt` nie istnieje albo nie
 	 *              dal sie pobrac — brak zakazu to nie zakaz.
 	 */
-	public static function allowed( string $url ): bool {
+	public static function allowed( string $url, ?float $remaining = null ): bool {
 		$parts = wp_parse_url( trim( $url ) );
 
 		if ( ! is_array( $parts ) || empty( $parts['host'] ) || empty( $parts['scheme'] ) ) {
@@ -358,10 +425,21 @@ final class Http {
 			return '1' === $cached;
 		}
 
+		$robots_timeout = self::timeout_for( self::ROBOTS_TIMEOUT, $remaining );
+
+		/*
+		 * Brak budzetu na `robots.txt` NIE moze znaczyc „wolno pobierac" — to byloby
+		 * obchodzenie cudzego zakazu zegarkiem. Zwracamy `false`, czyli „nie pobieraj",
+		 * i NIE zapisujemy werdyktu do cache'u, wiec nastepny przebieg zapyta uczciwie.
+		 */
+		if ( $robots_timeout <= 0 ) {
+			return false;
+		}
+
 		$response = wp_safe_remote_get(
 			$scheme . '://' . $authority . '/robots.txt',
 			array(
-				'timeout'             => self::ROBOTS_TIMEOUT,
+				'timeout'             => $robots_timeout,
 				'redirection'         => self::REDIRECTS,
 				'limit_response_size' => self::ROBOTS_LIMIT,
 				'user-agent'          => self::user_agent(),

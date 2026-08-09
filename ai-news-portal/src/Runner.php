@@ -236,6 +236,19 @@ final class Runner {
 		set_transient( Admin::TRANSIENT_LOCK, time(), Admin::LOCK_TTL );
 
 		try {
+			$budzet  = ( null === $budget ) ? self::tick_budget() : max( 1.0, $budget );
+			$start   = microtime( true );
+			$dzialka = $budzet * self::TICK_SHARE;
+
+			$wynik['budget'] = $budzet;
+
+			/*
+			 * Zegar rusza PRZED odzyskiem, nie za nim (A2). Odzysk to jedno zapytanie
+			 * po indeksie, wiec normalnie nic nie kosztuje — ale skoro jest czescia
+			 * ticku, ma byc czescia jego rozliczenia. Budzet, ktory pomija kawalek
+			 * wlasnego przebiegu, klamie o tym, ile czasu zostalo.
+			 */
+
 			/*
 			 * ODZYSK PRZED FAZAMI (etap 5.2). Pozycja porzucona przez zabity
 			 * przebieg jest niewidoczna dla obu zapytan wybierajacych, wiec bez
@@ -249,12 +262,6 @@ final class Runner {
 			} catch ( \Throwable $e ) {
 				$wynik['errors']['recover'] = $e->getMessage();
 			}
-
-			$budzet = ( null === $budget ) ? self::tick_budget() : max( 1.0, $budget );
-			$start  = microtime( true );
-			$dzialka = $budzet * self::TICK_SHARE;
-
-			$wynik['budget'] = $budzet;
 
 			foreach ( array( 'collect', 'prepare', 'publish' ) as $faza ) {
 				$zostalo = $budzet - ( microtime( true ) - $start );
@@ -547,7 +554,7 @@ final class Runner {
 			}
 
 			try {
-				$jedno = self::collect_source( $url );
+				$jedno = self::collect_source( $url, ( null === $budget ) ? null : $budget - ( microtime( true ) - $start ) );
 			} catch ( \Throwable $e ) {
 				/*
 				 * Sam `try/catch` nie wystarczy jako obietnica „brak zatrzyman",
@@ -556,6 +563,11 @@ final class Runner {
 				 */
 				$jedno          = self::source_summary();
 				$jedno['error'] = 'Nieoczekiwany blad: ' . $e->getMessage();
+			}
+
+			if ( ! empty( $jedno['budget'] ) ) {
+				$wynik['budget_hit'] = true;
+				break;
 			}
 
 			$wynik['per_source'][ $url ] = $jedno;
@@ -579,12 +591,23 @@ final class Runner {
 	 *
 	 * @return array<string,mixed> Podsumowanie zrodla.
 	 */
-	private static function collect_source( string $url ): array {
+	private static function collect_source( string $url, ?float $remaining = null ): array {
 		$wynik = self::source_summary();
 
-		$odpowiedz = Http::get_feed( $url );
+		$odpowiedz = Http::get_feed( $url, $remaining );
 
 		if ( ! $odpowiedz['ok'] ) {
+			/*
+			 * Brak budzetu nie jest bledem KANALU (A2) — kanal nie zostal nawet
+			 * zapytany. Wpisanie tego do bledow zrodla oznaczaloby, ze klient widzi
+			 * na ekranie awarie serwisu, ktory ma sie dobrze.
+			 */
+			if ( 'budget' === (string) ( $odpowiedz['reason'] ?? '' ) ) {
+				$wynik['budget'] = true;
+
+				return $wynik;
+			}
+
 			$wynik['error'] = $odpowiedz['error'];
 			return $wynik;
 		}
@@ -830,7 +853,7 @@ final class Runner {
 			$wynik['taken']++;
 
 			try {
-				$los = self::prepare_item( $wiersz, $slowa, $wymagane );
+				$los = self::prepare_item( $wiersz, $slowa, $wymagane, $budzet - ( microtime( true ) - $start ) );
 			} catch ( \Throwable $e ) {
 				// Ta sama zasada co przy zbieraniu: jedna polamana pozycja
 				// nie ma prawa zatrzymac calego przebiegu.
@@ -846,6 +869,17 @@ final class Runner {
 				 * `finish()` albo `mark()` nie wskrzesi.
 				 */
 				self::release( $id );
+			}
+
+			/*
+			 * `budget` nie jest losem POZYCJI, tylko koncem PRZEBIEGU (A2). Wiersz
+			 * zostal nietkniety — bez zadania sieciowego i bez podbicia licznika prob —
+			 * wiec nastepny tick wezmie go od nowa. Liczenie tego jako porazki
+			 * zamienialoby wolny hosting w kolejke pozycji `failed`.
+			 */
+			if ( 'budget' === $los ) {
+				$wynik['budget_hit'] = true;
+				break;
 			}
 
 			if ( isset( $wynik[ $los ] ) ) {
@@ -878,7 +912,7 @@ final class Runner {
 	 *
 	 * @return string `ready`, `skipped`, `retry`, `failed` albo `error`.
 	 */
-	public static function prepare_item( $row, ?array $words = null, ?array $required = null ): string {
+	public static function prepare_item( $row, ?array $words = null, ?array $required = null, ?float $remaining = null ): string {
 		$id  = isset( $row->id ) ? (int) $row->id : 0;
 		$url = isset( $row->url ) ? (string) $row->url : '';
 
@@ -915,7 +949,7 @@ final class Runner {
 
 		// 2. Scraping tylko przy zbyt krotkiej tresci z kanalu.
 		if ( Article::needs_scraping( $html ) ) {
-			$pobrane = Article::fetch( $url );
+			$pobrane = Article::fetch( $url, $remaining );
 
 			if ( ! $pobrane['ok'] ) {
 				return self::after_failure( $row, $pobrane );
@@ -1449,6 +1483,15 @@ final class Runner {
 	private static function after_failure( $row, array $pobrane ): string {
 		global $wpdb;
 
+		/*
+		 * Wyczerpany budzet przebiegu to NIE jest wina pozycji ani serwisu (A2).
+		 * Wiersz zostaje dokladnie taki, jaki byl: bez statusu koncowego, bez
+		 * podbitego licznika prob i bez notatki, ktora klamalaby o przyczynie.
+		 */
+		if ( 'budget' === (string) ( $pobrane['reason'] ?? '' ) ) {
+			return 'budget';
+		}
+
 		$id    = (int) $row->id;
 		$proby = isset( $row->attempts ) ? (int) $row->attempts : 0;
 		$blad  = (string) $pobrane['error'];
@@ -1758,6 +1801,7 @@ final class Runner {
 	 */
 	private static function source_summary(): array {
 		return array(
+			'budget'     => false,
 			'added'      => 0,
 			'skipped'    => 0,
 			'duplicates' => 0,

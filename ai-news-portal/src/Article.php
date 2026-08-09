@@ -193,7 +193,7 @@ final class Article {
 	 * @return array<string,mixed> `ok`, `html`, `error`, `reason`, `retryable`,
 	 *                             `truncated`.
 	 */
-	public static function fetch( string $url ): array {
+	public static function fetch( string $url, ?float $remaining = null ): array {
 		/*
 		 * Bramka pamieci stoi PRZED zadaniem, nie po nim: pobrany 1 MB HTML-a
 		 * plus drzewo DOM z niego to najdrozszy moment calego przebiegu.
@@ -211,7 +211,7 @@ final class Article {
 			);
 		}
 
-		$odpowiedz = Http::get_article( $url );
+		$odpowiedz = Http::get_article( $url, $remaining );
 
 		if ( ! $odpowiedz['ok'] ) {
 			return array(
