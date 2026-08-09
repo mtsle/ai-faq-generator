@@ -65,6 +65,8 @@ namespace {
 	$GLOBALS['__zadania']    = array();
 	$GLOBALS['__plan']       = array();
 	$GLOBALS['__lock']       = null;   // Zamek jako wiersz w `options` (A5).
+	$GLOBALS['__nieudane']    = 0;     // Ile pozycji ma status `failed` (A4).
+	$GLOBALS['__nieudane_ai'] = 0;     // Ile z nich wroci do modelu (A4).
 
 	function current_user_can( $cap ) {
 		return (bool) $GLOBALS['__cap'];
@@ -395,6 +397,18 @@ namespace {
 				return $GLOBALS['__lock'];
 			}
 
+			/*
+			 * Liczniki z naprawy A4. Atrapa ROZROZNIA oba zapytania po warunku
+			 * `content_hash`, zamiast oddawac jedna liczbe na oba — inaczej
+			 * pomylenie „nieudanych" z „wracajacymi do modelu" byloby dla testu
+			 * nieodrozninalne od poprawnego zachowania.
+			 */
+			if ( false !== strpos( $sql, 'COUNT(*)' ) ) {
+				return false !== strpos( $sql, 'content_hash' )
+					? (string) $GLOBALS['__nieudane_ai']
+					: (string) $GLOBALS['__nieudane'];
+			}
+
 			preg_match_all( "/'((?:[^'\\\\]|\\\\.)*)'/", $sql, $m );
 			$key = $m[1][0] ?? '';
 			return array_key_exists( $key, $GLOBALS['__opt'] ) ? (string) $GLOBALS['__opt'][ $key ] : null;
@@ -469,6 +483,8 @@ namespace {
 		$GLOBALS['__nonce_ok']    = true;
 		$GLOBALS['__nonce_akcje'] = array();
 		$GLOBALS['__zadania']     = array();
+		$GLOBALS['__nieudane']    = 0;
+		$GLOBALS['__nieudane_ai'] = 0;
 		$GLOBALS['wpdb']          = new AINP_Fake_WPDB_K4A();
 		$_POST                    = array();
 		$_GET                     = array();
@@ -660,6 +676,125 @@ namespace {
 	k4a_check( false === strpos( $formularz_publikacji, 'disabled' ), 'przy zapisanym kluczu przycisk publikacji jest aktywny' );
 	k4a_check( false !== strpos( $html, 'Wznów nieudane' ), 'obok stoi przycisk wznowienia (etap 5.4)' );
 	k4a_check( false === strpos( $html, 'AIzaTESTOWY' ), 'klucz NIE wycieka na ekran Materiałów' );
+
+	// ------------------------------------------------------------------
+	echo "\n-- NAPRAWA A4: przycisk wznowienia zna swoj koszt --\n";
+
+	/**
+	 * Wycina formularz wznowienia z calego ekranu.
+	 *
+	 * Asercja „w calym HTML-u nie ma slowa `disabled`" starzeje sie po cichu:
+	 * byla poprawna, dopoki na ekranie stal jeden przycisk, ktory dalo sie
+	 * wygasic. Kazde pytanie o wygaszenie zawezamy wiec do formularza, ktorego
+	 * dotyczy.
+	 *
+	 * @param string $html Caly ekran.
+	 *
+	 * @return string
+	 */
+	function k4a_formularz_wznowienia( $html ) {
+		$od = strpos( $html, 'value="ainp_retry"' );
+
+		if ( false === $od ) {
+			return '';
+		}
+
+		$kawalek = substr( $html, (int) $od );
+
+		return substr( $kawalek, 0, (int) strpos( $kawalek, '</form>' ) );
+	}
+
+	// Zero nieudanych: nie ma czego wznawiac, wiec przycisk jest wygaszony.
+	k4a_reset();
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+
+	k4a_check( false !== strpos( k4a_formularz_wznowienia( $html ), 'disabled' ), 'przy ZERZE nieudanych przycisk wznowienia jest wygaszony' );
+	k4a_check( false !== strpos( $html, 'Nieudanych pozycji: 0' ), 'i ekran mowi wprost, ze nie ma czego wznawiac' );
+
+	/*
+	 * SEDNO A4. Wznowienie nie odroznialo bledu trwalego od przejsciowego,
+	 * a klient nie mial jak zobaczyc ceny kliknięcia. Dziesiec pozycji, ktore
+	 * padly dopiero przy modelu, zjada dziesiec slotow z dobowej puli DWUDZIESTU
+	 * i pada ponownie na tym samym warunku. Rozroznienie jest w danych: odcisk
+	 * tresci oddziela „ponowienie kosztuje zadanie HTTP" od „kosztuje slot".
+	 */
+	k4a_reset();
+	$GLOBALS['__nieudane']    = 7;
+	$GLOBALS['__nieudane_ai'] = 2;
+
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+
+	k4a_check( false === strpos( k4a_formularz_wznowienia( $html ), 'disabled' ), 'przy siedmiu nieudanych przycisk wznowienia jest aktywny' );
+	k4a_check( false !== strpos( $html, 'Nieudanych pozycji: 7' ), 'ekran podaje liczbe nieudanych pozycji' );
+	k4a_check( false !== strpos( $html, 'w tym 2' ), 'i osobno te, ktore padly dopiero przy modelu — czyli cene kliknięcia w slotach' );
+	k4a_check( false === strpos( $html, 'w tym 7' ), 'obu liczb NIE myli ze soba' );
+
+	// ------------------------------------------------------------------
+	echo "\n-- NAPRAWA A3: ekran pokazuje ostatni AUTOMATYCZNY przebieg --\n";
+
+	/*
+	 * Do naprawy `tick()` oddawal komplet danych, a `add_action()` je wyrzucal.
+	 * Panel pokazywal wylacznie wyniki akcji KLIKNIETYCH, wiec automat, ktory
+	 * od tygodnia niczego nie publikuje — bo skonczyla sie pula, bo padl kanal,
+	 * bo zabraklo budzetu — byl nieodrozninalny od automatu, ktory nie dziala.
+	 */
+	k4a_reset();
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+
+	k4a_check( false !== strpos( $html, 'Automat nie zgłosił' ), 'bez sladu ekran mowi wprost, ze automat sie nie odezwal' );
+	k4a_check( false !== strpos( $html, 'zadania cykliczne ruchem, nie zegarem' ), 'i tlumaczy, ze WordPress potrzebuje ruchu na stronie' );
+
+	k4a_reset();
+	$GLOBALS['__transient'][ Admin::TRANSIENT_TICK ] = array(
+		'time'      => '2026-08-09 14:00:00',
+		'collect'   => array( 'added' => 5 ),
+		'prepare'   => array( 'ready' => 3 ),
+		'publish'   => array( 'published' => 1, 'calls' => 2, 'note' => 'Wyczerpany sufit dobowy wywołań AI' ),
+		'skipped'   => array( 'publish' ),
+		'recovered' => 4,
+		'errors'    => array( 'collect' => 'kanał nie odpowiada' ),
+	);
+
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+
+	k4a_check( false !== strpos( $html, 'Ostatni automatyczny przebieg' ), 'ze sladem ekran pokazuje ostatni przebieg automatu' );
+	k4a_check( false !== strpos( $html, '2026-08-09 14:00:00' ), 'razem ze znacznikiem czasu — inaczej nie wiadomo, czy cron chodzi' );
+	k4a_check( false !== strpos( $html, 'Nowych pozycji: 5' ), 'i liczbami z faz, nie samym „bylo OK”' );
+	k4a_check( false !== strpos( $html, 'Wywołań AI: 2' ), 'w tym zuzyciem dobowej puli' );
+	k4a_check( false !== strpos( $html, 'Wyczerpany sufit' ), 'wyczerpana pula pokazana jako WSTRZYMANIE, nie jako blad' );
+	k4a_check( false !== strpos( $html, 'Zabrakło czasu na etapy: publish' ), 'faza pominieta z braku czasu jest nazwana' );
+	k4a_check( false !== strpos( $html, 'Odzyskanych pozycji' ), 'odzysk po przerwanym przebiegu tez widac' );
+	k4a_check( false !== strpos( $html, 'kanał nie odpowiada' ), 'a bledy faz trafiaja na ekran pod nazwa fazy' );
+	/*
+	 * Slad NIE jest kasowany po pokazaniu: to stan automatu, nie komunikat
+	 * o akcji. Skasowany po pierwszym wejsciu znikalby dokladnie temu, kto
+	 * zaglada drugi raz, zeby sprawdzic, czy cos sie ruszylo.
+	 */
+	k4a_check( isset( $GLOBALS['__transient'][ Admin::TRANSIENT_TICK ] ), 'i PRZEZYWA wyswietlenie — to stan, nie jednorazowy komunikat' );
+
+	// ------------------------------------------------------------------
+	echo "\n-- NAPRAWA A4: komunikat po wznowieniu --\n";
+
+	k4a_reset();
+	$GLOBALS['__transient'][ Admin::TRANSIENT_RETRY . 3 ] = array(
+		'revived' => 5,
+		'ai'      => 2,
+	);
+
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+
+	k4a_check( false !== strpos( $html, 'Wznowionych pozycji: 5' ), 'komunikat podaje liczbe WZNOWIONYCH, nie liczbe wracajacych do modelu' );
+	k4a_check( false !== strpos( $html, 'W tym 2' ), 'i osobno koszt w slotach dobowej puli' );
 
 	// Bez klucza przycisk jest wylaczony i jest o tym slowo.
 	k4a_reset( false );

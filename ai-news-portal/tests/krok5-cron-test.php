@@ -73,6 +73,9 @@ $GLOBALS['__zadania']      = array();   // Adresy, o ktore poprosila faza zbiera
 $GLOBALS['__http_sleep']   = 0.0;       // Sztuczne spowolnienie transportu.
 $GLOBALS['__db_sleep']     = 0.0;       // Sztuczne spowolnienie odzysku.
 $GLOBALS['__lock']         = null;      // Zamek jako wiersz w `options` (A5).
+$GLOBALS['__timeouty']     = array();   // Timeouty, z jakimi ruszyly zadania (A2).
+$GLOBALS['__lock_wyscig']  = null;      // Podmiana zamka miedzy odczytem a CAS-em.
+$GLOBALS['__ttl']          = array();   // Zycie zapisanych transientow (A3).
 $GLOBALS['__next_post_id'] = 100;
 
 class WP_Post {
@@ -123,27 +126,69 @@ function is_wp_error( $t ) {
  *
  * @return int|null Liczba zmienionych wierszy albo `null`, gdy to nie zamek.
  */
+function ainp_zamek_wartosci( $sql ) {
+	preg_match_all( "/'((?:[^'\\\\]|\\\\.)*)'/", $sql, $m );
+
+	return $m[1];
+}
+
 function ainp_zamek_query( $sql ) {
-	if ( false !== strpos( $sql, 'INSERT IGNORE INTO' ) && false !== strpos( $sql, 'option_name' ) ) {
+	if ( false === strpos( $sql, 'option_name' ) ) {
+		return null;
+	}
+
+	$wartosci = ainp_zamek_wartosci( $sql );
+
+	if ( false !== strpos( $sql, 'INSERT IGNORE INTO' ) ) {
+		// Kolejnosc wartosci w `VALUES`: nazwa opcji, wartosc, autoload.
+		if ( ( $wartosci[0] ?? '' ) !== \AINP\Admin::OPTION_LOCK ) {
+			return null;
+		}
+
 		if ( null !== $GLOBALS['__lock'] ) {
 			return 0;
 		}
 
-		$GLOBALS['__lock'] = (string) time();
+		$GLOBALS['__lock'] = (string) ( $wartosci[1] ?? time() );
 
 		return 1;
 	}
 
-	if ( false !== strpos( $sql, 'DELETE FROM' ) && false !== strpos( $sql, 'option_name' ) ) {
+	if ( false !== strpos( $sql, 'DELETE FROM' ) ) {
+		/*
+		 * Atrapa czyta NAZWE z zapytania zamiast zakladac, ze skoro to `DELETE`
+		 * po `option_name`, to na pewno o zamek chodzi. Poprzednia wersja
+		 * kasowala zamek przy KAZDYM takim zapytaniu, wiec `release_lock()`
+		 * celujacy w cudzy klucz wygladal na poprawny (GOTCHA 9: atrapa, ktora
+		 * zaklada wartosc, przechwytuje mutacje na siebie).
+		 */
+		if ( ( $wartosci[0] ?? '' ) !== \AINP\Admin::OPTION_LOCK ) {
+			return 0;
+		}
+
 		$GLOBALS['__lock'] = null;
 
 		return 1;
 	}
 
 	if ( false !== strpos( $sql, 'SET option_value' ) ) {
-		// CAS przejmujacy zamek po trupie — w tescie zawsze nieudany, bo atrapa
-		// nie stawia zamkow starszych niz `LOCK_TTL`.
-		return 0;
+		/*
+		 * CAS przejmujacy zamek po trupie: `SET option_value = <nowa>
+		 * WHERE option_name = <nazwa> AND option_value = <stara>`. Przejecie
+		 * udaje sie DOKLADNIE wtedy, gdy zamek nadal ma te wartosc, ktora
+		 * proces odczytal — na tym stoi obietnica „przejmie go jeden".
+		 */
+		$nowa  = $wartosci[0] ?? '';
+		$nazwa = $wartosci[1] ?? '';
+		$stara = $wartosci[2] ?? '';
+
+		if ( $nazwa !== \AINP\Admin::OPTION_LOCK || (string) $GLOBALS['__lock'] !== (string) $stara ) {
+			return 0;
+		}
+
+		$GLOBALS['__lock'] = (string) $nowa;
+
+		return 1;
 	}
 
 	return null;
@@ -160,7 +205,30 @@ class AINP_Fake_WPDB {
 		return 'DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_520_ci';
 	}
 
+	/**
+	 * Podstawia wartosci, zamiast oddawac zapytanie ze wzorcami.
+	 *
+	 * Bez podstawienia atrapa zamka nie widzi ANI nazwy opcji, ANI wartosci
+	 * porownywanej w CAS-ie — a to jedyne dwie rzeczy, na ktorych stoi
+	 * naprawa A5. `%d` zostaje NIECYTOWANE (GOTCHA 19).
+	 *
+	 * @param string $sql  Zapytanie ze wzorcami.
+	 * @param mixed  $args Wartosci.
+	 *
+	 * @return string
+	 */
 	public function prepare( $sql, ...$args ) {
+		if ( 1 === count( $args ) && is_array( $args[0] ) ) {
+			$args = $args[0];
+		}
+
+		$sql = str_replace( '%s', "'%s'", $sql );
+
+		foreach ( $args as $arg ) {
+			$z   = is_int( $arg ) ? (string) $arg : addslashes( (string) $arg );
+			$sql = preg_replace( '/%[sd]/', str_replace( '$', '\\$', $z ), $sql, 1 );
+		}
+
 		return $sql;
 	}
 
@@ -181,7 +249,20 @@ class AINP_Fake_WPDB {
 
 	public function get_var( $sql ) {
 		if ( false !== strpos( $sql, 'SELECT option_value' ) ) {
-			return $GLOBALS['__lock'];
+			$stara = $GLOBALS['__lock'];
+
+			/*
+			 * Wyscig o WYGASLY zamek. `__lock_wyscig` podmienia wartosc zamka
+			 * DOKLADNIE miedzy odczytem a CAS-em — czyli w jedynym oknie, dla
+			 * ktorego CAS w ogole istnieje. Bez tego okna galaz „przejecie sie
+			 * nie udalo" jest nieosiagalna i nie da sie jej asercjonowac.
+			 */
+			if ( null !== $GLOBALS['__lock_wyscig'] ) {
+				$GLOBALS['__lock']        = $GLOBALS['__lock_wyscig'];
+				$GLOBALS['__lock_wyscig'] = null;
+			}
+
+			return $stara;
 		}
 
 		return null;
@@ -199,7 +280,9 @@ class AINP_Fake_WPDB {
 		// Odzysk porzuconych pozycji (etap 5.2) — jedyne zapytanie ticku, ktore
 		// nie nalezy do zadnej z trzech faz. Musi paść PRZED nimi, bo pozycja
 		// `processing` jest niewidoczna dla obu zapytan wybierajacych.
-		if ( false !== strpos( $sql, 'WHERE status = %s AND updated_at < %s' ) ) {
+		// Marker bez wzorcow — od kiedy `prepare()` podstawia wartosci, `%s`
+		// w zapytaniu juz nie ma.
+		if ( false !== strpos( $sql, 'updated_at <' ) ) {
 			$GLOBALS['__slad'][] = 'recover';
 
 			// Odzysk jest jedyna czescia ticku BEZ wlasnego timeoutu — na nim
@@ -239,6 +322,10 @@ function get_transient( $k ) {
 }
 function set_transient( $k, $v, $ttl = 0 ) {
 	$GLOBALS['__transient'][ $k ] = $v;
+	// Zapamietujemy TTL osobno: bez tego zycie sladu po ticku byloby
+	// niesprawdzalne, a to ono decyduje, czy „automat milczy od doby"
+	// da sie odroznic od „automat wlasnie chodzil".
+	$GLOBALS['__ttl'][ $k ] = $ttl;
 	return true;
 }
 function delete_transient( $k ) {
@@ -435,6 +522,15 @@ function wp_safe_remote_get( $url, $args = array() ) {
 	$GLOBALS['__slad'][]    = 'collect';
 	$GLOBALS['__zadania'][] = $url;
 
+	/*
+	 * NAPRAWA A2 — atrapa musi ZAPAMIETAC timeout, z jakim ruszylo zadanie.
+	 * Bez tego cala teza naprawy („timeout jest przycinany do pozostalego
+	 * budzetu") jest niesprawdzalna: widac tylko, ze zadanie poszlo albo nie
+	 * poszlo, a nie z jakim limitem. Mutacja znoszaca przyciecie przechodzila
+	 * przez to caly runner.
+	 */
+	$GLOBALS['__timeouty'][] = isset( $args['timeout'] ) ? (int) $args['timeout'] : null;
+
 	// Spowolnienie na zadanie — inaczej caly tick trwa mniej niz milisekunde
 	// i budzet nigdy nie ma szans zadzialac (etap 5.3).
 	if ( $GLOBALS['__http_sleep'] > 0 ) {
@@ -464,6 +560,8 @@ require_once $root . '/src/Plugin.php';
 require_once $root . '/src/Admin.php';
 
 use AINP\Admin;
+use AINP\Article;
+use AINP\Http;
 use AINP\Plugin;
 use AINP\Runner;
 use AINP\Settings;
@@ -643,6 +741,16 @@ k5_check( isset( $slad['collect']['sources'] ), 'slad niesie podsumowanie faz, n
  */
 k5_check( is_array( get_transient( Admin::TRANSIENT_TICK ) ), 'i przezywa odczyt — to stan, nie jednorazowy komunikat' );
 k5_check( 0 === strpos( Admin::TRANSIENT_TICK, 'ainp_' ), 'nazwa zaczyna sie od `ainp_` — inaczej `uninstall.php` jej nie zamiecie' );
+/*
+ * ZYCIE SLADU to doba, i to nie jest liczba dowolna. Tick chodzi co godzine,
+ * wiec slad krotszy niz godzina znika, zanim ktokolwiek zajrzy na ekran,
+ * a ekran wraca do komunikatu „automat nie zglosil zadnego przebiegu" — czyli
+ * klamie o wtyczce, ktora dziala. Slad starszy niz doba znaczy z kolei, ze cron
+ * NIE chodzi, i wlasnie to ma wtedy zobaczyc klient.
+ */
+k5_check( 86400 === Runner::TICK_LOG_TTL, 'slad po ticku zyje dobe (jest: ' . Runner::TICK_LOG_TTL . ' s)' );
+k5_check( Runner::TICK_LOG_TTL === ( $GLOBALS['__ttl'][ Admin::TRANSIENT_TICK ] ?? 0 ), 'i zapis naprawde uzywa tej stalej, a nie wlasnej liczby' );
+k5_check( Runner::TICK_LOG_TTL > 3600, 'zycie sladu jest DLUZSZE niz odstep miedzy tickami — inaczej ekran gubilby ostatni przebieg' );
 
 // ---------------------------------------------------------------------------
 // 6b. NAPRAWA A5 — zamek rozstrzyga BAZA, nie kod.
@@ -671,6 +779,38 @@ k5_check( true === Admin::claim_lock(), 'po zdjeciu zamek znowu da sie wziac' );
 Admin::release_lock();
 
 k5_check( 0 === strpos( Admin::OPTION_LOCK, 'ainp_' ), 'nazwa opcji zaczyna sie od `ainp_` — inaczej `uninstall.php` zostawilby ja w bazie' );
+
+/*
+ * ZAMEK PO TRUPIE. Proces zabity przez `max_execution_time` nie zdazyl zdjac
+ * zamka. Bez przejmowania takiego zamka wtyczka blokowalaby sie sama: przyciski
+ * i tick czekalyby na proces, ktorego juz nie ma. Ale przejecie ma dotyczyc
+ * WYLACZNIE zamka wygaslego — zywy nalezy do kogos, kto wlasnie pracuje.
+ */
+$GLOBALS['__lock'] = (string) ( time() - Admin::LOCK_TTL - 10 );
+
+k5_check( true === Admin::claim_lock(), 'zamek starszy niz LOCK_TTL zostaje PRZEJETY — inaczej trup blokuje wtyczke na zawsze' );
+k5_check( (int) $GLOBALS['__lock'] >= time() - 2, 'przejety zamek dostaje SWIEZY znacznik czasu, nie zostaje przy starym' );
+
+Admin::release_lock();
+
+$GLOBALS['__lock'] = (string) ( time() - 5 );
+
+k5_check( false === Admin::claim_lock(), 'zamek MLODSZY niz LOCK_TTL nie jest przejmowany — ktos przy nim pracuje' );
+k5_check( (string) ( time() - 5 ) === $GLOBALS['__lock'] || ( time() - (int) $GLOBALS['__lock'] ) >= 4, 'i zostaje z wartoscia wlasciciela' );
+
+/*
+ * Dwa procesy czekajace na ten sam wygasly zamek. Jeden przejmie, drugi ma
+ * dostac odmowe — o tym rozstrzyga warunek `option_value = <stara wartosc>`
+ * w CAS-ie, nie kolejnosc wywolan. Tu odgrywamy proces PRZEGRYWAJACY: zamek
+ * zmienia wartosc miedzy jego odczytem a jego CAS-em.
+ */
+$GLOBALS['__lock']        = (string) ( time() - Admin::LOCK_TTL - 10 );
+$GLOBALS['__lock_wyscig'] = (string) time();
+
+k5_check( false === Admin::claim_lock(), 'przy dwoch procesach na jednym wygaslym zamku przegrywajacy dostaje ODMOWE, a nie zgode' );
+
+$GLOBALS['__lock_wyscig'] = null;
+$GLOBALS['__lock']        = null;
 
 // ---------------------------------------------------------------------------
 // 7. Zajety zamek — tick nie wchodzi w cudza partie.
@@ -732,6 +872,19 @@ ini_set( 'max_execution_time', '10' );
 k5_check( 8.0 === Runner::tick_budget(), 'limit 10 s przycina budzet do 8 s (80%)' );
 
 ini_set( 'max_execution_time', (string) $stary_limit );
+
+/*
+ * Budzet ponizej sekundy nie jest budzetem — jest zaproszeniem do przebiegu,
+ * ktory nic nie zdazy, a mimo to zalozy i zdejmie zamek. Podloga 1 s pilnuje,
+ * ze dzialka fazy zostaje wielkoscia, o ktorej da sie cokolwiek powiedziec.
+ */
+$GLOBALS['__transient']  = array();
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__http_sleep'] = 0.0;
+
+$wynik = Runner::tick( 0.2 );
+
+k5_check( 1.0 === $wynik['budget'], 'budzet ponizej sekundy podnoszony do 1 s (jest: ' . var_export( $wynik['budget'], true ) . ')' );
 
 // --- Budzet za maly na UCZCIWA probe: zadanie nie startuje wcale -----------
 /*
@@ -807,6 +960,107 @@ $dzialka = 20.0 * Runner::TICK_SHARE;
 k5_check( $wynik['prepare']['budget'] <= $dzialka + 0.01, 'przygotowanie dostaje NAJWYZEJ dzialke (jest: ' . round( $wynik['prepare']['budget'], 2 ) . ' z ' . $dzialka . ')' );
 k5_check( $wynik['publish']['budget'] > $dzialka, 'publikacja dostaje CALA reszte budzetu, nie dzialke (jest: ' . round( $wynik['publish']['budget'], 2 ) . ')' );
 k5_check( $wynik['publish']['budget'] >= 8.0, 'i nie mniej, niz `Gemini` potrzebuje, zeby w ogole wystartowac' );
+
+// ---------------------------------------------------------------------------
+// 10. NAPRAWA A2 — timeout zadania PRZYCIETY do pozostalego budzetu.
+// ---------------------------------------------------------------------------
+echo "\n=== 10. A2: Http::timeout_for — przyciecie, nie samo zerowanie ===\n";
+
+/*
+ * Do audytu budzet byl sprawdzany MIEDZY pozycjami, a pozycja w trakcie szla
+ * az do wlasnego timeoutu. Zmierzone: tick z budzetem 20 s trwal 30,02 s.
+ * Sedno naprawy nie polega na tym, ze przy pustym budzecie zadanie nie rusza —
+ * to jest tylko skrajny przypadek. Polega na tym, ze zadanie DOSTAJE tyle
+ * czasu, ile go zostalo. Ta roznica przechodzila caly runner niezauwazona.
+ */
+k5_check( 3 === Http::MIN_SECONDS, 'prog „nie zaczynaj zadania" to 3 s, nie tyle co dzialka fazy' );
+k5_check( 10 === Http::timeout_for( 10, null ), 'bez budzetu obowiazuje timeout wlasciwy dla rodzaju zadania' );
+k5_check( 0 === Http::timeout_for( 10, 2.9 ), 'ponizej progu zadanie nie startuje wcale (zwrot 0)' );
+k5_check( 3 === Http::timeout_for( 10, 3.0 ), 'dokladnie na progu jeszcze startuje — prog jest granica dolna, nie wykluczajaca' );
+k5_check( 4 === Http::timeout_for( 10, 4.7 ), 'timeout przyciety W DOL do pelnych sekund budzetu (jest: ' . Http::timeout_for( 10, 4.7 ) . ')' );
+k5_check( 10 === Http::timeout_for( 10, 30.0 ), 'i NIGDY nie rosnie ponad timeout wlasciwy dla zadania' );
+
+// ---------------------------------------------------------------------------
+// 11. NAPRAWA A2 — `robots.txt` tez kosztuje budzet.
+// ---------------------------------------------------------------------------
+echo "\n=== 11. A2: robots.txt pod budzetem ===\n";
+
+$GLOBALS['__transient']  = array();
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__timeouty']   = array();
+$GLOBALS['__http_sleep'] = 0.0;
+
+$odpowiedz = Http::get_article( 'https://budzet.test/artykul/', 2.0 );
+
+k5_check( false === $odpowiedz['ok'], 'przy budzecie ponizej progu pobranie strony nie dochodzi do skutku' );
+/*
+ * Powod musi brzmiec `budget`, a NIE `robots`. Bramka budzetu stoi PRZED
+ * pytaniem o `robots.txt` wlasnie dlatego: „robots" jest powodem TRWALYM
+ * i odeslaloby zdrowa pozycje na `failed` za brak czasu, a nie za cudzy zakaz.
+ */
+k5_check( 'budget' === $odpowiedz['reason'], 'i powodem jest brak budzetu, nie rzekomy zakaz w robots.txt (jest: ' . $odpowiedz['reason'] . ')' );
+k5_check( 0 === count( $GLOBALS['__zadania'] ), 'zadne zadanie nie poszlo — ani po strone, ani po robots.txt' );
+
+/*
+ * GOTCHA: brak budzetu na `robots.txt` NIE moze znaczyc „wolno pobierac".
+ * To byloby obchodzenie cudzego zakazu zegarkiem. Zwracamy „nie pobieraj"
+ * i — co wazniejsze — NIE zapisujemy tego werdyktu do cache'u, zeby nastepny
+ * przebieg zapytal uczciwie, zamiast przez dobe pamietac wymuszona odmowe.
+ */
+$GLOBALS['__transient'] = array();
+$GLOBALS['__zadania']   = array();
+
+k5_check( false === Http::allowed( 'https://robots.test/artykul/', 1.0 ), 'bez budzetu na robots.txt odpowiedz brzmi „nie pobieraj", nie „wolno"' );
+k5_check( 0 === count( $GLOBALS['__zadania'] ), 'i nie kosztuje to zadania sieciowego' );
+
+k5_check( true === Http::allowed( 'https://robots.test/artykul/', null ), 'nastepny przebieg z budzetem pyta normalnie' );
+k5_check( 1 === count( $GLOBALS['__zadania'] ), 'wymuszona odmowa NIE trafila do cache’u — host zostal zapytany (zadan: ' . count( $GLOBALS['__zadania'] ) . ')' );
+
+// --- Koszt robots.txt odejmowany od budzetu strony -------------------------
+/*
+ * Pierwszy kontakt z hostem kosztuje DWA zadania: `robots.txt`, potem strone.
+ * Bez odjecia czasu pierwszego od budzetu drugiego strona dostawalaby budzet,
+ * ktorego czesc juz nie istnieje — i tick znowu przekraczalby wlasny limit.
+ * Asercja jest ZAKRESEM, nie rownoscia: mierzymy czas rzeczywisty (GOTCHA 21).
+ */
+$GLOBALS['__transient']  = array();
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__timeouty']   = array();
+$GLOBALS['__http_sleep'] = 2.0;
+
+Http::get_article( 'https://koszt.test/artykul/', 12.0 );
+
+$GLOBALS['__http_sleep'] = 0.0;
+
+k5_check( 2 === count( $GLOBALS['__timeouty'] ), 'pierwszy kontakt z hostem to dwa zadania: robots.txt i strona (jest: ' . count( $GLOBALS['__timeouty'] ) . ')' );
+k5_check( Http::ROBOTS_TIMEOUT === $GLOBALS['__timeouty'][0], 'robots.txt dostaje swoj wlasny, krotszy timeout' );
+k5_check(
+	isset( $GLOBALS['__timeouty'][1] ) && $GLOBALS['__timeouty'][1] < 12 && $GLOBALS['__timeouty'][1] >= 8,
+	'a strona dostaje budzet POMNIEJSZONY o czas robots.txt, nie pelne 12 s (jest: ' . var_export( $GLOBALS['__timeouty'][1] ?? null, true ) . ')'
+);
+
+// ---------------------------------------------------------------------------
+// 12. NAPRAWA A2 — budzet dochodzi az do transportu.
+// ---------------------------------------------------------------------------
+echo "\n=== 12. A2: Article::fetch niesie budzet dalej ===\n";
+
+/*
+ * Bramka pamieci z etapu 3.5 odsyla pozycje na `retry`, ZANIM scraping ruszy,
+ * wiec bez podniesienia limitu ten fragment mierzylby cos innego, niz deklaruje.
+ */
+$stara_pamiec = ini_get( 'memory_limit' );
+ini_set( 'memory_limit', '-1' );
+
+$GLOBALS['__transient'] = array();
+$GLOBALS['__zadania']   = array();
+
+$pobrane = Article::fetch( 'https://przekaz.test/artykul/', 2.0 );
+
+ini_set( 'memory_limit', (string) $stara_pamiec );
+
+k5_check( false === $pobrane['ok'], 'budzet ponizej progu zatrzymuje pobranie juz na poziomie Article' );
+k5_check( 'budget' === ( $pobrane['reason'] ?? '' ), 'powod przechodzi w gore niezmieniony (jest: ' . var_export( $pobrane['reason'] ?? null, true ) . ')' );
+k5_check( 0 === count( $GLOBALS['__zadania'] ), 'i ZERO zadan sieciowych — budzet nie zgubil sie miedzy Article a Http' );
 
 // ---------------------------------------------------------------------------
 // Podsumowanie.

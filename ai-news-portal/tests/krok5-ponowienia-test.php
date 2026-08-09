@@ -65,6 +65,8 @@ namespace {
 	$GLOBALS['__zadania']       = array();
 	$GLOBALS['__strony']        = array();
 	$GLOBALS['__nierozpoznane'] = array();
+	$GLOBALS['__budzety']       = array();   // Budzety, z jakimi weszly kolejne pozycje (A2).
+	$GLOBALS['__http_sleep']    = 0.0;       // Sztuczne spowolnienie transportu.
 
 	function current_time( $type, $gmt = 0 ) {
 		return ( 'Y-m-d' === $type ) ? substr( $GLOBALS['__teraz'], 0, 10 ) : $GLOBALS['__teraz'];
@@ -319,8 +321,32 @@ namespace AINP {
 			return array( 'ok' => false, 'code' => 0, 'body' => '', 'error' => 'brak planu', 'reason' => 'transport', 'truncated' => false );
 		}
 
-		public static function get_article( string $url ): array {
+		/**
+		 * Prog „nie zaczynaj zadania" — ta sama liczba, co w prawdziwym `Http`.
+		 *
+		 * Ze prog wynosi 3 i ze timeout jest przycinany do budzetu, dowodzi
+		 * zestaw `krok5-cron`. Tutaj chodzi o cos innego: co z tym powodem robi
+		 * `Runner`. Atrapa musi jednak PRZYJAC budzet, bo PHP nie zglasza bledu
+		 * przy nadmiarowym argumencie — atrapa o sygnaturze bez `$remaining`
+		 * po cichu zjadala budzet i cala ta sciezka byla niewidoczna.
+		 */
+		public const MIN_SECONDS = 3;
+
+		public static function get_article( string $url, ?float $remaining = null ): array {
+			$GLOBALS['__budzety'][] = $remaining;
+
+			if ( null !== $remaining && $remaining < self::MIN_SECONDS ) {
+				return array( 'ok' => false, 'code' => 0, 'body' => '', 'error' => 'Za mało czasu w tym przebiegu na pobranie strony', 'reason' => 'budget', 'truncated' => false );
+			}
+
 			$GLOBALS['__zadania'][] = $url;
+
+			// Spowolnienie transportu — bez niego budzet nie zdazy sie zmienic
+			// miedzy pozycjami i „odejmowanie czasu" byloby nieodrozninalne
+			// od jego braku.
+			if ( $GLOBALS['__http_sleep'] > 0 ) {
+				usleep( (int) ( $GLOBALS['__http_sleep'] * 1000000 ) );
+			}
 
 			return $GLOBALS['__strony'][ $url ] ?? array( 'ok' => true, 'code' => 200, 'body' => '<html><body><article><p>Domyślna treść.</p></article></body></html>', 'error' => '', 'reason' => '', 'truncated' => false );
 		}
@@ -390,10 +416,12 @@ namespace {
 	 * @return AINP_Fake_WPDB_K5R
 	 */
 	function k5r_reset() {
-		$GLOBALS['__opt']     = array();
-		$GLOBALS['__zadania'] = array();
-		$GLOBALS['__strony']  = array();
-		$GLOBALS['wpdb']      = new AINP_Fake_WPDB_K5R();
+		$GLOBALS['__opt']        = array();
+		$GLOBALS['__zadania']    = array();
+		$GLOBALS['__strony']     = array();
+		$GLOBALS['__budzety']    = array();
+		$GLOBALS['__http_sleep'] = 0.0;
+		$GLOBALS['wpdb']         = new AINP_Fake_WPDB_K5R();
 
 		return $GLOBALS['wpdb'];
 	}
@@ -570,7 +598,66 @@ namespace {
 	k5r_check( 'new' === $wpdb->tabela[1]->status, 'pozycja czeka teraz na model jako `new`' );
 
 	// -----------------------------------------------------------------------
-	echo "\n=== 5. Atrapa rozumiala kazde wyslane zapytanie ===\n";
+	echo "\n=== 5. NAPRAWA A2 — brak budzetu to koniec PRZEBIEGU, nie porazka pozycji ===\n";
+	// -----------------------------------------------------------------------
+	$wpdb = k5r_reset();
+
+	k5r_wiersz( $wpdb, 1, 'https://psy.pl/bez-czasu/', '' );
+	k5r_wiersz( $wpdb, 2, 'https://psy.pl/druga/', '' );
+
+	$podsumowanie = Runner::prepare_batch( 10, 1.0 );
+
+	/*
+	 * SEDNO A2 I ZABEZPIECZENIA „nie zatrzymuje sie przy typowym bledzie".
+	 * Wyczerpany budzet nie jest wina pozycji ani serwisu: wiersz nie zostal
+	 * nawet zapytany. Policzenie tego jako porazki zamienialoby wolny hosting
+	 * w kolejke pozycji `failed` — po trzech takich przebiegach zdrowa pozycja
+	 * wypadalaby z obiegu na dobre, a klient widzialby awarie, ktorej nie ma.
+	 */
+	k5r_check( true === ( $podsumowanie['budget_hit'] ?? false ), 'partia zglasza wyczerpanie budzetu' );
+	k5r_check( 0 === (int) $podsumowanie['failed'], 'i NIE liczy tego jako porazki (jest: ' . (int) $podsumowanie['failed'] . ')' );
+	k5r_check( 0 === (int) $podsumowanie['retry'], 'ani jako ponowienia' );
+	k5r_check( 'new' === $wpdb->tabela[1]->status, 'wiersz zostaje `new`, nie ladnie na `failed` za brak czasu' );
+	k5r_check( 0 === (int) $wpdb->tabela[1]->attempts, 'licznik prob NIETKNIETY — nastepny tick wezmie ja od nowa' );
+	k5r_check( '' === (string) $wpdb->tabela[1]->note, 'i zadna notatka nie klamie o przyczynie' );
+	k5r_check( 0 === count( $GLOBALS['__zadania'] ), 'zero zadan sieciowych — budzet doszedl az do transportu' );
+	/*
+	 * Przebieg ma sie PRZERWAC, a nie brnac przez cala partie, oddajac przy
+	 * kazdej pozycji ten sam brak czasu. Druga pozycja nie zostala tkniejta.
+	 */
+	k5r_check( 'new' === $wpdb->tabela[2]->status, 'NASTEPNA pozycja nawet nie zostala sprobowana' );
+	k5r_check( 1 === count( $GLOBALS['__budzety'] ), 'przebieg przerwal sie na pierwszej pozycji bez czasu (prob: ' . count( $GLOBALS['__budzety'] ) . ')' );
+
+	// --- Budzet KURCZY SIE z pozycji na pozycje -----------------------------
+	/*
+	 * Budzet, ktory kazdej pozycji oddaje pelna pule od nowa, nie jest budzetem
+	 * partii — jest budzetem pozycji, a partia moze wtedy trwac dowolnie dlugo.
+	 * Asercja jest ZAKRESEM, nie rownoscia: mierzymy czas rzeczywisty.
+	 */
+	$wpdb = k5r_reset();
+
+	k5r_wiersz( $wpdb, 1, 'https://psy.pl/a/', '' );
+	k5r_wiersz( $wpdb, 2, 'https://psy.pl/b/', '' );
+	k5r_wiersz( $wpdb, 3, 'https://psy.pl/c/', '' );
+
+	$GLOBALS['__http_sleep'] = 1.0;
+
+	$podsumowanie = Runner::prepare_batch( 10, 10.0 );
+
+	$GLOBALS['__http_sleep'] = 0.0;
+
+	$budzety = $GLOBALS['__budzety'];
+
+	k5r_check( count( $budzety ) >= 2, 'partia weszla w co najmniej dwie pozycje (jest: ' . count( $budzety ) . ')' );
+	k5r_check(
+		isset( $budzety[1] ) && $budzety[1] <= $budzety[0] - 0.5,
+		'druga pozycja dostaje MNIEJ czasu niz pierwsza — budzet jest wspolny dla partii (jest: '
+			. round( (float) ( $budzety[0] ?? 0 ), 2 ) . ' → ' . round( (float) ( $budzety[1] ?? 0 ), 2 ) . ')'
+	);
+	k5r_check( ( $budzety[0] ?? 0 ) <= 10.0, 'i zadna pozycja nie dostaje wiecej, niz wynosi budzet calej partii' );
+
+	// -----------------------------------------------------------------------
+	echo "\n=== 6. Atrapa rozumiala kazde wyslane zapytanie ===\n";
 	// -----------------------------------------------------------------------
 	$nieznane = $GLOBALS['__nierozpoznane'];
 
