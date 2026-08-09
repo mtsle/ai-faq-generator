@@ -93,6 +93,15 @@ final class Admin {
 	/** Prefiks transientu z podsumowaniem ostatniej publikacji. */
 	public const TRANSIENT_PUB = 'ainp_last_pub_';
 
+	/**
+	 * Slad po ostatnim AUTOMATYCZNYM przebiegu — bez sufiksu uzytkownika.
+	 *
+	 * Pozostale transienty sa per uzytkownik, bo dotycza akcji, ktora ktos
+	 * kliknal. Tick nie nalezy do nikogo — i ma go zobaczyc kazdy, kto wejdzie
+	 * na ekran, a nie tylko ten, kto akurat byl zalogowany o pelnej godzinie.
+	 */
+	public const TRANSIENT_TICK = 'ainp_last_tick';
+
 	/** Prefiks transientu z wynikiem ostatniego wznowienia. */
 	public const TRANSIENT_RETRY = 'ainp_last_retry_';
 
@@ -638,6 +647,7 @@ final class Admin {
 		self::render_prep_notice();
 		self::render_pub_notice();
 		self::render_retry_notice();
+		self::render_tick_notice();
 
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION_FETCH ) . '" />';
@@ -728,6 +738,81 @@ final class Admin {
 	 * z dobowej puli — najczestsze pytanie przy limicie 20 na dobe brzmi
 	 * „dlaczego nic nie przybylo", a odpowiedzia bywa „wszystkie pozycje byly
 	 * poza tematem" albo „sufit wyczerpany".
+	 *
+	 * @return void
+	 */
+	private static function render_tick_notice(): void {
+		$przebieg = get_transient( self::TRANSIENT_TICK );
+
+		if ( ! is_array( $przebieg ) ) {
+			echo '<div class="notice notice-warning inline"><p>'
+				. esc_html__( 'Automat nie zgłosił jeszcze żadnego przebiegu. Portal pracuje sam dopiero wtedy, gdy ktoś odwiedza stronę — WordPress uruchamia zadania cykliczne ruchem, nie zegarem.', 'ai-news-portal' )
+				. '</p></div>';
+
+			return;
+		}
+
+		/*
+		 * Zapisu NIE kasujemy po pokazaniu — to nie jest komunikat o akcji, tylko
+		 * stan automatu. Ma byc widoczny przy kazdym wejsciu na ekran.
+		 */
+		$pobrane      = (int) ( $przebieg['collect']['added'] ?? 0 );
+		$przygotowane = (int) ( $przebieg['prepare']['ready'] ?? 0 );
+		$opublikowane = (int) ( $przebieg['publish']['published'] ?? 0 );
+		$wywolania    = (int) ( $przebieg['publish']['calls'] ?? 0 );
+
+		echo '<div class="notice notice-info inline"><p><strong>'
+			. esc_html__( 'Ostatni automatyczny przebieg', 'ai-news-portal' ) . '</strong> — '
+			. esc_html( (string) ( $przebieg['time'] ?? '' ) ) . '. '
+			. esc_html(
+				sprintf(
+					/* translators: 1: nowe pozycje, 2: przygotowane tresci, 3: artykuly, 4: wywolania AI */
+					__( 'Nowych pozycji: %1$d. Przygotowanych treści: %2$d. Opublikowanych artykułów: %3$d. Wywołań AI: %4$d.', 'ai-news-portal' ),
+					$pobrane,
+					$przygotowane,
+					$opublikowane,
+					$wywolania
+				)
+			) . '</p>';
+
+		if ( ! empty( $przebieg['locked'] ) ) {
+			echo '<p>' . esc_html__( 'Przebieg nie ruszył, bo trwał inny — to normalne, gdy ktoś klika przyciski w tym samym czasie.', 'ai-news-portal' ) . '</p>';
+		}
+
+		if ( '' !== (string) ( $przebieg['publish']['note'] ?? '' ) ) {
+			echo '<p><strong>' . esc_html__( 'Publikacja wstrzymana:', 'ai-news-portal' ) . '</strong> '
+				. esc_html( (string) $przebieg['publish']['note'] ) . '</p>';
+		}
+
+		if ( ! empty( $przebieg['skipped'] ) ) {
+			echo '<p>' . esc_html(
+				sprintf(
+					/* translators: %s: lista pominietych faz */
+					__( 'Zabrakło czasu na etapy: %s. Jeśli powtarza się to co godzinę, przyczyną jest zwykle wolny kanał RSS.', 'ai-news-portal' ),
+					implode( ', ', array_map( 'strval', (array) $przebieg['skipped'] ) )
+				)
+			) . '</p>';
+		}
+
+		if ( ! empty( $przebieg['recovered'] ) ) {
+			echo '<p>' . esc_html(
+				sprintf(
+					/* translators: %d: liczba odzyskanych pozycji */
+					__( 'Odzyskanych pozycji po przerwanym przebiegu: %d.', 'ai-news-portal' ),
+					(int) $przebieg['recovered']
+				)
+			) . '</p>';
+		}
+
+		foreach ( (array) ( $przebieg['errors'] ?? array() ) as $faza => $blad ) {
+			echo '<p><strong>' . esc_html( (string) $faza ) . '</strong>: ' . esc_html( (string) $blad ) . '</p>';
+		}
+
+		echo '</div>';
+	}
+
+	/**
+	 * Komunikat po wznowieniu pozycji.
 	 *
 	 * @return void
 	 */

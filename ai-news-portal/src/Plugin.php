@@ -93,6 +93,21 @@ final class Plugin {
 		 */
 		add_action( self::CRON_HOOK, array( Runner::class, 'tick' ) );
 
+		/*
+		 * DOMKNIECIE HARMONOGRAMU POZA AKTYWACJA — ustalenie audytowe A1.
+		 *
+		 * `register_activation_hook` NIE odpala sie przy podmianie plikow
+		 * dzialajacej wtyczki, a tak wlasnie wyglada kazda aktualizacja: klient
+		 * wgrywa nowy ZIP, my podmieniamy pliki przez junction. Instalacja, ktora
+		 * chodzila na wersji sprzed Kroku 5, nie dostalaby harmonogramu NIGDY —
+		 * panel dzialalby normalnie, wiec nic by tego nie zdradzilo.
+		 *
+		 * Koszt jest zerowy: `has_recurring_tick()` czyta opcje `cron`, ktora
+		 * WordPress i tak trzyma autoladowana, a planowanie wykonuje sie tylko
+		 * wtedy, gdy powtarzalnego zdarzenia naprawde nie ma.
+		 */
+		add_action( 'init', array( self::class, 'ensure_schedule' ) );
+
 		// Akcje formularzy panelu (`admin_post_ainp_*`) — etap 2.5.
 		Admin::register_actions();
 	}
@@ -234,6 +249,18 @@ final class Plugin {
 		 * moze odpalic na wpol zainstalowanej wtyczce, gdyby aktywacja przerwala
 		 * sie w polowie.
 		 */
+		self::schedule_tick();
+	}
+
+	/**
+	 * Pilnuje, ze powtarzalny tick istnieje — takze po aktualizacji wtyczki.
+	 *
+	 * Idempotentne: cala robota siedzi w warunku `has_recurring_tick()`, wiec
+	 * wolanie tego przy kazdym zadaniu nie planuje niczego drugi raz.
+	 *
+	 * @return void
+	 */
+	public static function ensure_schedule(): void {
 		self::schedule_tick();
 	}
 

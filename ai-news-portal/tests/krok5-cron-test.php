@@ -511,6 +511,49 @@ k5_check( array( Runner::class, 'tick' ) === ( $sluchacze[0]['cb'] ?? null ), 's
 k5_check( is_callable( $sluchacze[0]['cb'] ?? null ), 'i ten sluchacz naprawde istnieje (zaplanowane zdarzenie bez sluchacza znika bez sladu)' );
 
 // ---------------------------------------------------------------------------
+// 5b. NAPRAWA A1 — harmonogram domykany takze poza aktywacja.
+// ---------------------------------------------------------------------------
+echo "
+=== 5b. A1: aktualizacja wtyczki tez dostaje harmonogram ===
+";
+
+$domykacze = array_values(
+	array_filter(
+		$GLOBALS['__actions'],
+		function ( $a ) {
+			return 'init' === $a['hook'] && array( Plugin::class, 'ensure_schedule' ) === $a['cb'];
+		}
+	)
+);
+
+k5_check( 1 === count( $domykacze ), 'boot() podpina domkniecie harmonogramu pod `init`' );
+
+/*
+ * SEDNO USTALENIA A1: tak wyglada instalacja, ktora chodzila na wersji sprzed
+ * Kroku 5 i dostala nowe pliki. Wtyczka JEST aktywna, wiec `activate()` sie nie
+ * odpali — a bez tego zdarzenia portal nigdy nie ruszy sam. Panel dziala
+ * normalnie, wiec nic by tego nie zdradzilo.
+ */
+$GLOBALS['__cron'] = array();
+
+Plugin::ensure_schedule();
+
+$zdarzenia = $GLOBALS['__cron'][ Plugin::CRON_HOOK ] ?? array();
+
+k5_check( 1 === count( $zdarzenia ), 'instalacja po aktualizacji dostaje harmonogram bez reaktywacji' );
+k5_check( 'hourly' === ( $zdarzenia[0]['powtor'] ?? null ), 'i jest to zdarzenie POWTARZALNE' );
+
+$czas_domkniecia = $zdarzenia[0]['time'];
+
+Plugin::ensure_schedule();
+Plugin::ensure_schedule();
+
+$zdarzenia = $GLOBALS['__cron'][ Plugin::CRON_HOOK ] ?? array();
+
+k5_check( 1 === count( $zdarzenia ), 'domkniecie jest IDEMPOTENTNE — `init` chodzi przy kazdym zadaniu (jest: ' . count( $zdarzenia ) . ')' );
+k5_check( $czas_domkniecia === $zdarzenia[0]['time'], 'i nie przesuwa istniejacego harmonogramu' );
+
+// ---------------------------------------------------------------------------
 // 6. Tick — trzy fazy, w tej kolejnosci, pod zamkiem.
 // ---------------------------------------------------------------------------
 echo "\n=== 6. Tick — pobierz, przygotuj, opublikuj ===\n";
@@ -528,6 +571,20 @@ k5_check( isset( $wynik['prepare']['taken'] ), 'podsumowanie fazy przygotowania 
 k5_check( isset( $wynik['publish']['published'] ), 'podsumowanie fazy publikacji ma wlasny ksztalt' );
 k5_check( array() === $wynik['errors'], 'zaden blad transportu nie zatrzymal przebiegu' );
 k5_check( false === get_transient( Admin::TRANSIENT_LOCK ), 'zamek ZDJETY po przebiegu' );
+
+// --- NAPRAWA A3: przebieg zostawia slad ------------------------------------
+$slad = get_transient( Admin::TRANSIENT_TICK );
+
+k5_check( is_array( $slad ), 'automatyczny przebieg ZOSTAWIA slad w transiencie' );
+k5_check( '' !== (string) ( $slad['time'] ?? '' ), 'slad ma znacznik czasu — inaczej nie wiadomo, czy cron w ogole chodzi' );
+k5_check( isset( $slad['collect']['sources'] ), 'slad niesie podsumowanie faz, nie samo „bylo OK”' );
+/*
+ * Slad NIE jest kasowany po odczycie: to nie komunikat o akcji, tylko stan
+ * automatu. Skasowany po pierwszym wejsciu na ekran znikalby dokladnie temu,
+ * kto zaglada drugi raz, zeby sprawdzic, czy cos sie zmienilo.
+ */
+k5_check( is_array( get_transient( Admin::TRANSIENT_TICK ) ), 'i przezywa odczyt — to stan, nie jednorazowy komunikat' );
+k5_check( 0 === strpos( Admin::TRANSIENT_TICK, 'ainp_' ), 'nazwa zaczyna sie od `ainp_` — inaczej `uninstall.php` jej nie zamiecie' );
 
 // ---------------------------------------------------------------------------
 // 7. Zajety zamek — tick nie wchodzi w cudza partie.

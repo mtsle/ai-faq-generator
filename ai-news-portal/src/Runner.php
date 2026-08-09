@@ -166,6 +166,15 @@ final class Runner {
 	 */
 	public const TICK_SHARE = 0.25;
 
+	/**
+	 * Jak dlugo zyje slad po automatycznym przebiegu: doba.
+	 *
+	 * Dluzej nie ma sensu — tick chodzi co godzine, wiec zapis starszy niz
+	 * doba znaczy, ze cron nie chodzi wcale, i wlasnie TO jest wtedy
+	 * informacja dla klienta.
+	 */
+	public const TICK_LOG_TTL = 86400;
+
 	/** Sufit dlugosci adresu — tyle ma kolumna `url varchar(2048)`. */
 	public const MAX_URL_BYTES = 2048;
 
@@ -284,6 +293,24 @@ final class Runner {
 		} finally {
 			delete_transient( Admin::TRANSIENT_LOCK );
 		}
+
+		/*
+		 * SLAD PO PRZEBIEGU — ustalenie audytowe A3.
+		 *
+		 * Do tej pory `tick()` oddawal komplet danych, a `add_action()` je
+		 * wyrzucal. Panel pokazywal wylacznie wyniki akcji KLIKNIETYCH, wiec
+		 * automat, ktory od tygodnia niczego nie publikuje — bo skonczyla sie
+		 * pula, bo padl kanal, bo zabraklo budzetu — byl nieodrozninalny od
+		 * automatu, ktory po prostu nie dziala. Kryterium odbioru „wyczerpany
+		 * limit WSTRZYMUJE zamiast sypac bledami" bez tego zapisu nie da sie
+		 * ani potwierdzic, ani obalic.
+		 *
+		 * Prefiks `ainp_` jest wymogiem: `uninstall.php` zamiata transienty
+		 * wzorcem `_transient_ainp_%`.
+		 */
+		$wynik['time'] = current_time( 'mysql' );
+
+		set_transient( Admin::TRANSIENT_TICK, $wynik, self::TICK_LOG_TTL );
 
 		return $wynik;
 	}
