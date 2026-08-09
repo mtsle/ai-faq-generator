@@ -422,6 +422,44 @@ final class Runner {
 	}
 
 	/**
+	 * Wznawia pozycje `failed` — decyzja czlowieka, nie automatu (etap 5.4).
+	 *
+	 * WARIANT B Z AUDYTU KROKU 4 DOMKNIETY. Od tamtej decyzji tresc pozycji
+	 * `failed` ZOSTAJE w tabeli, bo jest jedynym materialem do ponowienia —
+	 * ale do Kroku 5 nie istniala zadna droga, ktora by z niej skorzystala.
+	 * Zachowana tresc byla samym kosztem: kilkadziesiat kilobajtow na wiersz
+	 * i zero pozytku.
+	 *
+	 * Automatu tu nie ma i nie moze byc. `failed` znaczy „trzy razy sie nie
+	 * udalo" albo „blad trwaly" — ponawianie tego w kolko zjadaloby budzet
+	 * czasu i sloty z dobowej puli. Wznowienie jest wiec swiadomym klikanciem
+	 * klienta, ktory naprawil przyczyne: dopisal klucz API, poprawil adres,
+	 * doczekal konca awarii serwisu.
+	 *
+	 * `attempts` wraca do zera, bo licznik prob opisuje JEDNO podejscie do
+	 * pozycji, a to jest nowe podejscie. Bez zerowania pozycja wrocilaby
+	 * z licznikiem na `MAX_ATTEMPTS` i pierwszy blad przejsciowy odeslalby ja
+	 * z powrotem na `failed`.
+	 *
+	 * @return int Ile pozycji wrocilo do kolejki.
+	 */
+	public static function revive_failed(): int {
+		global $wpdb;
+
+		$zmienione = $wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, attempts = 0, note = %s, updated_at = %s WHERE status = %s',
+				self::STATUS_NEW,
+				'',
+				current_time( 'mysql' ),
+				self::STATUS_FAILED
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return max( 0, (int) $zmienione );
+	}
+
+	/**
 	 * Granica czasu: `processing` starsze od niej jest porzucone.
 	 *
 	 * Liczone z `current_time( 'mysql' )`, a nie z `time()`, bo dokladnie ta

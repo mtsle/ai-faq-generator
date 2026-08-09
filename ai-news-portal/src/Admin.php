@@ -64,6 +64,15 @@ final class Admin {
 	 */
 	public const ACTION_PUBLISH = 'ainp_publish';
 
+	/**
+	 * Akcja `admin_post_`: wznowienie pozycji `failed` (etap 5.4).
+	 *
+	 * Osobna akcja, a nie parametr istniejacej: wznowienie zmienia stan tabeli
+	 * i musi miec wlasny nonce. Nonce wystawiony na „Opublikuj teraz" nie ma
+	 * prawa przepuszczac niczego innego.
+	 */
+	public const ACTION_RETRY = 'ainp_retry';
+
 	/** Nazwa pola z nonce'em — wspolna dla wszystkich akcji. */
 	public const NONCE_FIELD = '_ainp_nonce';
 
@@ -83,6 +92,9 @@ final class Admin {
 
 	/** Prefiks transientu z podsumowaniem ostatniej publikacji. */
 	public const TRANSIENT_PUB = 'ainp_last_pub_';
+
+	/** Prefiks transientu z wynikiem ostatniego wznowienia. */
+	public const TRANSIENT_RETRY = 'ainp_last_retry_';
 
 	/**
 	 * Zamek na czas przygotowywania partii — DLUG D-8 Z AUDYTU KROKU 3.
@@ -173,6 +185,7 @@ final class Admin {
 		add_action( 'admin_post_' . self::ACTION_FETCH, array( self::class, 'handle_fetch' ) );
 		add_action( 'admin_post_' . self::ACTION_PREPARE, array( self::class, 'handle_prepare' ) );
 		add_action( 'admin_post_' . self::ACTION_PUBLISH, array( self::class, 'handle_publish' ) );
+		add_action( 'admin_post_' . self::ACTION_RETRY, array( self::class, 'handle_retry' ) );
 		add_action( 'admin_post_' . self::ACTION_SAVE, array( self::class, 'handle_save_settings' ) );
 	}
 
@@ -278,6 +291,21 @@ final class Admin {
 		set_transient( self::TRANSIENT_LOCK, time(), self::LOCK_TTL );
 
 		return true;
+	}
+
+	/**
+	 * Zapis Ustawien.
+	 *
+	 * @return void
+	 */
+	public static function handle_retry(): void {
+		self::guard( self::ACTION_RETRY );
+
+		$wznowione = Runner::revive_failed();
+
+		set_transient( self::TRANSIENT_RETRY . get_current_user_id(), $wznowione, 300 );
+
+		self::redirect_back( self::SLUG_ITEMS, 'wznowiono' );
 	}
 
 	/**
@@ -609,6 +637,7 @@ final class Admin {
 		self::render_run_notice();
 		self::render_prep_notice();
 		self::render_pub_notice();
+		self::render_retry_notice();
 
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
 		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION_FETCH ) . '" />';
@@ -663,6 +692,17 @@ final class Admin {
 		echo '</p>';
 		echo '</form>';
 
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '">';
+		echo '<input type="hidden" name="action" value="' . esc_attr( self::ACTION_RETRY ) . '" />';
+		wp_nonce_field( self::ACTION_RETRY, self::NONCE_FIELD );
+		echo '<p>';
+		submit_button( __( 'Wznów nieudane', 'ai-news-portal' ), 'secondary', 'submit', false );
+		echo ' <span class="description">'
+			. esc_html__( 'Pozycje ze statusem „nieudane” wracają do kolejki z wyzerowanym licznikiem prób. Klikaj dopiero po usunięciu przyczyny — na przykład po uzupełnieniu klucza API.', 'ai-news-portal' )
+			. '</span>';
+		echo '</p>';
+		echo '</form>';
+
 		if ( ! $ma_klucz ) {
 			echo '<div class="notice notice-warning"><p>'
 				. esc_html__( 'Klucz API nie jest zapisany — bez niego wtyczka nie wywoła modelu. Uzupełnij go w Ustawieniach.', 'ai-news-portal' )
@@ -688,6 +728,34 @@ final class Admin {
 	 * z dobowej puli — najczestsze pytanie przy limicie 20 na dobe brzmi
 	 * „dlaczego nic nie przybylo", a odpowiedzia bywa „wszystkie pozycje byly
 	 * poza tematem" albo „sufit wyczerpany".
+	 *
+	 * @return void
+	 */
+	private static function render_retry_notice(): void {
+		$klucz     = self::TRANSIENT_RETRY . get_current_user_id();
+		$wznowione = get_transient( $klucz );
+
+		if ( false === $wznowione ) {
+			return;
+		}
+
+		delete_transient( $klucz );
+
+		/*
+		 * Zero tez dostaje komunikat. Cisza po klikniecu wyglada jak usterka,
+		 * a „nie bylo czego wznawiac" jest odpowiedzia — i to dobra.
+		 */
+		echo '<div class="notice notice-success"><p>' . esc_html(
+			sprintf(
+				/* translators: %d: liczba wznowionych pozycji */
+				__( 'Wznowionych pozycji: %d.', 'ai-news-portal' ),
+				(int) $wznowione
+			)
+		) . '</p></div>';
+	}
+
+	/**
+	 * Komunikat po partii publikacji.
 	 *
 	 * @return void
 	 */

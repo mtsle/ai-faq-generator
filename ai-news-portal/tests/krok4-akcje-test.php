@@ -449,7 +449,7 @@ namespace {
 	// ------------------------------------------------------------------
 	echo "-- TEST 12: akcja bez poprawnego nonce'a --\n";
 
-	foreach ( array( 'handle_publish', 'handle_save_settings', 'handle_prepare', 'handle_fetch' ) as $akcja ) {
+	foreach ( array( 'handle_publish', 'handle_save_settings', 'handle_prepare', 'handle_fetch', 'handle_retry' ) as $akcja ) {
 		k4a_reset();
 		$GLOBALS['__nonce_ok'] = false;
 		$przed                 = $GLOBALS['__opt'];
@@ -465,7 +465,7 @@ namespace {
 	// ------------------------------------------------------------------
 	echo "\n-- Uprawnienie sprawdzane PRZED nonce'em --\n";
 
-	foreach ( array( 'handle_publish', 'handle_save_settings' ) as $akcja ) {
+	foreach ( array( 'handle_publish', 'handle_save_settings', 'handle_retry' ) as $akcja ) {
 		k4a_reset();
 		$GLOBALS['__cap'] = false;
 
