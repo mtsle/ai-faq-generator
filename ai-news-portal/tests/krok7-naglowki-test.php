@@ -457,6 +457,62 @@ namespace {
 		'filtr dostaje zestaw JUZ uzgodniony z motywem, nie surowy — inaczej klient poprawialby cos, co i tak nie wyjdzie'
 	);
 
+	// ---------------------------------------------------------------------
+	echo "\n-- Etap 7.3: Referrer-Policy i naglowki swiadomie odrzucone --\n";
+
+	foreach ( array( Security::VIEW_PAGE, Security::VIEW_EMBED, Security::VIEW_FEED ) as $w ) {
+		$zestaw = Security::headers_for( $w );
+		k7n_check(
+			'strict-origin-when-cross-origin' === ( $zestaw['Referrer-Policy'] ?? '' ),
+			"widok {$w}: Referrer-Policy strict-origin-when-cross-origin (artykul linkuje do zrodla, wiec zejscie na cudza domene jest tu norma)"
+		);
+	}
+
+	$odrzucone = Security::rejected();
+	k7n_check( count( $odrzucone ) >= 4, 'lista odrzuconych naglowkow jest niepusta (jest: ' . count( $odrzucone ) . ')' );
+
+	$bez_powodu = array();
+	foreach ( $odrzucone as $nazwa => $powod ) {
+		if ( strlen( trim( (string) $powod ) ) < 40 ) {
+			$bez_powodu[] = $nazwa;
+		}
+	}
+	k7n_check( array() === $bez_powodu, 'kazde odrzucenie ma zapisany powod, nie samo „nie"' );
+
+	// NIEZMIENNIK: zestaw wtyczki 1 lezy w tym samym repozytorium i skopiowanie
+	// go w calosci jest ruchem naturalnym. Ta petla ma wtedy zaswiecic.
+	$przeciek = array();
+	foreach ( array( Security::VIEW_PAGE, Security::VIEW_EMBED, Security::VIEW_FEED ) as $w ) {
+		foreach ( array_keys( $odrzucone ) as $nazwa ) {
+			if ( isset( Security::headers_for( $w )[ $nazwa ] ) ) {
+				$przeciek[] = $w . '/' . $nazwa;
+			}
+		}
+	}
+	k7n_check( array() === $przeciek, 'NIEZMIENNIK: zaden odrzucony naglowek nie wychodzi w zadnym widoku' );
+
+	k7n_check( isset( $odrzucone['Strict-Transport-Security'] ), 'HSTS odrzucone — obejmuje cala domene, nie tylko nasze adresy' );
+	k7n_check( isset( $odrzucone['Cross-Origin-Resource-Policy'] ), 'CORP odrzucone — zablokowaloby wlasna ramke oEmbed' );
+
+	$pp = Security::headers_for( Security::VIEW_PAGE )['Permissions-Policy'];
+	k7n_check(
+		false !== strpos( $pp, 'geolocation=()' ) && false !== strpos( $pp, 'camera=()' ) && false !== strpos( $pp, 'microphone=()' ),
+		'Permissions-Policy wylacza funkcje, ktorych wtyczka nie uzywa (zero JavaScriptu)'
+	);
+
+	// Klient ma prawo dolozyc to, co my odrzucilismy — decyzja nalezy do niego.
+	k7n_stan(
+		array(
+			'archive' => true,
+			'filtr'   => static function ( $naglowki, $widok ) {
+				$naglowki['Strict-Transport-Security'] = 'max-age=63072000';
+				return $naglowki;
+			},
+		)
+	);
+	Security::maybe_send();
+	k7n_check( in_array( 'strict-transport-security', k7n_nazwy(), true ), 'odrzucenie jest nasze, nie klienta: filtrem da sie dolozyc kazdy naglowek' );
+
 	echo "\nWYNIK: " . ( $ran - $fail ) . " / {$ran} asercji\n";
 	exit( $fail > 0 ? 1 : 0 );
 }

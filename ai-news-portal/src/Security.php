@@ -288,7 +288,20 @@ final class Security {
 			return array();
 		}
 
-		// Wspolne dla kazdego widoku, ktory obslugujemy.
+		/*
+		 * Wspolne dla kazdego widoku. Uzasadnienie kazdego z osobna — etap 7.3:
+		 *
+		 * `nosniff` bo tresc artykulu pochodzi z modelu i z cudzej strony.
+		 * Zgadywanie typu przez przegladarke jest tu dokladnie ta klasa
+		 * ryzyka, ktora ten naglowek zamyka.
+		 *
+		 * `strict-origin-when-cross-origin` bo artykul MA link do zrodla, czyli
+		 * wyjscie na cudza domene jest tu normalnym ruchem, nie wyjatkiem.
+		 * Ta wartosc wysyla w takim przejsciu sama nazwe witryny zamiast
+		 * pelnego adresu z fraza wyszukiwania, a przy zejsciu z HTTPS na HTTP
+		 * nie wysyla nic. `no-referrer` bylby scislejszy, ale odbiera zrodlu
+		 * informacje, kto do niego linkuje — a my z tego zrodla korzystamy.
+		 */
 		$naglowki = array(
 			'X-Content-Type-Options' => 'nosniff',
 			'Referrer-Policy'        => 'strict-origin-when-cross-origin',
@@ -298,6 +311,13 @@ final class Security {
 			return $naglowki;
 		}
 
+		/*
+		 * Wylaczone sa wylacznie te funkcje przegladarki, ktorych zaden widok
+		 * Centrum Wiedzy nie uzywa i uzywac nie bedzie (wtyczka nie ma ani
+		 * jednej linii JavaScriptu). `interest-cohort` zostaje mimo wycofania
+		 * FLoC: kosztuje kilkanascie bajtow, a wciaz trafiaja sie przegladarki,
+		 * ktore go czytaja.
+		 */
 		$naglowki['Permissions-Policy'] = 'geolocation=(), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()';
 
 		if ( self::VIEW_EMBED === $widok ) {
@@ -308,6 +328,29 @@ final class Security {
 		$naglowki['Content-Security-Policy'] = "frame-ancestors 'self'";
 
 		return $naglowki;
+	}
+
+	/**
+	 * Naglowki ROZWAZONE I ODRZUCONE, z powodem. Etap 7.3.
+	 *
+	 * Ta lista nie jest komentarzem — test asercjonuje, ze zaden z tych
+	 * naglowkow nie wychodzi w zadnym widoku. Powod jest praktyczny: zestaw
+	 * wtyczki 1 lezy obok w tym samym repozytorium i skopiowanie go w calosci
+	 * jest ruchem naturalnym, a bylby bledem. Tamta wtyczka wysyla komplet na
+	 * SWOJEJ samodzielnej podstronie, ta dokłada tresc do cudzej strony.
+	 *
+	 * Kazdy wpis to decyzja, ktora ma zostac odwrocona swiadomie albo wcale.
+	 *
+	 * @return array<string,string> Mapa `naglowek => powod odrzucenia`.
+	 */
+	public static function rejected(): array {
+		return array(
+			'Strict-Transport-Security'   => 'Obejmuje CALA domene i wszystkie jej adresy, takze te, ktore z wtyczka nie maja nic wspolnego, na wiele miesiecy naprzod. Wtyczka podstrony nie ma prawa podjac tej decyzji za wlasciciela witryny. Po HTTP jest zreszta ignorowany.',
+			'Cross-Origin-Opener-Policy'  => 'Zrywa `window.opener` dla okien otwieranych ze strony. Na cudzej stronie to droga do zepsucia logowania przez zewnetrzny serwis albo okna platnosci, ktorych wtyczka nie widzi i nie ma jak przetestowac.',
+			'Cross-Origin-Resource-Policy' => 'Blokuje pobranie zasobu przez inny origin. Dla dokumentu HTML zysk jest zaden, a dla ramki oEmbed — ktora ma byc osadzana z cudzych domen — bylby wprost szkodliwy.',
+			'X-XSS-Protection'            => 'Naglowek wycofany. Sterowal filtrem, ktorego zadna dzisiejsza przegladarka juz nie ma; jego jedyna sensowna wartosc to zero, czyli wylaczenie czegos, co nie istnieje.',
+			'X-Permitted-Cross-Domain-Policies' => 'Dotyczy wtyczek Flash i Acrobat. Martwy technologicznie.',
+		);
 	}
 
 	/**
