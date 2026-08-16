@@ -570,8 +570,10 @@ require_once $root . '/src/Gemini.php';
 require_once $root . '/src/Validator.php';
 require_once $root . '/src/Publisher.php';
 require_once $root . '/src/Runner.php';
-// Od etapu 6.1 `Plugin::boot()` wola `Portal::register()`.
+// Od etapu 6.1 `Plugin::boot()` wola `Portal::register()`, a od 7.1
+// takze `Security::register()`.
 require_once $root . '/src/Portal.php';
+require_once $root . '/src/Security.php';
 require_once $root . '/src/Plugin.php';
 require_once $root . '/src/Admin.php';
 

@@ -161,6 +161,14 @@ final class Plugin {
 		 * w `Runner`, a nie tutaj.
 		 */
 		Portal::register();
+
+		/*
+		 * NAGLOWKI BEZPIECZENSTWA — etap 7.1. Ten sam wlasciciel co wyzej:
+		 * `Security` sam wie, ktore zadania sa nasze i czego NIE ruszac.
+		 * Rejestracja bezwarunkowa; `template_redirect` nie chodzi w kokpicie,
+		 * wiec panel zostaje poza zasiegiem bez zadnego `is_admin()` tutaj.
+		 */
+		Security::register();
 	}
 
 	/**

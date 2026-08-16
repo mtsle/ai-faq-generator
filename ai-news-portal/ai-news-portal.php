@@ -75,6 +75,7 @@ require_once AINP_PLUGIN_DIR . 'src/Validator.php';
 require_once AINP_PLUGIN_DIR . 'src/Publisher.php';
 require_once AINP_PLUGIN_DIR . 'src/Runner.php';
 require_once AINP_PLUGIN_DIR . 'src/Portal.php';
+require_once AINP_PLUGIN_DIR . 'src/Security.php';
 require_once AINP_PLUGIN_DIR . 'src/Plugin.php';
 require_once AINP_PLUGIN_DIR . 'src/Admin.php';
 

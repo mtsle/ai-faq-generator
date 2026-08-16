@@ -321,8 +321,10 @@ require_once $root . '/src/Http.php';
 require_once $root . '/src/Feed.php';
 require_once $root . '/src/Dedup.php';
 require_once $root . '/src/Runner.php';
-// Od etapu 6.1 `Plugin::boot()` wola `Portal::register()`.
+// Od etapu 6.1 `Plugin::boot()` wola `Portal::register()`, a od 7.1
+// takze `Security::register()`.
 require_once $root . '/src/Portal.php';
+require_once $root . '/src/Security.php';
 require_once $root . '/src/Plugin.php';
 // Od etapu 4.6 ekran Materialow pokazuje stan dobowej puli, wiec `Admin`
 // siega do `Gemini`. Bez tego pliku zestaw pada na brakujacej klasie.
