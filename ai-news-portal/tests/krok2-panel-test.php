@@ -311,6 +311,8 @@ require_once $root . '/src/Plugin.php';
 // Od etapu 4.6 ekran Materialow pokazuje stan dobowej puli, wiec `Admin`
 // siega do `Gemini`. Bez tego pliku zestaw pada na brakujacej klasie.
 require_once $root . '/src/Gemini.php';
+// Trait z ekranami MUSI byc zaladowany przed klasa, ktora go uzywa (etap 8.1).
+require_once $root . '/src/Admin_Screen.php';
 require_once $root . '/src/Admin.php';
 
 use AINP\Admin;

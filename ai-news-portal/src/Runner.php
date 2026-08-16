@@ -181,6 +181,17 @@ final class Runner {
 	/** Sufit dlugosci tytulu i zajawki — kolumny `text` mieszcza 65535 bajtow. */
 	public const MAX_TEXT_BYTES = 65000;
 
+	/**
+	 * Ile wywolan modelu poszlo w ostatnio przetwarzanej pozycji.
+	 *
+	 * Pole istnieje wylacznie po to, zeby ta liczba PRZEZYLA wyjatek rzucony
+	 * po wywolaniu modelu. Sloty z dobowej puli sa wtedy zuzyte, a wynik
+	 * `process_item()` nie wraca — patrz komentarz przy zapisie.
+	 *
+	 * @var int
+	 */
+	private static $last_calls = 0;
+
 	// -----------------------------------------------------------------------
 	// Tick crona
 	// -----------------------------------------------------------------------
@@ -1204,6 +1215,8 @@ final class Runner {
 	public static function process_item( $row, ?float $remaining = null ): array {
 		$id = isset( $row->id ) ? (int) $row->id : 0;
 
+		self::$last_calls = 0;
+
 		/*
 		 * IDEMPOTENCJA PRZED MODELEM, nie za nim (ustalenie audytowe U2).
 		 * Ten sam warunek stoi w `Publisher::publish()`, ale tam wykonuje sie
@@ -1224,6 +1237,15 @@ final class Runner {
 
 		$werdykt = self::ask_model( $row, $remaining );
 		$wywolan = (int) $werdykt['calls'];
+
+		/*
+		 * Slad zostawiany OD RAZU, nie na koncu metody. Wszystko ponizej —
+		 * publikacja i trzy zapisy do tabeli — moze rzucic wyjatkiem, a wtedy
+		 * liczba wywolan ginie razem z wynikiem, mimo ze sloty z dobowej puli
+		 * sa juz zuzyte. Partia lapie ten wyjatek i bez tego pola pokazywalaby
+		 * klientowi mniej wywolan, niz naprawde poszlo.
+		 */
+		self::$last_calls = $wywolan;
 
 		if ( ! $werdykt['ok'] ) {
 			if ( $werdykt['terminal'] ) {
@@ -1331,6 +1353,12 @@ final class Runner {
 			} catch ( \Throwable $e ) {
 				$wynik['error']++;
 				$wynik['errors'][ (int) $kandydat['row']->id ] = $e->getMessage();
+
+				// Wywolania sa juz zaplacone, choc wynik przepadl — patrz
+				// `self::$last_calls`. Bez tej linii `continue` nizej omijalby
+				// zliczanie i podsumowanie klamaloby o koszcie przebiegu.
+				$wynik['calls'] += self::$last_calls;
+
 				continue;
 			} finally {
 				// Pozycja `waiting` (brak klucza, wyczerpana pula) ma wrocic do

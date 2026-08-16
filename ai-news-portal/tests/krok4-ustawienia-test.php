@@ -289,6 +289,8 @@ namespace {
 	require_once $root . '/src/Article.php';
 	require_once $root . '/src/Gemini.php';
 	require_once $root . '/src/Runner.php';
+	// Trait z ekranami MUSI byc zaladowany przed klasa, ktora go uzywa (etap 8.1).
+	require_once $root . '/src/Admin_Screen.php';
 	require_once $root . '/src/Admin.php';
 
 	use AINP\Admin;

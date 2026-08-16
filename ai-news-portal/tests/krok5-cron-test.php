@@ -166,6 +166,18 @@ function ainp_zamek_query( $sql ) {
 			return 0;
 		}
 
+		/*
+		 * Zdjecie zamka jest WARUNKOWE: druga wartosc to znacznik wlasciciela.
+		 * Atrapa, ktora kasuje wiersz mimo niepasujacego znacznika, przechwytuje
+		 * cala naprawe na siebie — asercja swiecilaby na zielono przy kodzie
+		 * kasujacym cudzy zamek (GOTCHA 9 i 51).
+		 */
+		$znacznik = $wartosci[1] ?? null;
+
+		if ( null !== $znacznik && (string) $GLOBALS['__lock'] !== (string) $znacznik ) {
+			return 0;
+		}
+
 		$GLOBALS['__lock'] = null;
 
 		return 1;
@@ -575,6 +587,8 @@ require_once $root . '/src/Runner.php';
 require_once $root . '/src/Portal.php';
 require_once $root . '/src/Security.php';
 require_once $root . '/src/Plugin.php';
+// Trait z ekranami MUSI byc zaladowany przed klasa, ktora go uzywa (etap 8.1).
+require_once $root . '/src/Admin_Screen.php';
 require_once $root . '/src/Admin.php';
 
 use AINP\Admin;
@@ -829,6 +843,41 @@ k5_check( false === Admin::claim_lock(), 'przy dwoch procesach na jednym wygasly
 
 $GLOBALS['__lock_wyscig'] = null;
 $GLOBALS['__lock']        = null;
+
+/*
+ * ZAMEK ZDEJMUJE SIE TYLKO SWOJ — naprawa etapu 8.1.
+ *
+ * Scenariusz z pomiaru: proces A bierze zamek i wisi dluzej niz `LOCK_TTL`.
+ * Inny proces przejmuje wygasly zamek po trupie (zachowanie ZAMIERZONE, wyzej).
+ * A dochodzi w koncu do swojego `finally` i wola `release_lock()` — i przed
+ * naprawa kasowal wtedy wiersz NALEZACY DO KOGOS INNEGO. Trzeci przebieg wchodzil
+ * w partie, ktora tamten wlasnie mielil: dwa razy ten sam scraping i dwa sloty
+ * z dobowej puli 20 na jeden artykul.
+ *
+ * Asercja jest na ZACHOWANIU, nie na mechanizmie: nie pyta, jak wyglada warunek
+ * w zapytaniu, tylko czy cudzy zamek przezyl. Przejecia nie odgrywamy drugim
+ * `claim_lock()`, bo znacznik wlasciciela jest polem statycznym i w jednym
+ * procesie PHP oba „procesy" dzielilyby to samo pole — podstawiamy wiec do
+ * wiersza wartosc cudza, dokladnie taka, jaka zostawilby tam CAS.
+ */
+k5_check( true === Admin::claim_lock(), 'A bierze zamek' );
+
+$GLOBALS['__lock'] = ( time() + 1 ) . '.znacznik-innego-procesu';
+
+Admin::release_lock();
+
+k5_check( null !== $GLOBALS['__lock'], 'A NIE zdejmuje zamka, ktory w miedzyczasie przejal kto inny' );
+k5_check( false === Admin::claim_lock(), 'wiec kolejny przebieg nadal dostaje odmowe — nie ma dwoch partii naraz' );
+
+$GLOBALS['__lock'] = null;
+
+k5_check( true === Admin::claim_lock(), 'swiezy zamek da sie wziac' );
+
+Admin::release_lock();
+
+k5_check( null === $GLOBALS['__lock'], 'a SWOJ zamek zdejmuje sie normalnie' );
+
+$GLOBALS['__lock'] = null;
 
 // ---------------------------------------------------------------------------
 // 7. Zajety zamek — tick nie wchodzi w cudza partie.

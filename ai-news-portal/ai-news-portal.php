@@ -63,6 +63,11 @@ define( 'AINP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
  * W praktyce kolejnosc i tak nie ma znaczenia (wywolanie nastepuje w czasie
  * wykonania, nie przy ladowaniu), ale lista czytana z gory ma pokazywac
  * zaleznosci, a nie je ukrywac.
+ *
+ * JEDEN WYJATEK OD TEGO „i tak nie ma znaczenia": `Admin_Screen` (etap 8.1)
+ * to TRAIT, a nie klasa. Trait musi istniec w chwili, gdy klasa go uzywa,
+ * czyli w chwili ladowania `Admin.php` — nie dopiero przy wywolaniu metody.
+ * Przestawienie tych dwoch linii to blad krytyczny, nie kwestia czytelnosci.
  */
 require_once AINP_PLUGIN_DIR . 'src/Settings.php';
 require_once AINP_PLUGIN_DIR . 'src/Http.php';
@@ -77,6 +82,7 @@ require_once AINP_PLUGIN_DIR . 'src/Runner.php';
 require_once AINP_PLUGIN_DIR . 'src/Portal.php';
 require_once AINP_PLUGIN_DIR . 'src/Security.php';
 require_once AINP_PLUGIN_DIR . 'src/Plugin.php';
+require_once AINP_PLUGIN_DIR . 'src/Admin_Screen.php';
 require_once AINP_PLUGIN_DIR . 'src/Admin.php';
 
 // --- Hooki cyklu zycia -----------------------------------------------------
