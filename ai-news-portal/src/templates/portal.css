@@ -21,7 +21,20 @@
 	--ainp-gap: 1.25rem;
 	--ainp-line: color-mix(in srgb, currentColor 16%, transparent);
 	--ainp-wash: color-mix(in srgb, currentColor 5%, transparent);
-	--ainp-muted: color-mix(in srgb, currentColor 68%, transparent);
+	/*
+	 * OSIEMDZIESIAT PROCENT, NIE SZESCDZIESIAT OSIEM — etap 8.2 (RWA).
+	 *
+	 * Miks obniza kontrast tekstu wzgledem tla o staly czynnik, wiec zabiera
+	 * dostepnosc, ktora daje motyw. Zmierzone na dworku: kolor tekstu motywu
+	 * ma 7,83:1, a po miksie 68% zajawka karty, data, kategoria i metryczka
+	 * artykulu spadaly do 3,47:1 — ponizej progu 4,5:1 dla zwyklego tekstu.
+	 * Przy 80% ten sam pomiar daje 4,64:1.
+	 *
+	 * Liczba 4,64 opisuje TEN motyw i nie jest obietnica dla innych; przenosny
+	 * jest mechanizm: im wiekszy udzial `currentColor`, tym mniej kontrastu
+	 * odbieramy motywowi. Dlatego udzial ma byc mozliwie wysoki, a nie „ladny".
+	 */
+	--ainp-muted: color-mix(in srgb, currentColor 80%, transparent);
 
 	max-width: 68rem;
 	margin-inline: auto;
@@ -188,6 +201,19 @@
 	padding: 0.9rem 1rem 1.1rem;
 }
 
+/*
+ * CEL DOTYKOWY MA MIEC 24 px W PIONIE — etap 8.2 (RWA), WCAG 2.2 SC 2.5.8.
+ *
+ * Zmierzone przed poprawka: 20 px wysokosci przy odstepie 2,6 px do linku
+ * tytulu karty. Wyjatek odstepu z tego kryterium wymaga, zeby wokol celu
+ * miescilo sie kolo 24 px nienachodzace na inny cel — przy 2,6 px nie mial
+ * szans zadzialac. Wyjatek „Inline" tez nie: to nie jest link w zdaniu,
+ * tylko samodzielna etykieta nad tytulem.
+ *
+ * `min-height` zamiast dopelnienia, bo wysokosc ma byc niezalezna od metryk
+ * kroju pisma motywu; `inline-flex` trzyma tekst w pionowej osi srodka
+ * i nie rozciaga elementu na cala szerokosc karty.
+ */
 .ainp-card__kicker {
 	font-size: 0.75rem;
 	font-weight: 700;
@@ -196,6 +222,9 @@
 	color: var(--ainp-accent);
 	text-decoration: none;
 	align-self: flex-start;
+	display: inline-flex;
+	align-items: center;
+	min-height: 24px;
 }
 
 .ainp-card__kicker:hover,
@@ -320,6 +349,12 @@
 	color: var(--ainp-muted);
 }
 
+/*
+ * Ten sam powod co przy `.ainp-card__kicker` — etap 8.2. Zmierzone 66x20 px.
+ * To element siatki metryczki, a nie link w zdaniu, wiec wyjatek „Inline"
+ * z SC 2.5.8 go nie obejmuje. Link zrodla w ramce ponizej JEST w zdaniu
+ * („Źródło: nazwa-serwisu") i dlatego zostaje bez zmian.
+ */
 .ainp-article__cat {
 	font-weight: 700;
 	letter-spacing: 0.08em;
@@ -327,6 +362,9 @@
 	font-size: 0.75rem;
 	color: var(--ainp-accent);
 	text-decoration: none;
+	display: inline-flex;
+	align-items: center;
+	min-height: 24px;
 }
 
 .ainp-article__cat:hover {
