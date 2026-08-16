@@ -52,6 +52,17 @@ final class Security {
 	 */
 	public const FILTER = 'ainp_security_headers';
 
+	/**
+	 * Stala wylaczajaca calosc, do wpisania w `wp-config.php`.
+	 *
+	 * Druga sciezka wyjscia, obok filtra. Istnieje, bo te dwie drogi trafiaja
+	 * do dwoch roznych osob: filtr wymaga kodu w motywie potomnym albo we
+	 * wlasnej wtyczce, a `define( 'AINP_NO_SECURITY_HEADERS', true );` moze
+	 * dopisac administrator serwera, ktory nie pisze w PHP i nie ma gdzie
+	 * trzymac wlasnego kodu.
+	 */
+	public const CONST_OFF = 'AINP_NO_SECURITY_HEADERS';
+
 	/** Widok pelnostronicowy: archiwum, kategoria, artykul. */
 	public const VIEW_PAGE = 'page';
 
@@ -92,19 +103,109 @@ final class Security {
 	 * @return void
 	 */
 	public static function maybe_send(): void {
+		if ( self::disabled() ) {
+			return;
+		}
+
 		$widok = self::view();
 
 		if ( self::VIEW_NONE === $widok ) {
 			return;
 		}
 
-		$naglowki = apply_filters( self::FILTER, self::headers_for( $widok ), $widok );
+		/*
+		 * Kolejnosc jest tu wiazaca: najpierw dopasowanie do polityki, ktora
+		 * na tej witrynie JUZ obowiazuje, a dopiero potem filtr. Klient ma miec
+		 * ostatnie slowo — gdyby filtr szedl pierwszy, `reconcile()` mogloby
+		 * cofnac to, co klient swiadomie ustawil.
+		 */
+		$naglowki = self::reconcile( self::headers_for( $widok ) );
+		$naglowki = apply_filters( self::FILTER, $naglowki, $widok );
 
 		if ( ! is_array( $naglowki ) ) {
 			return;
 		}
 
 		self::emit( $naglowki );
+	}
+
+	/**
+	 * Czy mechanizm jest wylaczony stala z `wp-config.php`.
+	 *
+	 * @return bool
+	 */
+	public static function disabled(): bool {
+		return defined( self::CONST_OFF ) && constant( self::CONST_OFF );
+	}
+
+	/**
+	 * Dopasowuje nasz zestaw do polityki, ktora juz wisi w odpowiedzi.
+	 *
+	 * ROZSTRZYGNIECIE KONFLIKTU Z MOTYWEM — sedno etapu 7.2.
+	 *
+	 * Sam fakt, ze cudzego naglowka nie nadpisujemy, nie wystarcza. Zostaje
+	 * pytanie, co zrobic z naszymi POZOSTALYMI naglowkami, kiedy motyw ma
+	 * wlasne CSP. Sa dwa przypadki i rozniaca sie odpowiedz:
+	 *
+	 *   1. Cudze CSP ZAWIERA `frame-ancestors`. Wlasciciel witryny wypowiedzial
+	 *      sie juz o osadzaniu w ramkach, i to nowoczesniejszym mechanizmem.
+	 *      `X-Frame-Options` jest wtedy przez przegladarki IGNOROWANY (CSP ma
+	 *      pierwszenstwo), wiec doklejanie go daje wylacznie szum w odpowiedzi
+	 *      i pozorna sprzecznosc dla kogos, kto ja czyta. Nie wysylamy.
+	 *   2. Cudze CSP NIE ZAWIERA `frame-ancestors`. Motyw opisal zrodla
+	 *      zasobow, ale o ramkach nie powiedzial nic. Naszego CSP nie
+	 *      dolozymy — dwa naglowki CSP dzialaja jak iloczyn polityk i mogłyby
+	 *      zablokowac zasoby motywu. Zostaje `X-Frame-Options`, ktory tej
+	 *      dziury nie zostawia i niczego cudzego nie psuje. Wysylamy.
+	 *
+	 * Zmierzone na poligonie: motyw dworka wysyla CSP Z `frame-ancestors`,
+	 * czyli przypadek 1 — wtyczka nie dokłada tam ani CSP, ani ramek.
+	 *
+	 * @param array<string,string> $naglowki Zestaw dla widoku.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function reconcile( array $naglowki ): array {
+		$cudze_csp = self::existing_csp();
+
+		if ( '' === $cudze_csp ) {
+			return $naglowki;
+		}
+
+		unset( $naglowki['Content-Security-Policy'] );
+
+		if ( false !== stripos( $cudze_csp, 'frame-ancestors' ) ) {
+			unset( $naglowki['X-Frame-Options'] );
+		}
+
+		return $naglowki;
+	}
+
+	/**
+	 * Wartosc CSP, ktore juz wisi w odpowiedzi, albo pusty napis.
+	 *
+	 * Wariant `-Report-Only` NIE liczy sie jako polityka: on niczego nie
+	 * blokuje, tylko zglasza naruszenia, wiec zostawienie go samego byloby
+	 * strona bez ochrony.
+	 *
+	 * @return string
+	 */
+	private static function existing_csp(): string {
+		foreach ( headers_list() as $linia ) {
+			$dwukropek = strpos( $linia, ':' );
+
+			if ( false === $dwukropek ) {
+				continue;
+			}
+
+			$nazwa = strtolower( trim( substr( $linia, 0, $dwukropek ) ) );
+
+			if ( 'content-security-policy' === $nazwa ) {
+				return trim( substr( $linia, $dwukropek + 1 ) );
+			}
+		}
+
+		return '';
 	}
 
 	/**

@@ -66,6 +66,7 @@ namespace {
 		'hooki'      => array(),
 		'filtr'      => null,    // Callback podpiety pod ainp_security_headers.
 		'filtr_args' => array(),
+		'stala'      => null,    // AINP_NO_SECURITY_HEADERS: null = nie zdefiniowana.
 	);
 
 	/**
@@ -91,6 +92,7 @@ namespace {
 				'wyslane'    => array(),
 				'filtr'      => null,
 				'filtr_args' => array(),
+				'stala'      => null,
 			),
 			$zmiany
 		);
@@ -186,6 +188,29 @@ namespace AINP {
 	 */
 	function header( $linia, $replace = true ) {
 		$GLOBALS['__k7']['wyslane'][] = array( $linia, $replace );
+	}
+
+	/**
+	 * Atrapa `defined()`. Prawdziwej stalej nie da sie w tescie cofnac,
+	 * a sciezke wylaczenia trzeba sprawdzic w obie strony.
+	 *
+	 * @param string $nazwa Nazwa stalej.
+	 *
+	 * @return bool
+	 */
+	function defined( $nazwa ) {
+		return 'AINP_NO_SECURITY_HEADERS' === $nazwa && null !== $GLOBALS['__k7']['stala'];
+	}
+
+	/**
+	 * Atrapa `constant()`.
+	 *
+	 * @param string $nazwa Nazwa stalej.
+	 *
+	 * @return mixed
+	 */
+	function constant( $nazwa ) {
+		return 'AINP_NO_SECURITY_HEADERS' === $nazwa ? $GLOBALS['__k7']['stala'] : null;
 	}
 }
 
@@ -372,6 +397,65 @@ namespace {
 	);
 	Security::maybe_send();
 	k7n_check( array() === $GLOBALS['__k7']['wyslane'], 'filtr zwracajacy nie-tablice nie wywraca zadania' );
+
+	// ---------------------------------------------------------------------
+	echo "\n-- Etap 7.2: konflikt z polityka motywu --\n";
+
+	$komplet = Security::headers_for( Security::VIEW_PAGE );
+
+	k7n_stan();
+	k7n_check( 5 === count( Security::reconcile( $komplet ) ), 'motyw bez wlasnego CSP: komplet zostaje nietkniety' );
+
+	// Przypadek zmierzony na dworku: motyw MA frame-ancestors.
+	k7n_stan( array( 'lista' => array( "Content-Security-Policy: default-src 'self'; frame-ancestors 'self'" ) ) );
+	$po = Security::reconcile( $komplet );
+	k7n_check( ! isset( $po['Content-Security-Policy'] ), 'cudze CSP: naszego CSP nie dokladamy' );
+	k7n_check( ! isset( $po['X-Frame-Options'] ), 'cudze CSP z frame-ancestors: X-Frame-Options tez odpada — przegladarka i tak by go zignorowala' );
+	k7n_check( 3 === count( $po ), 'zostaja trzy naglowki, ktore z polityka motywu nie koliduja' );
+
+	// Motyw opisal zrodla, ale o ramkach nie powiedzial nic.
+	k7n_stan( array( 'lista' => array( "Content-Security-Policy: default-src 'self'; img-src *" ) ) );
+	$po = Security::reconcile( $komplet );
+	k7n_check( ! isset( $po['Content-Security-Policy'] ), 'cudze CSP bez frame-ancestors: drugiego CSP nie wysylamy (dwa dzialaja jak iloczyn polityk)' );
+	k7n_check( 'SAMEORIGIN' === ( $po['X-Frame-Options'] ?? '' ), 'cudze CSP bez frame-ancestors: X-Frame-Options ZOSTAJE i zatyka dziure' );
+
+	k7n_stan( array( 'lista' => array( "Content-Security-Policy-Report-Only: default-src 'self'; frame-ancestors 'none'" ) ) );
+	k7n_check( 5 === count( Security::reconcile( $komplet ) ), 'Report-Only nie jest polityka — niczego nie blokuje, wiec nie zwalnia nas z ochrony' );
+
+	k7n_stan( array( 'archive' => true, 'lista' => array( "Content-Security-Policy: frame-ancestors 'self'" ) ) );
+	Security::maybe_send();
+	$nazwy = k7n_nazwy();
+	k7n_check( 3 === count( $nazwy ), 'sciezka pelna przy motywie z polityka: trzy naglowki' );
+	k7n_check( ! in_array( 'content-security-policy', $nazwy, true ), 'sciezka pelna: zadnego drugiego CSP w odpowiedzi' );
+
+	// ---------------------------------------------------------------------
+	echo "\n-- Etap 7.2: dwie sciezki wylaczenia --\n";
+
+	k7n_stan( array( 'archive' => true, 'stala' => true ) );
+	Security::maybe_send();
+	k7n_check( array() === $GLOBALS['__k7']['wyslane'], 'stala AINP_NO_SECURITY_HEADERS wylacza mechanizm w calosci' );
+	k7n_check( Security::disabled(), 'disabled() mowi wprost, ze mechanizm jest wylaczony' );
+
+	k7n_stan( array( 'archive' => true, 'stala' => false ) );
+	Security::maybe_send();
+	k7n_check( 5 === count( $GLOBALS['__k7']['wyslane'] ), 'stala zdefiniowana jako false NIE wylacza — liczy sie wartosc, nie samo istnienie' );
+
+	// Kolejnosc: filtr dostaje juz uzgodniony zestaw i ma ostatnie slowo.
+	k7n_stan(
+		array(
+			'archive' => true,
+			'lista'   => array( "Content-Security-Policy: frame-ancestors 'self'" ),
+			'filtr'   => static function ( $naglowki, $widok ) {
+				$GLOBALS['__k7']['widziane_przez_filtr'] = $naglowki;
+				return $naglowki;
+			},
+		)
+	);
+	Security::maybe_send();
+	k7n_check(
+		! isset( $GLOBALS['__k7']['widziane_przez_filtr']['Content-Security-Policy'] ),
+		'filtr dostaje zestaw JUZ uzgodniony z motywem, nie surowy — inaczej klient poprawialby cos, co i tak nie wyjdzie'
+	);
 
 	echo "\nWYNIK: " . ( $ran - $fail ) . " / {$ran} asercji\n";
 	exit( $fail > 0 ? 1 : 0 );
