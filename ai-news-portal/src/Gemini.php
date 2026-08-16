@@ -91,6 +91,12 @@ final class Gemini {
 	/** Koniec ogrodzenia materialu zrodlowego w promptcie. */
 	public const FENCE_CLOSE = 'MATERIAL_ZRODLOWY>>>';
 
+	/** Sufit dlugosci tytulu wstawianego do promptu. Etap 7.4. */
+	public const TITLE_MAX = 300;
+
+	/** Sufit dlugosci adresu zrodla wstawianego do promptu. Etap 7.4. */
+	public const URL_MAX = 500;
+
 	/** Powod: brak klucza API w Ustawieniach. */
 	public const NOTE_NO_KEY = 'Brak klucza API w Ustawieniach';
 
@@ -137,12 +143,45 @@ final class Gemini {
 				)
 			);
 
-			// Wiersza nie ma — pierwsze wywolanie w zyciu instalacji.
+			/*
+			 * Wiersza nie ma — pierwsze wywolanie w zyciu instalacji.
+			 *
+			 * NIE UZYWAMY TU `add_option()` — naprawa z etapu 7.4. Zmierzone
+			 * w rdzeniu (WP 7.0.3, `wp-includes/option.php`): ta funkcja robi
+			 * `INSERT ... ON DUPLICATE KEY UPDATE option_value = VALUES(...)`,
+			 * czyli przy kolizji NADPISUJE cudzy wiersz i mimo to zwraca prawde.
+			 * Dwa przebiegi startujace w tej samej chwili zapisalyby wiec oba
+			 * „zuzyto 1", a wywolania poszlyby dwa — cala reszta metody stoi na
+			 * atomowym CAS wlasnie po to, zeby tak sie nie stalo.
+			 *
+			 * `INSERT IGNORE` na kluczu UNIQUE kolumny `option_name` przegrywa
+			 * cicho zamiast nadpisywac: przy kolizji zmienia zero wierszy,
+			 * a my wracamy na poczatek petli i idziemy normalna sciezka CAS.
+			 * Ten sam wzorzec trzyma zamek przebiegu od Kroku 5.
+			 */
 			if ( null === $raw ) {
-				$ok = add_option( Settings::OPTION_USAGE, self::usage_value( $today, 1 ), '', false );
-				if ( $ok ) {
+				$wstawione = $wpdb->query(
+					$wpdb->prepare(
+						"INSERT IGNORE INTO {$wpdb->options} ( option_name, option_value, autoload ) VALUES ( %s, %s, 'no' )",
+						Settings::OPTION_USAGE,
+						maybe_serialize( self::usage_value( $today, 1 ) )
+					)
+				); // phpcs:ignore WordPress.DB
+
+				if ( 1 === (int) $wstawione ) {
+					// Ten sam obowiazek co po CAS: surowy INSERT omija warstwe
+					// opcji, wiec `get_option()` w tym samym zadaniu oddalby
+					// stan sprzed rezerwacji — a na ekranie Materialy widac
+					// wlasnie licznik czytany przez `get_option()`.
+					self::forget_cached_usage();
+
 					return self::reservation( true, 1, $limit, '' );
 				}
+
+				// Wiersz istnieje, ale nasza wczesniejsza probka czytala go
+				// jako brakujacy — pamiec podreczna moglaby zostac z pustka.
+				self::forget_cached_usage();
+
 				// Ktos wstawil wiersz w tej samej chwili — czytamy od nowa.
 				continue;
 			}
@@ -341,16 +380,28 @@ final class Gemini {
 			}
 		}
 
-		$tresc = (string) ( $item['content'] ?? '' );
-		$tresc = str_replace( array( self::FENCE_OPEN, self::FENCE_CLOSE ), '', $tresc );
+		$tresc = self::strip_fence( (string) ( $item['content'] ?? '' ) );
 		$blok  = self::FENCE_OPEN . "\n" . trim( $tresc ) . "\n" . self::FENCE_CLOSE;
 
+		/*
+		 * TYTUL I ADRES TEZ SA MATERIALEM Z CUDZEJ STRONY — naprawa z etapu 7.4.
+		 *
+		 * Ogrodzenie chronilo dotad wylacznie tresc, a tytul i zrodlo szly do
+		 * promptu surowe i POZA ogrodzeniem, czyli tam, gdzie model widzi nasze
+		 * instrukcje. Wystarczylo opublikowac w obserwowanym kanale wpis
+		 * o tytule zawierajacym znacznik zamykajacy, zeby material „skonczyl
+		 * sie" wczesniej, a dalszy ciag tytulu czytal sie jak polecenie.
+		 *
+		 * Limity dlugosci sa czescia tej samej obrony: tytul z kanalu potrafi
+		 * miec kilka kilobajtow, a dlugi napis wepchniety przed instrukcje
+		 * odsuwa je od konca promptu i przy okazji pali tokeny.
+		 */
 		$gotowy = strtr(
 			$szablon,
 			array(
 				'{kategorie}' => implode( ', ', array_values( array_unique( $lista ) ) ),
-				'{tytul}'     => trim( (string) ( $item['title'] ?? '' ) ),
-				'{zrodlo}'    => trim( (string) ( $item['url'] ?? '' ) ),
+				'{tytul}'     => self::strip_fence( (string) ( $item['title'] ?? '' ), self::TITLE_MAX ),
+				'{zrodlo}'    => self::strip_fence( (string) ( $item['url'] ?? '' ), self::URL_MAX ),
 				'{tresc}'     => $blok,
 			)
 		);
@@ -534,6 +585,36 @@ final class Gemini {
 			'date'  => $date,
 			'count' => $count,
 		);
+	}
+
+	/**
+	 * Czysci material z cudzej strony przed wstawieniem go do promptu.
+	 *
+	 * Robi dwie rzeczy i obie sa konieczne:
+	 *
+	 *   1. Wycina znaczniki ogrodzenia — bez tego material moze udac, ze sie
+	 *      skonczyl, i dalszy jego ciag czyta sie jak nasze polecenie.
+	 *      Porownanie jest NIECZULE NA WIELKOSC LITER, bo dla modelu
+	 *      `material_zrodlowy>>>` znaczy dokladnie to samo, co wersja wielkimi.
+	 *   2. Przycina do sufitu, gdy podano — dlugi napis odsuwa instrukcje od
+	 *      konca promptu i pali tokeny z darmowej puli.
+	 *
+	 * @param string   $tekst Material z zewnatrz.
+	 * @param int|null $max   Sufit dlugosci w znakach albo `null`.
+	 *
+	 * @return string
+	 */
+	private static function strip_fence( string $tekst, ?int $max = null ): string {
+		$tekst = str_ireplace( array( self::FENCE_OPEN, self::FENCE_CLOSE ), '', $tekst );
+		$tekst = trim( $tekst );
+
+		if ( null !== $max && $max > 0 ) {
+			$tekst = function_exists( 'mb_substr' )
+				? mb_substr( $tekst, 0, $max )
+				: substr( $tekst, 0, $max );
+		}
+
+		return $tekst;
 	}
 
 	/**

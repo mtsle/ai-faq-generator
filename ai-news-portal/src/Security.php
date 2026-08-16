@@ -7,6 +7,11 @@
 
 namespace AINP;
 
+// Blokada bezposredniego wywolania pliku.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
 /**
  * Wysylka naglowkow bezpieczenstwa — UZUPELNIAJACA, NIGDY NADPISUJACA.
  *

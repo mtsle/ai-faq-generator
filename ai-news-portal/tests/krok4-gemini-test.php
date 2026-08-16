@@ -238,6 +238,27 @@ namespace {
 			}
 
 			$lit = $this->literaly( $sql );
+
+			/*
+			 * INSERT IGNORE — od etapu 7.4 pierwsza w zyciu rezerwacja slotu
+			 * idzie ta droga zamiast przez `add_option()`. Atrapa musi
+			 * zachowac sie jak MySQL na kluczu UNIQUE: wstawic, gdy wiersza
+			 * nie ma (1 zmieniony), i przegrac CICHO, gdy juz jest (0).
+			 * Bez tej galezi wszystkie asercje o rezerwacji mierzylyby atrape,
+			 * nie kod (GOTCHA 51).
+			 */
+			if ( false !== stripos( $sql, 'INSERT IGNORE' ) ) {
+				$klucz = $lit[0] ?? '';
+				$nowa  = $lit[1] ?? '';
+
+				if ( '' === $klucz || array_key_exists( $klucz, $GLOBALS['__opt'] ) ) {
+					return 0;
+				}
+
+				$GLOBALS['__opt'][ $klucz ] = $nowa;
+				return 1;
+			}
+
 			if ( count( $lit ) < 3 ) {
 				return 0;
 			}

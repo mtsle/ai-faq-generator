@@ -225,6 +225,24 @@ namespace {
 		public function query( $sql ) {
 			$this->zapytania[] = $sql;
 			$lit               = $this->literaly( $sql );
+
+			/*
+			 * INSERT IGNORE — od etapu 7.4 pierwsza w zyciu rezerwacja slotu
+			 * idzie ta droga zamiast przez `add_option()`, ktore przy kolizji
+			 * NADPISUJE cudzy wiersz.
+			 */
+			if ( false !== stripos( $sql, 'INSERT IGNORE' ) ) {
+				$klucz_i = $lit[0] ?? '';
+				$nowa_i  = $lit[1] ?? '';
+
+				if ( '' === $klucz_i || array_key_exists( $klucz_i, $GLOBALS['__opt'] ) ) {
+					return 0;
+				}
+
+				$GLOBALS['__opt'][ $klucz_i ] = $nowa_i;
+				return 1;
+			}
+
 			if ( count( $lit ) < 3 ) {
 				return 0;
 			}
@@ -391,11 +409,19 @@ namespace {
 	 * ALTERNATYWA W ASERCJI = ASERCJA SLEPA. Poprzednia wersja brzmiala
 	 * „0 zapytan LUB 1 zapytanie" i byla prawdziwa praktycznie zawsze,
 	 * a etykieta obiecywala, ze baza jest ruszana wylacznie przez licznik.
-	 * Rozdzielone na dwa JAWNE przypadki, bo mechanizm jest inny w kazdym:
-	 * PIERWSZA rezerwacja w zyciu instalacji idzie przez `add_option()`,
-	 * wiec do `$wpdb->query()` nie trafia nic.
+	 * Rozdzielone na dwa JAWNE przypadki, bo mechanizm jest inny w kazdym.
+	 *
+	 * ZMIANA Z ETAPU 7.4: pierwsza rezerwacja w zyciu instalacji NIE idzie
+	 * juz przez `add_option()` — ta funkcja przy kolizji nadpisuje cudzy
+	 * wiersz i mimo to zwraca prawde. Teraz jest to jedno `INSERT IGNORE`,
+	 * czyli do `$wpdb->query()` trafia dokladnie jedno zapytanie i NIE jest
+	 * to `UPDATE`. Poprzednia asercja utrwalala mechanizm, ktory okazal sie
+	 * wadliwy — to jest wlasnie ten przypadek, w ktorym test idzie do
+	 * poprawki razem z kodem.
 	 */
-	k4p_check( array() === $GLOBALS['wpdb']->zapytania, 'pierwsza rezerwacja nie robi UPDATE — idzie przez add_option()' );
+	$zapytania_pierwszej = $GLOBALS['wpdb']->zapytania;
+	k4p_check( 1 === count( $zapytania_pierwszej ), 'pierwsza rezerwacja to dokladnie jedno zapytanie (jest: ' . count( $zapytania_pierwszej ) . ')' );
+	k4p_check( false !== stripos( (string) ( $zapytania_pierwszej[0] ?? '' ), 'INSERT IGNORE' ), 'i jest to INSERT IGNORE, nie UPDATE ani add_option()' );
 	k4p_check( 1 === k4p_licznik(), 'a licznik i tak stoi na 1' );
 
 	// Drugi przypadek: licznik JUZ istnieje, wiec rezerwacja idzie przez CAS —

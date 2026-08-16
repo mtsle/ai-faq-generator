@@ -30,6 +30,9 @@
  */
 
 namespace {
+	// Wszystkie pliki wtyczki maja bramke `defined( 'ABSPATH' ) || exit;`,
+	// wiec bez tej stalej `require` konczy skrypt PO CICHU.
+	define( 'ABSPATH', __DIR__ . '/atrapy/wp/' );
 
 	$fail = 0;
 	$ran  = 0;

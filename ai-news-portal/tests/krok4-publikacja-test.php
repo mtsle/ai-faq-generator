@@ -386,6 +386,24 @@ namespace {
 			// Licznik AI: `UPDATE wp_options SET option_value = ... WHERE option_name = ... AND option_value = ...`
 			if ( false !== strpos( $sql, 'wp_options' ) ) {
 				$lit = $this->literaly( $sql );
+
+				/*
+				 * INSERT IGNORE — od etapu 7.4 pierwsza w zyciu rezerwacja
+				 * slotu idzie ta droga zamiast przez `add_option()`. Atrapa
+				 * zachowuje sie jak MySQL na kluczu UNIQUE.
+				 */
+				if ( false !== stripos( $sql, 'INSERT IGNORE' ) ) {
+					$klucz_i = $lit[0] ?? '';
+					$nowa_i  = $lit[1] ?? '';
+
+					if ( '' === $klucz_i || array_key_exists( $klucz_i, $GLOBALS['__opt'] ) ) {
+						return 0;
+					}
+
+					$GLOBALS['__opt'][ $klucz_i ] = $nowa_i;
+					return 1;
+				}
+
 				if ( count( $lit ) < 3 ) {
 					return 0;
 				}
