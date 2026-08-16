@@ -119,6 +119,23 @@ final class Runner {
 	 */
 	public const PREPARE_BUDGET = 15;
 
+	/**
+	 * Budzet fazy PUBLIKACJI wolanej bez budzetu, czyli z przyciskow panelu.
+	 * Etap 8.7.
+	 *
+	 * Do etapu 8.7 `publish_batch()` bez argumentu bralo `PREPARE_BUDGET`,
+	 * czyli 15 s — stala od INNEJ fazy. Skutek byl odwrotny do intuicji:
+	 * przycisk „Opublikuj teraz" dawal modelowi MNIEJ czasu (15 s) niz cron
+	 * (~19,99 s z `TICK_BUDGET`), wiec reczna publikacja udawala sie rzadziej
+	 * niz automatyczna. Wygladalo to na przeoczenie nazwy, nie na decyzje.
+	 *
+	 * 30 s to `Gemini::TIMEOUT_MAX`: wiecej i tak nie zostanie wykorzystane,
+	 * bo pojedyncze wywolanie nigdy nie czeka dluzej. Zadanie panelu nie ma
+	 * ograniczenia ticku, ale ma `max_execution_time` — stad przyciecie tym
+	 * samym mechanizmem, co budzet ticku.
+	 */
+	public const PUBLISH_BUDGET = 30;
+
 	/** Ile pozycji oglada jedno zapytanie szukajace kandydata dla modelu. */
 	public const AI_SCAN = 25;
 
@@ -352,13 +369,36 @@ final class Runner {
 	 * @return float
 	 */
 	public static function tick_budget(): float {
+		return self::clamp_budget( (float) self::TICK_BUDGET );
+	}
+
+	/**
+	 * Budzet publikacji wolanej z panelu, przyciety do mozliwosci hostingu.
+	 * Etap 8.7.
+	 *
+	 * @return float
+	 */
+	public static function publish_budget(): float {
+		return self::clamp_budget( (float) self::PUBLISH_BUDGET );
+	}
+
+	/**
+	 * Zalozony budzet przyciety do 80% `max_execution_time`. Etap 8.7 —
+	 * wydzielone z `tick_budget()`, bo ta sama regula obowiazuje teraz takze
+	 * publikacje z panelu.
+	 *
+	 * @param float $zalozony Budzet zalozony przez wtyczke.
+	 *
+	 * @return float
+	 */
+	private static function clamp_budget( float $zalozony ): float {
 		$limit = (int) ini_get( 'max_execution_time' );
 
 		if ( $limit <= 0 ) {
-			return (float) self::TICK_BUDGET;
+			return $zalozony;
 		}
 
-		return min( (float) self::TICK_BUDGET, $limit * 0.8 );
+		return min( $zalozony, $limit * 0.8 );
 	}
 
 	// -----------------------------------------------------------------------
@@ -1302,7 +1342,8 @@ final class Runner {
 	 * konca.
 	 *
 	 * @param int        $limit  Ile pozycji najwyzej przetworzyc.
-	 * @param float|null $budget Budzet czasu; `null` bierze `PREPARE_BUDGET`.
+	 * @param float|null $budget Budzet czasu; `null` bierze `publish_budget()`
+	 *                           — czyli sciezke z panelu. Etap 8.7.
 	 *
 	 * @return array<string,mixed>
 	 */
@@ -1310,7 +1351,7 @@ final class Runner {
 		$wynik  = self::publish_summary();
 		$limit  = max( 1, $limit );
 		$start  = microtime( true );
-		$budzet = ( null === $budget ) ? (float) self::PREPARE_BUDGET : max( 0.1, $budget );
+		$budzet = ( null === $budget ) ? self::publish_budget() : max( 0.1, $budget );
 
 		$wynik['budget'] = $budzet;
 

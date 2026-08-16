@@ -324,6 +324,46 @@ namespace {
 	k7w_check( false === strpos( $prompt_dlugi, str_repeat( 'b', 1500 ) ), 'adres zrodla tez ma sufit' );
 
 	// ---------------------------------------------------------------------
+	echo "\n-- Etap 8.7: sufit MATERIALU, nie tylko tytulu i adresu --\n";
+	// ---------------------------------------------------------------------
+	/*
+	 * Do etapu 8.7 tresc szla do modelu w CALOSCI — jako jedyna z trzech
+	 * czesci materialu. Zmierzone na dworku: 58 891 znakow = 18 512 tokenow
+	 * promptu i 32-36 s odpowiedzi przy pulapie ticku ~19 s, czyli `cURL
+	 * error 28` i SPALONY slot z puli za kazdym razem. Sufit jest tu
+	 * kontraktem, wiec asercja pilnuje dokladnej liczby, nie „jakiegos"
+	 * przyciecia.
+	 */
+	$ogromny = array(
+		'title'   => 'Pielegnacja psa',
+		'url'     => 'https://example.com/c',
+		'content' => str_repeat( 'x', Gemini::MATERIAL_MAX + 5000 ) . 'OGON_KTORY_MA_ZNIKNAC',
+	);
+	$prompt_ogromny = Gemini::prompt( $ogromny, array( 'zdrowie' ) );
+
+	$start_bloku = strpos( $prompt_ogromny, Gemini::FENCE_OPEN );
+	$koniec      = strpos( $prompt_ogromny, Gemini::FENCE_CLOSE );
+	$material    = trim( substr(
+		$prompt_ogromny,
+		$start_bloku + strlen( Gemini::FENCE_OPEN ),
+		$koniec - $start_bloku - strlen( Gemini::FENCE_OPEN )
+	) );
+
+	k7w_check( 12000 === Gemini::MATERIAL_MAX, 'sufit materialu to 12 000 znakow — liczba z pomiaru, nie z kodu' );
+	k7w_check( Gemini::MATERIAL_MAX === strlen( $material ), 'material w promptcie ma DOKLADNIE tyle znakow, ile wynosi sufit (jest: ' . strlen( $material ) . ')' );
+	k7w_check( false === strpos( $prompt_ogromny, 'OGON_KTORY_MA_ZNIKNAC' ), 'ogon dlugiej strony — stopka, polecane, komentarze — nie jedzie do modelu' );
+	k7w_check( 1 === substr_count( $prompt_ogromny, Gemini::FENCE_CLOSE ), 'przyciecie nie gubi zamkniecia ogrodzenia' );
+
+	// Krotki material ma zostac NIETKNIETY — sufit tnie, nie dopelnia.
+	$krotki = array(
+		'title'   => 'Krotki',
+		'url'     => 'https://example.com/d',
+		'content' => 'Tresc artykulu o karmie.',
+	);
+	$prompt_krotki = Gemini::prompt( $krotki, array( 'zdrowie' ) );
+	k7w_check( false !== strpos( $prompt_krotki, 'Tresc artykulu o karmie.' ), 'material krotszy niz sufit idzie w calosci' );
+
+	// ---------------------------------------------------------------------
 	echo "\n-- Model z Ustawien nie moze wyprowadzic adresu poza endpoint --\n";
 
 	AINP\Settings::$wartosci['model'] = 'https://evil.example/x?a=b';

@@ -938,6 +938,38 @@ k5_check( 20.0 === Runner::tick_budget(), 'bez limitu wykonania obowiazuje samo 
 ini_set( 'max_execution_time', '10' );
 k5_check( 8.0 === Runner::tick_budget(), 'limit 10 s przycina budzet do 8 s (80%)' );
 
+/*
+ * ETAP 8.7 — publikacja z PANELU ma wlasny budzet.
+ *
+ * Do 8.7 `publish_batch()` bez argumentu bralo `PREPARE_BUDGET`, czyli stala
+ * od INNEJ fazy: przycisk „Opublikuj teraz" dawal modelowi 15 s, a cron
+ * ~19,99 s. Reczna publikacja miala wiec MNIEJSZE szanse niz automatyczna,
+ * odwrotnie do tego, czego spodziewa sie czlowiek. Zmierzone przy okazji:
+ * model potrafi liczyc 32-36 s na pelnej tresci, a nawet po sufitcie 8.7
+ * odpowiedz waha sie 9,7-20,6 s (rozne `thoughtsTokenCount`), wiec zapas ma
+ * znaczenie.
+ */
+k5_check( 30 === Runner::PUBLISH_BUDGET, 'zalozony budzet publikacji z panelu to 30 s — tyle, ile TIMEOUT_MAX modelu' );
+k5_check( Runner::PUBLISH_BUDGET > Runner::PREPARE_BUDGET, 'i jest WIEKSZY niz budzet przygotowania, ktory tu obowiazywal przez pomylke' );
+k5_check( 8.0 === Runner::publish_budget(), 'ten sam hosting z limitem 10 s przycina publikacje do 8 s (80%)' );
+
+ini_set( 'max_execution_time', '0' );
+k5_check( 30.0 === Runner::publish_budget(), 'bez limitu wykonania publikacja dostaje pelne 30 s' );
+k5_check( Runner::publish_budget() !== Runner::tick_budget(), 'budzet panelu i budzet ticku to DWIE rozne liczby, nie jedna stala' );
+
+/*
+ * Asercje na samej stalej i na `publish_budget()` NIE WYSTARCZA — sprawdzone
+ * mutacja: przywrocenie `PREPARE_BUDGET` w `publish_batch()` przeszlo przez
+ * nie bez jednej czerwonej linii. Dowodem jest dopiero to, ktora liczba
+ * wychodzi z PRZEBIEGU wolanego tak, jak wola go przycisk panelu.
+ */
+$pod_panelu = Runner::publish_batch( 1 );
+k5_check( Runner::publish_budget() === (float) $pod_panelu['budget'], 'publish_batch() BEZ argumentu bierze budzet panelu (jest: ' . $pod_panelu['budget'] . ')' );
+k5_check( (float) Runner::PREPARE_BUDGET !== (float) $pod_panelu['budget'], 'i na pewno nie budzet przygotowania' );
+
+$pod_ticku = Runner::publish_batch( 1, 7.5 );
+k5_check( 7.5 === (float) $pod_ticku['budget'], 'budzet podany jawnie (tak robi tick) obowiazuje bez zmian' );
+
 ini_set( 'max_execution_time', (string) $stary_limit );
 
 /*

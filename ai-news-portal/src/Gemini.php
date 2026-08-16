@@ -97,6 +97,26 @@ final class Gemini {
 	/** Sufit dlugosci adresu zrodla wstawianego do promptu. Etap 7.4. */
 	public const URL_MAX = 500;
 
+	/**
+	 * Sufit dlugosci MATERIALU wstawianego do promptu. Etap 8.7.
+	 *
+	 * Do etapu 8.7 tresc szla do modelu w calosci — jako jedyna z trzech
+	 * czesci materialu, bo tytul i adres mialy sufity od 7.4. Skutek zmierzony
+	 * na dworku: pozycja 58 891 znakow to 18 512 tokenow promptu i **32-36 s**
+	 * odpowiedzi, przy pulapie ticku ~19 s. Kazde takie wywolanie konczylo sie
+	 * `cURL error 28`, a slot z puli **jest rezerwowany przed wywolaniem
+	 * i timeout go nie zwraca**: 32 pozycje staly, licznik dobowy sie palil.
+	 *
+	 * 12 000 znakow to pomiar, nie okraglosc: ta sama pozycja przycieta do tej
+	 * dlugosci daje 3 981 tokenow promptu i miesci sie w budzecie, a artykul
+	 * powstaje kompletny. Wyzej (20 000 znakow = 6 537 tokenow, 18,55 s)
+	 * margines do pulapu spada ponizej sekundy.
+	 *
+	 * Artykul i tak jest streszczeniem: dalszy ciag cudzej strony to zwykle
+	 * stopka, polecane wpisy i komentarze, a nie tresc, ktorej brakuje.
+	 */
+	public const MATERIAL_MAX = 12000;
+
 	/** Powod: brak klucza API w Ustawieniach. */
 	public const NOTE_NO_KEY = 'Brak klucza API w Ustawieniach';
 
@@ -380,7 +400,9 @@ final class Gemini {
 			}
 		}
 
-		$tresc = self::strip_fence( (string) ( $item['content'] ?? '' ) );
+		// Sufit `MATERIAL_MAX` wszedl w etapie 8.7 — bez niego dluga pozycja
+		// wywracala wywolanie na timeout i paliła slot z puli. Patrz stała.
+		$tresc = self::strip_fence( (string) ( $item['content'] ?? '' ), self::MATERIAL_MAX );
 		$blok  = self::FENCE_OPEN . "\n" . trim( $tresc ) . "\n" . self::FENCE_CLOSE;
 
 		/*
