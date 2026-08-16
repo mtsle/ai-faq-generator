@@ -3,7 +3,7 @@
  * Plugin Name:       AI News Portal
  * Plugin URI:        https://github.com/mtsle/ai-faq-generator
  * Description:       Portal wiedzy, ktory zasila sie sam: wtyczka pobiera wpisy z kanalow RSS, odsiewa je slowami wykluczajacymi, przepisuje modelem Gemini i publikuje w Centrum Wiedzy pod adresem /centrum-wiedzy/.
- * Version:           0.6.0
+ * Version:           0.7.0
  * Requires at least: 6.5
  * Tested up to:      7.0.2
  * Requires PHP:      8.1
@@ -35,7 +35,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // --- Stale wtyczki ---------------------------------------------------------
-define( 'AINP_VERSION', '0.6.0' );
+define( 'AINP_VERSION', '0.7.0' );
 define( 'AINP_PLUGIN_FILE', __FILE__ );
 define( 'AINP_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AINP_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
