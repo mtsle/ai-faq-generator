@@ -456,6 +456,33 @@ namespace {
 		'znaczniki wycinane z frazy zanim trafi do zapytania i na naglowek'
 	);
 
+	echo "\n-- Krok 7, etap 7.5: sufit dlugosci frazy --\n";
+
+	/*
+	 * Fraza z adresu jest mnoznikiem kosztu zapytania: WordPress rozbija ja
+	 * na slowa i robi z kazdego osobny warunek LIKE. Bez sufitu kilka
+	 * kilobajtow w pasku przegladarki to kilkaset warunkow na tabeli wpisow,
+	 * bez logowania i bez limitu.
+	 */
+	$_GET['ainp_s'] = str_repeat( 'a', 5000 );
+	$dluga          = Portal::search_term();
+	k6k_check( Portal::SEARCH_MAX === strlen( $dluga ), 'fraza dluzsza niz sufit jest przycinana do ' . Portal::SEARCH_MAX . ' znakow (jest: ' . strlen( $dluga ) . ')' );
+
+	$_GET['ainp_s'] = str_repeat( 'ą', 5000 );
+	$ogonki         = Portal::search_term();
+	k6k_check( Portal::SEARCH_MAX === mb_strlen( $ogonki ), 'ciecie liczy ZNAKI, nie bajty' );
+	k6k_check( $ogonki === mb_convert_encoding( $ogonki, 'UTF-8', 'UTF-8' ), 'przyciety napis zostaje poprawnym UTF-8 — substr rozcialby litere w polowie' );
+
+	$_GET['ainp_s'] = 'karma dla szczeniaka';
+	k6k_check( 'karma dla szczeniaka' === Portal::search_term(), 'normalna fraza przechodzi bez zmian' );
+
+	// Sufit nie moze wyciac frazy z paginacji — inaczej strona 2 wynikow
+	// byłaby strona 2 calego archiwum (dlug z etapu 6.4).
+	$_GET['ainp_s']               = str_repeat( 'b', 5000 );
+	$GLOBALS['__stan']['archive'] = true;
+	$html                         = Portal::pagination();
+	k6k_check( '' === $html || false !== strpos( $html, 'ainp_s' ), 'przycieta fraza nadal jedzie z paginacja' );
+
 	echo "\n-- Przepisanie ainp_s na s --\n";
 
 	$_GET['ainp_s']               = 'karma';

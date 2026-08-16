@@ -78,6 +78,13 @@ final class Portal {
 	public const SEARCH_VAR = 'ainp_s';
 
 	/**
+	 * Sufit dlugosci frazy wyszukiwania w znakach. Etap 7.5.
+	 *
+	 * Powod jest kosztowy, nie skladniowy — patrz `search_term()`.
+	 */
+	public const SEARCH_MAX = 120;
+
+	/**
 	 * Poprawki glownego zapytania archiwum: fraza (6.3) i strona (6.4).
 	 *
 	 * PRZEPISANIE `ainp_s` NA `s`: `set('s', ...)` w `pre_get_posts` NIE
@@ -183,8 +190,31 @@ final class Portal {
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- j.w.
 		$fraza = sanitize_text_field( wp_unslash( $_GET[ self::SEARCH_VAR ] ) );
+		$fraza = trim( (string) $fraza );
 
-		return trim( (string) $fraza );
+		/*
+		 * SUFIT DLUGOSCI FRAZY — etap 7.5.
+		 *
+		 * Fraza idzie wprost do `WP_Query::set( 's' )`, a WordPress rozbija ja
+		 * na slowa i buduje z nich osobne warunki `LIKE '%…%'`. Napis
+		 * z adresu jest wiec mnoznikiem kosztu zapytania: kilka kilobajtow
+		 * w pasku przegladarki to kilkaset warunkow LIKE na tabeli wpisow,
+		 * bez logowania i bez zadnego limitu. Zapytanie pozostaje bezpieczne
+		 * (WordPress je escapuje), ale jego KOSZT nie ma gornej granicy.
+		 *
+		 * 120 znakow to okolo pietnastu slow — wiecej nie wpisuje sie
+		 * w wyszukiwarke z zamiarem znalezienia czegokolwiek.
+		 *
+		 * Ciecie idzie po ZNAKACH, nie bajtach: `substr()` rozcielby polska
+		 * litere w polowie i zostawil w zapytaniu polamany UTF-8.
+		 */
+		if ( function_exists( 'mb_substr' ) ) {
+			$fraza = mb_substr( $fraza, 0, self::SEARCH_MAX );
+		} else {
+			$fraza = substr( $fraza, 0, self::SEARCH_MAX );
+		}
+
+		return trim( $fraza );
 	}
 
 	/**
