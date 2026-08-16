@@ -253,7 +253,7 @@ namespace AINP {
 	/** Atrapa warstwy sieciowej — liczy KAZDE zadanie. */
 	class Http {
 
-		public static function get_article( string $url ): array {
+		public static function get_article( string $url, ?float $remaining = null ): array {  // Sygnatura jak w produkcji (Http.php:149) — wezsza zjadalaby budzet po cichu.
 			$GLOBALS['__zadania'][] = $url;
 
 			// Plan `zwloka:N` udaje wolny serwer — bez tego budzetu czasu

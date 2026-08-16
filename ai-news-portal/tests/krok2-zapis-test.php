@@ -131,7 +131,7 @@ namespace AINP {
 	/** Atrapa warstwy sieciowej. */
 	class Http {
 
-		public static function get_feed( string $url ): array {
+		public static function get_feed( string $url, ?float $remaining = null ): array {  // Sygnatura jak w produkcji (Http.php:135).
 			$GLOBALS['__pobrania'][] = $url;
 
 			if ( isset( $GLOBALS['__feeds'][ $url ] ) ) {

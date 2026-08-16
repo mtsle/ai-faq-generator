@@ -457,7 +457,7 @@ namespace AINP {
 		}
 
 		/** Scraping zawsze pada — potrzebne do sciezki `failed` z Kroku 3. */
-		public static function get_article( string $url ): array {
+		public static function get_article( string $url, ?float $remaining = null ): array {  // Sygnatura jak w produkcji (Http.php:149).
 			return array(
 				'ok'        => false,
 				'code'      => 404,

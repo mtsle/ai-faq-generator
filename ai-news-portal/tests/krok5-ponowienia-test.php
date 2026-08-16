@@ -317,7 +317,7 @@ namespace AINP {
 	/** Atrapa warstwy sieciowej — plan odpowiedzi na adres. */
 	class Http {
 
-		public static function get_feed( string $url ): array {
+		public static function get_feed( string $url, ?float $remaining = null ): array {  // Sygnatura jak w produkcji (Http.php:135).
 			return array( 'ok' => false, 'code' => 0, 'body' => '', 'error' => 'brak planu', 'reason' => 'transport', 'truncated' => false );
 		}
 
@@ -648,7 +648,7 @@ namespace {
 
 	$budzety = $GLOBALS['__budzety'];
 
-	k5r_check( count( $budzety ) >= 2, 'partia weszla w co najmniej dwie pozycje (jest: ' . count( $budzety ) . ')' );
+	k5r_check( 3 === count( $budzety ), 'partia weszla w dokladnie trzy pozycje, zanim budzet sie skonczyl (jest: ' . count( $budzety ) . ')' );
 	k5r_check(
 		isset( $budzety[1] ) && $budzety[1] <= $budzety[0] - 0.5,
 		'druga pozycja dostaje MNIEJ czasu niz pierwsza — budzet jest wspolny dla partii (jest: '

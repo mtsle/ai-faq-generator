@@ -135,7 +135,7 @@ namespace AINP {
 	/** Atrapa warstwy sieciowej. Liczy KAZDE zadanie — o to chodzi w tescie 4. */
 	class Http {
 
-		public static function get_feed( string $url ): array {
+		public static function get_feed( string $url, ?float $remaining = null ): array {  // Sygnatura jak w produkcji (Http.php:135).
 			$GLOBALS['__zadania'][] = 'feed:' . $url;
 
 			return isset( $GLOBALS['__feeds'][ $url ] )
@@ -143,7 +143,7 @@ namespace AINP {
 				: array( 'ok' => false, 'code' => 0, 'body' => '', 'error' => 'brak planu', 'reason' => 'transport', 'truncated' => false );
 		}
 
-		public static function get_article( string $url ): array {
+		public static function get_article( string $url, ?float $remaining = null ): array {  // Sygnatura jak w produkcji (Http.php:149) — wezsza zjadalaby budzet po cichu.
 			$GLOBALS['__zadania'][] = 'article:' . $url;
 
 			return array( 'ok' => false, 'code' => 0, 'body' => '', 'error' => 'nie powinno paść', 'reason' => 'transport', 'truncated' => false );

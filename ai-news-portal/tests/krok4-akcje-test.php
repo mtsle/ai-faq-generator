@@ -861,6 +861,72 @@ namespace {
 	k4a_check( false !== strpos( $html, '&lt;script&gt;' ), 'i widac go jako tekst, nie jako znacznik' );
 
 	// ------------------------------------------------------------------
+	echo "\n-- Etap 8.3: trzy pozostale komunikaty kokpitu --\n";
+	// ------------------------------------------------------------------
+	/*
+	 * Do etapu 8.3 wywolywany byl WYLACZNIE `render_pub_notice` (wyzej).
+	 * Trzy pozostale komunikaty — zamek, pobranie i przygotowanie — nie
+	 * wykonaly sie ani razu, mimo ze dwa z nich wypisuja tekst pochodzacy
+	 * z CUDZEJ strony (bledy pobrania i przygotowania). Mutacja kasujaca
+	 * tam `esc_html()` przechodzila przez caly runner.
+	 */
+
+	// 1. Zamek: komunikat wychodzi TYLKO przy wlasciwym parametrze adresu.
+	k4a_reset();
+	$_GET['ainp_status'] = 'zajete';
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+	k4a_check( false !== strpos( $html, 'Przebieg już trwa' ), 'ainp_status=zajete pokazuje ostrzezenie o trwajacym przebiegu' );
+	k4a_check( false !== strpos( $html, 'notice-warning' ), 'i jest to ostrzezenie, nie komunikat sukcesu' );
+
+	k4a_reset();
+	$_GET['ainp_status'] = 'cokolwiek';
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+	k4a_check( false === strpos( $html, 'Przebieg już trwa' ), 'obcy status w adresie NIE wyswietla komunikatu zamka' );
+	unset( $_GET['ainp_status'] );
+
+	// 2. Pobranie: liczby z podsumowania i skasowanie transientu po pokazaniu.
+	k4a_reset();
+	$GLOBALS['__transient'][ Admin::TRANSIENT_RUN . 3 ] = array(
+		'sources'    => 4,
+		'added'      => 9,
+		'skipped'    => 2,
+		'duplicates' => 5,
+		'invalid'    => 1,
+		'failed'     => 0,
+	);
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+	k4a_check( false !== strpos( $html, 'Pobrano z 4 kanałów: 9 nowych' ), 'komunikat pobrania podaje kanaly i nowe pozycje' );
+	k4a_check( false !== strpos( $html, '5 duplikatów' ), 'oraz liczbe duplikatow' );
+	k4a_check( ! isset( $GLOBALS['__transient'][ Admin::TRANSIENT_RUN . 3 ] ), 'komunikat pobrania pokazany RAZ — transient skasowany' );
+
+	// 3. Przygotowanie: liczby, budzet czasu i ESCAPOWANIE bledu ze scrapowania.
+	k4a_reset();
+	$GLOBALS['__transient'][ Admin::TRANSIENT_PREP . 3 ] = array(
+		'taken'      => 6,
+		'ready'      => 4,
+		'skipped'    => 1,
+		'retry'      => 1,
+		'failed'     => 0,
+		'budget_hit' => true,
+		'errors'     => array( 42 => '<img src=x onerror=alert(9)>' ),
+	);
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+	k4a_check( false !== strpos( $html, 'Przygotowano 6 pozycji: 4 z treścią gotową' ), 'komunikat przygotowania podaje wziete i gotowe' );
+	k4a_check( false !== strpos( $html, 'żeby nie przekroczyć limitu czasu serwera' ), 'przy wyczerpanym budzecie dopisuje, ze reszta czeka' );
+	k4a_check( false === strpos( $html, '<img src=x' ), 'blad przygotowania — tekst z CUDZEJ strony — jest escapowany' );
+	k4a_check( false !== strpos( $html, '&lt;img src=x' ), 'i widac go jako tekst' );
+	k4a_check( false !== strpos( $html, '<strong>#42</strong>' ), 'przy bledzie stoi numer pozycji, zeby dalo sie ja znalezc w tabeli' );
+	k4a_check( ! isset( $GLOBALS['__transient'][ Admin::TRANSIENT_PREP . 3 ] ), 'komunikat przygotowania pokazany RAZ — transient skasowany' );
+
+	// ------------------------------------------------------------------
 	echo "\n";
 	echo '=== Asercji: ' . $ran . ' | bledow: ' . $fail . " ===\n";
 	if ( 0 === $fail ) {

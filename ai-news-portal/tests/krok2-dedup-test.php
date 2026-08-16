@@ -227,6 +227,44 @@ k2d_check(
 );
 
 // ---------------------------------------------------------------------------
+echo "\n-- Polamane kodowanie NIE gasi odcisku (etap 8.3) --\n";
+// ---------------------------------------------------------------------------
+/*
+ * `preg_replace` z modyfikatorem `u` na tekscie z blednym bajtem nie zglasza
+ * bledu — oddaje `null`. Bez `Dedup::valid_utf8()` (Dedup.php:297) caly tekst
+ * znikalby w `normalize_text()`, odcisk tresci bylby pusty i dwa przedruki tego
+ * samego artykulu przestalyby byc duplikatami. Do etapu 8.3 zaden zestaw nie
+ * podawal ani jednego niepoprawnego bajtu, wiec kasacja tej funkcji nie ruszala
+ * zadnej asercji.
+ */
+$zdanie  = 'Karma bytowa to podstawa diety psa doroslego.';
+$popsute = "\xFF\xFE" . $zdanie . "\xC3\x28";
+
+// Zmierzone, nie zalozone: `mb_convert_encoding` nie WYCINA zlego bajtu, tylko
+// podmienia go na znak zastepczy. Dlatego tresc po czyszczeniu rozni sie
+// bajtowo od czystego przedruku i asercja na rownosc odciskow byla BLEDNA —
+// kontraktem jest „tekst przezywa i jest poprawnym UTF-8", nie „jest identyczny".
+$smiec = Dedup::normalize_text( "\xFF\xFE\xC3\x28" );
+k2d_check( 1 === preg_match( '//u', $smiec ), 'sam smiec bajtowy daje poprawny UTF-8, nie null' );
+k2d_check( 0 === preg_match( '/[\x80-\xFF]/', $smiec ), 'w wyniku nie zostaje ani jeden bajt spoza ASCII' );
+k2d_check( '' !== Dedup::normalize_text( $popsute ), 'tresc z blednym bajtem NIE znika w calosci' );
+k2d_check(
+	false !== strpos( Dedup::normalize_text( $popsute ), 'karma bytowa to podstawa diety psa doroslego.' ),
+	'zdanie przezywa czyszczenie kodowania w calosci'
+);
+k2d_check( 64 === strlen( Dedup::content_hash( '<p>' . $popsute . '</p>' ) ), 'odcisk tresci powstaje mimo polamanego kodowania' );
+k2d_check(
+	Dedup::content_hash( '<p>' . $popsute . '</p>' ) === Dedup::content_hash( '<p>' . $popsute . '</p>' ),
+	'ten sam popsuty przedruk daje ZA KAZDYM RAZEM ten sam odcisk — bez tego dedup gubi wlasne wpisy'
+);
+k2d_check(
+	Dedup::content_hash( '<p>' . $popsute . '</p>' ) !== Dedup::content_hash( '<p>' . $zdanie . 'Zupelnie inny artykul.</p>' ),
+	'rozna tresc z popsutym kodowaniem to nadal rozne artykuly'
+);
+k2d_check( $zdanie === Dedup::valid_utf8( $zdanie ), 'poprawny UTF-8 wraca bit w bit, bez przepisywania' );
+k2d_check( 1 === preg_match( '//u', Dedup::valid_utf8( $popsute ) ), 'wynik valid_utf8() jest juz poprawnym UTF-8' );
+
+// ---------------------------------------------------------------------------
 echo "\n-- Rozpoznawanie parametrow sledzacych --\n";
 // ---------------------------------------------------------------------------
 $sledzace = array( 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_id', 'UTM_TERM',

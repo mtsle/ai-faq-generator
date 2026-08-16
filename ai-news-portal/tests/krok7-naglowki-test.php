@@ -202,7 +202,14 @@ namespace AINP {
 	 * @return bool
 	 */
 	function defined( $nazwa ) {
-		return 'AINP_NO_SECURITY_HEADERS' === $nazwa && null !== $GLOBALS['__k7']['stala'];
+		if ( 'AINP_NO_SECURITY_HEADERS' === $nazwa ) {
+			return null !== $GLOBALS['__k7']['stala'];
+		}
+		// Kazda inna stala musi isc do rdzenia jezyka. Bez tego atrapa gasi
+		// bramke `defined( 'ABSPATH' ) || exit;` w ladowanym pliku wtyczki
+		// — ten sam namespace, wiec `require` konczyl skrypt PO CICHU,
+		// z kodem wyjscia 0 i zerem wykonanych asercji.
+		return \defined( $nazwa );
 	}
 
 	/**
@@ -213,7 +220,7 @@ namespace AINP {
 	 * @return mixed
 	 */
 	function constant( $nazwa ) {
-		return 'AINP_NO_SECURITY_HEADERS' === $nazwa ? $GLOBALS['__k7']['stala'] : null;
+		return 'AINP_NO_SECURITY_HEADERS' === $nazwa ? $GLOBALS['__k7']['stala'] : \constant( $nazwa );
 	}
 }
 
@@ -472,7 +479,7 @@ namespace {
 	}
 
 	$odrzucone = Security::rejected();
-	k7n_check( count( $odrzucone ) >= 4, 'lista odrzuconych naglowkow jest niepusta (jest: ' . count( $odrzucone ) . ')' );
+	k7n_check( 5 === count( $odrzucone ), 'lista odrzuconych naglowkow ma dokladnie 5 pozycji: HSTS, COOP, CORP, X-XSS-Protection, X-Permitted-Cross-Domain-Policies (jest: ' . count( $odrzucone ) . ')' );
 
 	$bez_powodu = array();
 	foreach ( $odrzucone as $nazwa => $powod ) {

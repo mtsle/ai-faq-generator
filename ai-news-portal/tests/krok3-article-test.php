@@ -101,8 +101,13 @@ namespace AINP {
 
 		public const ARTICLE = 'article';
 
-		public static function get_article( string $url ): array {
-			$GLOBALS['__zadania'][] = $url;
+		// Sygnatura MUSI byc taka sama jak w produkcji (Http.php:149). Wezsza
+		// atrapa zjada `$remaining` po cichu — PHP nie zglasza nadmiarowych
+		// argumentow — i kasacja budzetu w `Article::fetch()` przechodzi
+		// wtedy przez wszystkie testy bez jednej czerwonej linii.
+		public static function get_article( string $url, ?float $remaining = null ): array {
+			$GLOBALS['__zadania'][]  = $url;
+			$GLOBALS['__budzet_do_http'][] = $remaining;
 
 			if ( isset( $GLOBALS['__strony'][ $url ] ) ) {
 				return $GLOBALS['__strony'][ $url ];
@@ -241,6 +246,22 @@ namespace {
 	k3a_check( false === $wynik['ok'], 'kod 200 z pusta trescia to blad, nie sukces' );
 	k3a_check( 'empty' === $wynik['reason'], 'powod: `empty`' );
 	k3a_check( false === $wynik['retryable'], 'pustej strony nie ponawiamy — to nie blad sieci' );
+
+	// ---------------------------------------------------------------------
+	echo "\n-- Budzet czasu dochodzi do warstwy sieciowej (etap 8.3) --\n";
+
+	// Bez tego zestawu kasacja drugiego argumentu w `Http::get_article( $url,
+	// $remaining )` (Article.php:214) nie ruszylaby ani jednej asercji: wszystkie
+	// atrapy w tym wycinku mialy wezsza sygnature i argument znikal po cichu.
+	$GLOBALS['__budzet_do_http'] = array();
+
+	Article::fetch( 'https://psy.pl/karma/', 7.5 );
+	k3a_check( 1 === count( $GLOBALS['__budzet_do_http'] ), 'jedno pobranie = jedno zejscie do warstwy sieciowej' );
+	k3a_check( 7.5 === $GLOBALS['__budzet_do_http'][0], 'budzet 7.5 s dochodzi do Http::get_article() nietkniety' );
+
+	Article::fetch( 'https://psy.pl/karma/' );
+	k3a_check( 2 === count( $GLOBALS['__budzet_do_http'] ), 'drugie pobranie tez zeszlo do sieci' );
+	k3a_check( null === $GLOBALS['__budzet_do_http'][1], 'wywolanie bez budzetu przekazuje null, nie zero' );
 
 	// -----------------------------------------------------------------------
 	echo "\n-- 3.4 Ekstrakcja: co zostaje ze strony --\n";

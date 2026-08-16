@@ -203,7 +203,7 @@ namespace AINP {
 
 		public const ENCODING = 'identity';
 
-		public static function get_article( string $url ): array {
+		public static function get_article( string $url, ?float $remaining = null ): array {  // Sygnatura jak w produkcji (Http.php:149) — wezsza zjadalaby budzet po cichu.
 			$GLOBALS['__zadania'][] = $url;
 			return array( 'ok' => false, 'code' => 0, 'body' => '', 'error' => 'nie powinno paść', 'reason' => 'transport', 'truncated' => false );
 		}
