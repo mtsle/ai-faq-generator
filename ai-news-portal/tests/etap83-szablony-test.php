@@ -74,6 +74,9 @@ namespace {
 				'zrodlo'     => '',
 				'lead'       => '',
 				'foto'       => '',
+				'rotacja'        => 1,     // Numer wariantu, ktory odda atrapa `category_variant()`.
+				'rotacja_pytana' => 0,     // Ile razy szablon o ten numer poprosil.
+				'wariant_pytany' => 0,     // Z jakim wariantem szablon zbudowal adres.
 				'termin'     => null,
 				'link_term'  => '',
 				'escapery'   => array(),   // Ktora funkcja escapujaca dostala co.
@@ -165,8 +168,19 @@ namespace AINP {
 			return ( 'bez-linku' === $termin->slug ) ? '' : (string) $GLOBALS['__s83']['link_term'];
 		}
 
-		public static function category_image_url( string $slug ): string {  // Portal.php:558.
+		public static function category_image_url( string $slug, int $wariant = 1 ): string {  // Portal.php:566.
+			// Atrapa ZAPISUJE numer wariantu, o ktory ja poproszono. Bez tego
+			// test widzialby tylko, ze karta rysuje obrazek, a nie CZY w ogole
+			// pyta o rotacje — a to wlasnie mialoby prawo cicho zniknac.
+			$GLOBALS['__s83']['wariant_pytany'] = $wariant;
+
 			return (string) $GLOBALS['__s83']['foto'];
+		}
+
+		public static function category_variant( string $slug ): int {       // Portal.php:8.8.
+			$GLOBALS['__s83']['rotacja_pytana']++;
+
+			return (int) $GLOBALS['__s83']['rotacja'];
 		}
 
 		public static function initial( string $nazwa ): string {            // Portal.php:582.
@@ -432,6 +446,27 @@ namespace {
 	s83_check( s83_ma( $html, 'datetime="2026-08-03T10:00:00+02:00"' ), 'data ma postac maszynowa w atrybucie datetime' );
 	s83_check( 1 === preg_match( '#<time class="ainp-card__date"[^>]*>\s*3 sierpnia 2026\s*</time>#', $html ), 'i czytelna dla czlowieka w tresci znacznika time' );
 	s83_check( s83_ma( $html, 'class="post type-ainp_article ainp-card"' ), 'karta dostaje klasy WordPressa RAZEM z wlasna' );
+
+	// ROTACJA WARIANTOW (8.8) — asercja na WYWOLANIU, nie na stalej.
+	// Sam fakt, ze `Portal::IMAGE_VARIANTS` rowna sie 3, nie mowi nic o tym,
+	// czy szablon o wariant pyta. Mutacja usuwajaca `category_variant()`
+	// z `card.php` przezylaby asercje na stalej i zginie na tych dwoch.
+	s83_check( 1 === $GLOBALS['__s83']['rotacja_pytana'], 'karta pyta o wariant zdjecia DOKLADNIE RAZ na karte' );
+	s83_check( 1 === $GLOBALS['__s83']['wariant_pytany'], 'i przekazuje otrzymany numer do budowy adresu, nie zgaduje' );
+
+	s83_scena(
+		array(
+			'wpis'      => array( 'id' => 13, 'tytul' => 'Druga karta tej samej kategorii', 'adres' => 'https://x/', 'data' => 'd', 'data_iso' => 'i' ),
+			'termin'    => s83_termin( 'Żywienie', 'zywienie' ),
+			'link_term' => '',
+			'rotacja'   => 3,
+			'foto'      => 'https://dworek.local/wp-content/plugins/ai-news-portal/assets/kategorie/zywienie-3.jpg',
+		)
+	);
+	$html = s83_render( 'card.php' );
+
+	s83_check( 3 === $GLOBALS['__s83']['wariant_pytany'], 'karta oddaje dalej wariant 3, gdy tyle wskazala rotacja' );
+	s83_check( s83_ma( $html, 'assets/kategorie/zywienie-3.jpg"' ), 'i rysuje zdjecie tego wariantu, nie zawsze pierwszego' );
 
 	s83_scena(
 		array(

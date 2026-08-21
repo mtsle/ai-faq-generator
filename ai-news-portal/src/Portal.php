@@ -85,6 +85,17 @@ final class Portal {
 	public const SEARCH_MAX = 120;
 
 	/**
+	 * Ile zdjec moze miec jedna kategoria. Etap 8.8.
+	 *
+	 * Sufit, nie wymog: kategoria z jednym plikiem dziala jak przed 8.8,
+	 * a wariantow ponad ten sufit wtyczka nie szuka i nie wysyla — inaczej
+	 * kazda karta placilaby kolejnym `file_exists()` za pliki, ktorych nikt
+	 * nie dolozyl. Podniesienie tej liczby wymaga takze dolozenia plikow;
+	 * sama stala nie tworzy zdjec.
+	 */
+	public const IMAGE_VARIANTS = 3;
+
+	/**
 	 * Poprawki glownego zapytania archiwum: fraza (6.3) i strona (6.4).
 	 *
 	 * PRZEPISANIE `ainp_s` NA `s`: `set('s', ...)` w `pre_get_posts` NIE
@@ -539,34 +550,103 @@ final class Portal {
 	}
 
 	/**
-	 * Adres zdjecia kategorii albo pusty ciag. Etap 6.2.
+	 * Adres zdjecia kategorii albo pusty ciag. Etap 6.2, warianty w 8.8.
 	 *
-	 * Zdjecia jada w paczce wtyczki, po jednym na kategorie domyslna, a nazwa
-	 * pliku jest slugiem kategorii. Klient moze w Ustawieniach dopisac wlasna
-	 * kategorie — wtedy pliku nie ma i karta rysuje kafelek z inicjalem.
-	 * To nie jest sytuacja wyjatkowa, tylko drugi normalny stan karty.
+	 * Zdjecia jada w paczce wtyczki, a nazwa pliku jest slugiem kategorii.
+	 * Klient moze w Ustawieniach dopisac wlasna kategorie — wtedy pliku nie ma
+	 * i karta rysuje kafelek z inicjalem. To nie jest sytuacja wyjatkowa, tylko
+	 * drugi normalny stan karty.
+	 *
+	 * WARIANTY (8.8): kategoria moze miec do `IMAGE_VARIANTS` zdjec. Pierwszy
+	 * nosi samo `<slug>.jpg` — nazwa sprzed 8.8 zostaje nietknieta, wiec paczki
+	 * i motywy sprzed tej zmiany nie tracia zdjec. Kolejne to `<slug>-2.jpg`,
+	 * `<slug>-3.jpg`. Brakujacy plik daje pusty ciag i nic wiecej: kategoria
+	 * z jednym zdjeciem zachowuje sie dokladnie jak przed 8.8.
+	 *
+	 * Funkcja jest CZYSTA — wariant podaje wolajacy. Rotacja mieszka osobno,
+	 * w `category_variant()`, zeby ta metoda dawala zawsze te sama odpowiedz
+	 * na te same argumenty i zeby dalo sie ja asercjonowac bez ogladania sie
+	 * na kolejnosc wczesniejszych wywolan.
 	 *
 	 * SITO NA SLUG jest tu mimo tego, ze slug z WordPressa jest juz
 	 * oczyszczony: ta funkcja sklada SCIEZKE PLIKU, a jedyny sensowny moment
 	 * na sprawdzenie skladnika sciezki to chwila tuz przed jej zlozeniem.
 	 * Slug spoza `[a-z0-9-]` konczy sie odmowa bez dotykania dysku.
 	 *
-	 * @param string $slug Slug kategorii.
+	 * @param string $slug    Slug kategorii.
+	 * @param int    $wariant Numer wariantu, od 1 do `IMAGE_VARIANTS`.
 	 *
 	 * @return string
 	 */
-	public static function category_image_url( string $slug ): string {
+	public static function category_image_url( string $slug, int $wariant = 1 ): string {
 		if ( 1 !== preg_match( '/^[a-z0-9-]+$/', $slug ) ) {
 			return '';
 		}
 
-		$wzgledna = 'assets/kategorie/' . $slug . '.jpg';
+		// SUFIT EGZEKWUJE SIE TUTAJ, nie przez brak pliku: wariant spoza
+		// zakresu dostaje odmowe, nawet gdy plik o takiej nazwie LEZY na
+		// dysku. Inaczej dorzucenie `<slug>-4.jpg` do paczki zmienialoby
+		// zachowanie po cichu, a rotacja i tak liczy do `IMAGE_VARIANTS`
+		// — czwarte zdjecie bylo widoczne raz na sto lat, przy recznym
+		// wywolaniu z tym numerem.
+		if ( $wariant < 1 || $wariant > self::IMAGE_VARIANTS ) {
+			return '';
+		}
+
+		$wzgledna = 'assets/kategorie/' . $slug . ( 1 === $wariant ? '' : '-' . $wariant ) . '.jpg';
 
 		if ( ! file_exists( AINP_PLUGIN_DIR . $wzgledna ) ) {
 			return '';
 		}
 
 		return AINP_PLUGIN_URL . $wzgledna;
+	}
+
+	/**
+	 * Numer wariantu dla kolejnej karty tej kategorii. Etap 8.8.
+	 *
+	 * Licznik chodzi PER KATEGORIA i per zadanie: pierwsza karta „Pielegnacji"
+	 * na stronie dostaje wariant 1, druga 2, trzecia 3, czwarta znowu 1.
+	 * Sasiadujace karty tej samej kategorii nie moga wiec pokazac tego samego
+	 * zdjecia, dopoki wariantow starcza — a to byl caly powod tej zmiany.
+	 *
+	 * DLACZEGO NIE PO ID WPISU: kusi, zeby liczyc `ID % liczba` i miec przydzial
+	 * staly dla artykulu. Na prawdziwych danych to nie dziala — trzy artykuly
+	 * „Pielegnacji" mialy ID 202, 204 i 205, czyli reszty 1, 0 i 1: dwie karty
+	 * z tym samym zdjeciem, dokladnie ta wada, ktora naprawiamy. Numery wpisow
+	 * przeplataja sie miedzy kategoriami, wiec kolejnosc W KATEGORII zna tylko
+	 * petla, nie identyfikator.
+	 *
+	 * Zdjecie jest dekoracja kategorii (`alt` jest pusty), nie wlasnoscia
+	 * artykulu, wiec przydzial zalezny od miejsca w petli niczego nie klamie.
+	 *
+	 * Pomijamy warianty, ktorych nie ma na dysku: przy plikach `<slug>.jpg`
+	 * i `<slug>-3.jpg` licznik chodzi miedzy 1 a 3 i nigdy nie wskaze dziury.
+	 *
+	 * @param string $slug Slug kategorii.
+	 *
+	 * @return int Numer wariantu; 1, gdy kategoria nie ma ani jednego zdjecia.
+	 */
+	public static function category_variant( string $slug ): int {
+		static $licznik = array();
+
+		$dostepne = array();
+
+		for ( $n = 1; $n <= self::IMAGE_VARIANTS; $n++ ) {
+			if ( '' !== self::category_image_url( $slug, $n ) ) {
+				$dostepne[] = $n;
+			}
+		}
+
+		if ( ! $dostepne ) {
+			return 1;
+		}
+
+		$ile = isset( $licznik[ $slug ] ) ? (int) $licznik[ $slug ] : 0;
+
+		$licznik[ $slug ] = $ile + 1;
+
+		return $dostepne[ $ile % count( $dostepne ) ];
 	}
 
 	/**

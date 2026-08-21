@@ -50,6 +50,20 @@ namespace {
 	@mkdir( $tmp . 'assets/kategorie/', 0777, true );
 	@mkdir( $tmp . 'src/templates/', 0777, true );
 	file_put_contents( $tmp . 'assets/kategorie/zywienie.jpg', 'udaje-jpeg' );
+	// Warianty 8.8. Trzy uklady naraz, bo w paczce klienta wystapia wszystkie:
+	//   `zywienie` — komplet 1-2-3
+	//   `zdrowie`  — DZIURA: jest 1 i 3, nie ma 2 (klient skasowal jeden plik)
+	//   `rasy`     — sam wariant 2, bez pliku podstawowego
+	file_put_contents( $tmp . 'assets/kategorie/zywienie-2.jpg', 'udaje-jpeg' );
+	file_put_contents( $tmp . 'assets/kategorie/zywienie-3.jpg', 'udaje-jpeg' );
+	file_put_contents( $tmp . 'assets/kategorie/zdrowie.jpg', 'udaje-jpeg' );
+	file_put_contents( $tmp . 'assets/kategorie/zdrowie-3.jpg', 'udaje-jpeg' );
+	file_put_contents( $tmp . 'assets/kategorie/rasy-2.jpg', 'udaje-jpeg' );
+	// Plik PONAD sufitem `IMAGE_VARIANTS`. Lezy tu po to, zeby sufit dalo sie
+	// asercjonowac: bez niego „wariant 4 daje pusty ciag" przechodzi rowniez
+	// wtedy, gdy sufitu w kodzie nie ma wcale, bo pliku i tak brakuje na dysku.
+	// Dwie mutacje (zdjete sito, podniesiony sufit) przezyly dokladnie na tym.
+	file_put_contents( $tmp . 'assets/kategorie/zywienie-4.jpg', 'udaje-jpeg' );
 	file_put_contents( $tmp . 'src/templates/card.php', '<?php $GLOBALS["__narysowano"][] = "wtyczka";' );
 
 	define( 'AINP_PLUGIN_DIR', $tmp );
@@ -275,6 +289,64 @@ namespace {
 	k6k_check( '' === Portal::category_image_url( 'Zywienie' ), 'wielka litera odrzucona (nazwy plikow sa male)' );
 	k6k_check( '' === Portal::category_image_url( 'żywienie' ), 'ogonek w slugu odrzucony' );
 	k6k_check( '' === Portal::category_image_url( 'zywienie.jpg' ), 'kropka w slugu odrzucona' );
+
+	// ---------------------------------------------------------------------
+	echo "\n-- Warianty zdjecia kategorii (8.8) --\n";
+
+	$k6k_baza = 'https://dworek.local/wp-content/plugins/ai-news-portal/assets/kategorie/';
+
+	k6k_check( $k6k_baza . 'zywienie.jpg' === Portal::category_image_url( 'zywienie', 1 ), 'wariant 1 to nadal samo <slug>.jpg — nazwa sprzed 8.8 nietknieta' );
+	k6k_check( $k6k_baza . 'zywienie-2.jpg' === Portal::category_image_url( 'zywienie', 2 ), 'wariant 2 to <slug>-2.jpg' );
+	k6k_check( $k6k_baza . 'zywienie-3.jpg' === Portal::category_image_url( 'zywienie', 3 ), 'wariant 3 to <slug>-3.jpg' );
+	k6k_check( Portal::category_image_url( 'zywienie' ) === Portal::category_image_url( 'zywienie', 1 ), 'wywolanie bez wariantu znaczy to samo, co wariant 1 (zgodnosc wstecz)' );
+
+	k6k_check( '' === Portal::category_image_url( 'zywienie', 4 ), 'plik ponad sufitem IGNOROWANY, choc LEZY na dysku — sam plik nie wystarczy, trzeba podniesc IMAGE_VARIANTS' );
+	k6k_check( '' === Portal::category_image_url( 'zywienie', 0 ), 'wariant 0 odrzucony' );
+	k6k_check( '' === Portal::category_image_url( 'zywienie', -2 ), 'wariant ujemny odrzucony — inaczej wszedlby w nazwe pliku' );
+	k6k_check( '' === Portal::category_image_url( 'zdrowie', 2 ), 'brakujacy wariant to pusty ciag, nie 404 na froncie' );
+	k6k_check( '' === Portal::category_image_url( '../../../wp-config', 2 ), 'sito na slug obowiazuje takze przy wariancie' );
+
+	echo "\n-- Rotacja: sasiednie karty tej samej kategorii --\n";
+
+	// ASERCJA NA WYNIKU, NIE NA STALEJ: liczy sie to, ze trzy kolejne karty
+	// dostaja trzy ROZNE adresy. Sprawdzanie samego `IMAGE_VARIANTS === 3`
+	// przezylaby kazda mutacja, ktora rotacje wylacza.
+	$k6k_ciag = array();
+	for ( $k6k_i = 0; $k6k_i < 4; $k6k_i++ ) {
+		$k6k_ciag[] = Portal::category_variant( 'zywienie' );
+	}
+
+	k6k_check( array( 1, 2, 3, 1 ) === $k6k_ciag, 'trzy karty pod rzad biora warianty 1-2-3, czwarta zaczyna od nowa' );
+
+	$k6k_adresy = array();
+	foreach ( array_slice( $k6k_ciag, 0, 3 ) as $k6k_w ) {
+		$k6k_adresy[] = Portal::category_image_url( 'zywienie', $k6k_w );
+	}
+
+	k6k_check( 3 === count( array_unique( $k6k_adresy ) ), 'trzy sasiednie karty jednej kategorii pokazuja TRZY ROZNE zdjecia' );
+	k6k_check( ! in_array( '', $k6k_adresy, true ), 'i zadna z nich nie spada na kafelek zastepczy' );
+
+	echo "\n-- Rotacja: przypadki brzegowe --\n";
+
+	k6k_check( array( 1, 3, 1 ) === array( Portal::category_variant( 'zdrowie' ), Portal::category_variant( 'zdrowie' ), Portal::category_variant( 'zdrowie' ) ), 'dziura w numeracji jest POMIJANA — licznik nie wskaze pliku, ktorego nie ma' );
+	k6k_check( 2 === Portal::category_variant( 'rasy' ), 'kategoria bez pliku podstawowego zaczyna od wariantu, ktory istnieje' );
+	k6k_check( 1 === Portal::category_variant( 'podroze-z-psem' ), 'kategoria bez ANI JEDNEGO zdjecia oddaje 1, a karta i tak dostanie pusty adres' );
+	k6k_check( '' === Portal::category_image_url( 'podroze-z-psem', Portal::category_variant( 'podroze-z-psem' ) ), 'czyli kafelek z inicjalem, tak jak przed 8.8' );
+
+	// Liczniki sa ROZLACZNE per kategoria: gdyby byly wspolne, karta „Zdrowia"
+	// przesuwalaby zdjecia „Zywienia" i rotacja zalezalaby od kolejnosci
+	// kategorii na stronie.
+	//
+	// Do tej proby biora sie kategorie z ROZNA liczba wariantow (3 i 2), a
+	// asercja pyta o NASTEPNY element cyklu, nie o rownosc. Wspolny licznik
+	// przesunalby sie tu o 3 (jedno wlasne wywolanie plus dwa cudze), czyli
+	// o pelen cykl „Zywienia" — i oddalby ten sam wariant, co poprzednio.
+	$k6k_a = Portal::category_variant( 'zywienie' );
+	Portal::category_variant( 'zdrowie' );
+	Portal::category_variant( 'zdrowie' );
+	$k6k_b = Portal::category_variant( 'zywienie' );
+
+	k6k_check( ( $k6k_a % 3 ) + 1 === $k6k_b, 'dwie karty innej kategorii pomiedzy NIE przesuwaja rotacji tej pierwszej' );
 
 	// ---------------------------------------------------------------------
 	echo "\n-- Kafelek zapasowy --\n";

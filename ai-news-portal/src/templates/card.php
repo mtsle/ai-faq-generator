@@ -22,7 +22,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 $ainp_termin = Portal::primary_term( get_the_ID() );
 $ainp_nazwa  = ( null !== $ainp_termin ) ? $ainp_termin->name : '';
 $ainp_link   = ( null !== $ainp_termin ) ? Portal::term_link( $ainp_termin ) : '';
-$ainp_foto   = ( null !== $ainp_termin ) ? Portal::category_image_url( $ainp_termin->slug ) : '';
+$ainp_foto   = ( null !== $ainp_termin )
+	? Portal::category_image_url( $ainp_termin->slug, Portal::category_variant( $ainp_termin->slug ) )
+	: '';
 ?>
 <article <?php post_class( 'ainp-card' ); ?>>
 
@@ -30,9 +32,10 @@ $ainp_foto   = ( null !== $ainp_termin ) ? Portal::category_image_url( $ainp_ter
 		<?php if ( '' !== $ainp_foto ) : ?>
 			<?php
 			/*
-			 * `alt` jest PUSTY celowo. Zdjecie jest ilustracja kategorii, tej
-			 * samej dla wszystkich artykulow z tej kategorii — nie niesie
-			 * zadnej tresci, ktorej nie ma obok w tekscie. Opis w rodzaju
+			 * `alt` jest PUSTY celowo. Zdjecie jest ilustracja KATEGORII, nie
+			 * artykulu — od 8.8 kategoria ma ich kilka i karta bierze kolejne
+			 * po rotacji, wiec tym bardziej nie niesie tresci, ktorej nie ma
+			 * obok w tekscie. Opis w rodzaju
 			 * „zdjecie kategorii Zywienie" czytnik ekranu powtorzylby przy
 			 * kazdej karcie, zagluszajac tytuly. Puste `alt` na obrazku
 			 * dekoracyjnym to zalecenie WCAG, nie przeoczenie.
