@@ -51,7 +51,7 @@ def z_naglowka(pole):
 # To jest kontrola WOBEC KODU, nie miedzy dokumentami: przy wtyczce 1 wszystkie
 # piec PDF-ow bylo ze soba zgodnych i wszystkie piec klamalo.
 STALE = [
-    ('src/Runner.php',  'TICK_BUDGET',    ['20 s']),
+    ('src/Runner.php',  'TICK_BUDGET',    ['25 s']),
     ('src/Runner.php',  'PREPARE_BUDGET', ['15 s']),
     ('src/Runner.php',  'PUBLISH_BUDGET', ['30 s']),
     ('src/Runner.php',  'PREPARE_BATCH',  ['10']),

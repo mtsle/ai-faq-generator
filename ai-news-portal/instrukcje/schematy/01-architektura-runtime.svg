@@ -59,7 +59,7 @@
 <rect x="730" y="130" width="320" height="74" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
 <text x="890.0" y="154.0" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">Runner</text>
 <text x="890.0" y="171.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">tick() — trzy fazy pod zamkiem</text>
-<text x="890.0" y="188.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">budżet czasu 20 s</text>
+<text x="890.0" y="188.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">budżet czasu 25 s</text>
 <rect x="730" y="224" width="320" height="74" rx="9" fill="#FEFCE8" stroke="#CA8A04" stroke-width="2"/>
 <text x="890.0" y="248.0" font-size="12.5" font-weight="700" fill="#713F12" text-anchor="middle">Filter</text>
 <text x="890.0" y="265.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">słowa wykluczające + wymagane</text>

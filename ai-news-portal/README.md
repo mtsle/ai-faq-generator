@@ -78,7 +78,7 @@ kanały RSS  →  normalizacja adresu  →  dedup po adresie (klucz UNIQUE w baz
             →  dedup po treści (odcisk z pierwszych 8 KB)
             →  ponowna bramka słów wymaganych w punkcie wyboru
             →  Gemini: JEDNO wywołanie z wymuszonym schematem odpowiedzi
-               (drugie tylko wtedy, gdy odpowiedź przyjdzie urwana)
+               (drugie tylko wtedy, gdy odpowiedź przyjdzie urwana albo pusta)
             →  walidacja kontraktu (pola, długości, kategoria z listy)
             →  publikacja w typie treści, idempotentnie
             →  Centrum Wiedzy
@@ -215,7 +215,7 @@ ale **z zachowaną treścią** — jest z czego ponowić. Błąd trwały (404, 4
 kończy pozycję od razu. Przy **modelu** jest inaczej: timeout, limit po stronie dostawcy i błąd
 serwera **nie podbijają licznika prób i nie zmieniają statusu** — pozycja czeka na kolejny przebieg.
 Na *nieudaną* schodzi tylko wtedy, gdy odpowiedź złamie kontrakt albo dwa razy z rzędu przyjdzie
-urwana. Wznowienie nieudanych jest zawsze **decyzją człowieka**, nigdy automatu.
+urwana lub pusta. Wznowienie nieudanych jest zawsze **decyzją człowieka**, nigdy automatu.
 
 ---
 
@@ -227,7 +227,7 @@ z kodem, wywala test, więc nie może przetrwać do wydania.
 
 | Stała | Wartość | Znaczenie |
 |---|---|---|
-| `Runner::TICK_BUDGET` | `20` | sekund na cały automatyczny przebieg |
+| `Runner::TICK_BUDGET` | `25` | sekund na cały automatyczny przebieg |
 | `Runner::PREPARE_BUDGET` | `15` | sekund dla przycisku „Przygotuj treści" |
 | `Runner::PUBLISH_BUDGET` | `30` | sekund dla przycisku „Opublikuj teraz" |
 | `Runner::TICK_SHARE` | `0.25` | ćwiartka budżetu ticku na fazę pobierania i na przygotowanie |

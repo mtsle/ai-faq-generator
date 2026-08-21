@@ -46,7 +46,7 @@
 	<h2>Podsumowanie liczbowe</h2>
 	<table class="tech">
 		<tr><th>Wielkość</th><th>Wartość</th><th>Gdzie ustalona</th></tr>
-		<tr><td>Budżet przebiegu cyklicznego</td><td><span class="nolam">20 s</span></td><td><code>Runner::TICK_BUDGET</code></td></tr>
+		<tr><td>Budżet przebiegu cyklicznego</td><td><span class="nolam">25 s</span></td><td><code>Runner::TICK_BUDGET</code></td></tr>
 		<tr><td>Podział budżetu (pobranie / przygotowanie)</td><td><span class="nolam">¼ + ¼</span></td><td><code>Runner::TICK_SHARE</code></td></tr>
 		<tr><td>Budżet przycisku „Przygotuj treści”</td><td><span class="nolam">15 s</span></td><td><code>Runner::PREPARE_BUDGET</code></td></tr>
 		<tr><td>Budżet przycisku „Opublikuj teraz”</td><td><span class="nolam">30 s</span></td><td><code>Runner::PUBLISH_BUDGET</code></td></tr>
@@ -73,7 +73,7 @@
 	<div class="wym__glowa"><span class="wym__id">N1.1</span>
 		<p class="wym__tytul">Przebieg cykliczny mieści się w budżecie</p></div>
 	<div class="wym__tresc">
-		<p>Pojedynczy przebieg <code>ainp_tick</code> ma <span class="nolam">20 s</span>.
+		<p>Pojedynczy przebieg <code>ainp_tick</code> ma <span class="nolam">25 s</span>.
 		   Budżet jest dzielony: <span class="nolam">¼</span> na pobranie,
 		   <span class="nolam">¼</span> na przygotowanie, reszta na publikację. Każda faza
 		   sprawdza pozostały czas przed wzięciem kolejnej pozycji.</p>

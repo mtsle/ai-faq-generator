@@ -47,7 +47,7 @@ def architektura():
             370, 336, 290, 74, "rag")
 
     s.kontener("k_logika", "Logika portalu", 710, 90, 360, 470)
-    s.wezel("runner", ["Runner", "tick() — trzy fazy pod zamkiem", "budżet czasu 20 s"],
+    s.wezel("runner", ["Runner", "tick() — trzy fazy pod zamkiem", "budżet czasu 25 s"],
             730, 130, 320, 74, "rag")
     s.wezel("filter", ["Filter", "słowa wykluczające + wymagane", "działa PRZED modelem"],
             730, 224, 320, 74, "decyzja")
@@ -243,7 +243,7 @@ def przebieg():
     s = Schemat("04-przebieg-cykliczny",
                 "Przebieg cykliczny — trzy fazy pod jednym zamkiem",
                 1560, 940,
-                "ainp_tick, co godzinę, tylko przy ruchu na witrynie. Budżet 20 s dzielony "
+                "ainp_tick, co godzinę, tylko przy ruchu na witrynie. Budżet 25 s dzielony "
                 "¼ / ¼ / reszta. Przyciski panelu wołają te same fazy z własnymi budżetami.")
 
     s.wezel("zdarzenie", ["WP-Cron: ainp_tick", "powtarzalne, hourly"], 80, 60, 360, 60, "wp")

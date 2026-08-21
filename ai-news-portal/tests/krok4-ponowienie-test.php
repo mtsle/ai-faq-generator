@@ -485,7 +485,6 @@ namespace {
 	$przypadki = array(
 		'429 (wyczerpany limit Google)' => array( k4p_odp( 429, '{"error":{"status":"RESOURCE_EXHAUSTED"}}' ), 'status' ),
 		'500 po stronie modelu'         => array( k4p_odp( 500, 'blad' ), 'status' ),
-		'pusta odpowiedz'               => array( k4p_odp( 200, k4p_koperta( '   ' ) ), 'empty' ),
 	);
 
 	foreach ( $przypadki as $opis => $plan ) {
@@ -497,6 +496,41 @@ namespace {
 		k4p_check( 1 === $r['calls'], $opis . ' — bez ponowienia, jedno wywolanie' );
 		k4p_check( $plan[1] === $r['reason'], $opis . ' — powod rozpoznany jako `' . $plan[1] . '`' );
 	}
+
+	// ------------------------------------------------------------------
+	echo "\n-- Pusta odpowiedz: ponowienie DOKLADNIE raz, potem terminal (B1, audyt 8.10) --\n";
+
+	/*
+	 * Do audytu 8.10 'empty' NIE byl ponawiany ANI terminalny: pozycja
+	 * zostawala w kolejce, a ze kolejka idzie po `id` rosnaco, ta sama
+	 * pozycja palila slot z dobowej puli na kazdym przebiegu i blokowala
+	 * wszystkie za soba. Teraz 'empty' zachowuje sie jak 'bad_json':
+	 * jedna powtorka (SAFETY/RECITATION przy probkowaniu potrafi puscic),
+	 * po niej sprawa jest zamknieta.
+	 */
+	k4p_reset();
+	$GLOBALS['__plan'] = array(
+		k4p_odp( 200, k4p_koperta( '   ' ) ),
+		k4p_odp( 200, k4p_koperta( '' ) ),
+		k4p_odp( 200, k4p_koperta( k4p_dobra() ) ),
+	);
+	$r = Runner::ask_model( k4p_wiersz(), null, $kategorie );
+
+	k4p_check( false === $r['ok'], 'dwie puste odpowiedzi z rzedu koncza sie porazka' );
+	k4p_check( 2 === $r['calls'], 'DOKLADNIE dwa wywolania: pierwsze i jedno ponowienie' );
+	k4p_check( 2 === count( $GLOBALS['__zadania'] ), 'do transportu poszly dokladnie dwa zadania' );
+	k4p_check( 'empty' === $r['reason'], 'powod: pusta odpowiedz' );
+	k4p_check( true === $r['terminal'], 'po ponowieniu terminal — pozycja NIE wraca na kolejny przebieg' );
+
+	k4p_reset();
+	$GLOBALS['__plan'] = array(
+		k4p_odp( 200, k4p_koperta( '   ' ) ),
+		k4p_odp( 200, k4p_koperta( k4p_dobra() ) ),
+	);
+	$r = Runner::ask_model( k4p_wiersz(), null, $kategorie );
+
+	k4p_check( true === $r['ok'], 'druga proba po pustej odpowiedzi ratuje pozycje' );
+	k4p_check( 2 === $r['calls'], 'i kosztuje dokladnie dwa wywolania' );
 
 	k4p_reset();
 	$GLOBALS['__plan'] = array( new AINP_Fake_WP_Error_K4P( 'cURL error 28' ), k4p_odp( 200, k4p_koperta( k4p_dobra() ) ) );

@@ -531,7 +531,12 @@ namespace {
 	// ------------------------------------------------------------------
 	echo "\n-- Uprawnienie sprawdzane PRZED nonce'em --\n";
 
-	foreach ( array( 'handle_publish', 'handle_save_settings', 'handle_retry' ) as $akcja ) {
+	/*
+	 * WSZYSTKIE piec akcji, ta sama lista co w TESCIE 12 (D5, audyt 8.10):
+	 * do domkniecia audytu petla obejmowala trzy z pieciu handlerow, wiec
+	 * zamiana kolejnosci w guard() dla `fetch`/`prepare` byla niewykrywalna.
+	 */
+	foreach ( array( 'handle_publish', 'handle_save_settings', 'handle_prepare', 'handle_fetch', 'handle_retry' ) as $akcja ) {
 		k4a_reset();
 		$GLOBALS['__cap'] = false;
 

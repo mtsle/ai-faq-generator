@@ -412,6 +412,29 @@ function wp_clear_scheduled_hook( $hook, $args = array() ) {
 	return true;
 }
 
+/*
+ * Ksztalt WIERNY rdzeniowi: $crons[ znacznik ][ uchwyt ][ md5(serialize(args)) ]
+ * = [ 'schedule' => powtarzalnosc|false, 'args' => [] ]. Na tym ksztalcie stoi
+ * naprawa K1 — `has_recurring_tick()` skanuje CALA tablice, a nie tylko
+ * zdarzenie najblizsze, wiec atrapa oddajaca inny ksztalt maskowalaby regresje.
+ */
+function _get_cron_array() {
+	$crons = array();
+
+	foreach ( $GLOBALS['__cron'] as $hook => $lista ) {
+		foreach ( $lista as $z ) {
+			$crons[ (int) $z['time'] ][ $hook ][ md5( serialize( array() ) ) ] = array(
+				'schedule' => $z['powtor'],
+				'args'     => array(),
+			);
+		}
+	}
+
+	ksort( $crons );
+
+	return $crons;
+}
+
 // --- Reszta rdzenia --------------------------------------------------------
 
 function add_action( $hook, $cb, $prio = 10, $args = 1 ) {
@@ -663,6 +686,40 @@ $powtarzalne = array_values(
 
 k5_check( 2 === count( $zdarzenia ), 'zdarzenia sa dwa: pojedyncze i harmonogram (jest: ' . count( $zdarzenia ) . ')' );
 k5_check( 1 === count( $powtarzalne ), 'DOKLADNIE jedno z nich jest powtarzalne' );
+
+// ---------------------------------------------------------------------------
+// 3b. K1 — singiel stojacy PRZED harmonogramem nie wywoluje duplikatu.
+// ---------------------------------------------------------------------------
+echo "\n=== 3b. K1 — zapis Ustawien nie dokłada drugiego harmonogramu ===\n";
+
+/*
+ * Scenariusz K1 z audytu 8.10, ODWROTNOSC sekcji 3: harmonogram godzinny JUZ
+ * WISI, a zapis Ustawien (schedule_first_run) postawil zdarzenie POJEDYNCZE
+ * wczesniejsze niz najblizsze wykonanie harmonogramu — tak jest przez ~5/6
+ * kazdej godziny. `wp_get_scheduled_event()` oddaje zdarzenie NAJBLIZSZE,
+ * wiec kod pytajacy tylko o nie widzi singla (schedule=false), uznaje ze
+ * harmonogramu brak i doklada DRUGI — duplikaty kumuluja sie przy kazdym
+ * zapisie Ustawien i mnoza zuzycie dobowej puli AI. Naprawa: skan CALEJ
+ * tablicy `_get_cron_array()` za jakimkolwiek powtarzalnym `ainp_tick`.
+ */
+$GLOBALS['__cron'] = array();
+wp_schedule_event( time() + 900, Plugin::CRON_RECURRENCE, Plugin::CRON_HOOK );
+wp_schedule_single_event( time(), Plugin::CRON_HOOK );
+
+Plugin::ensure_schedule();
+
+$zdarzenia   = $GLOBALS['__cron'][ Plugin::CRON_HOOK ] ?? array();
+$powtarzalne = array_values(
+	array_filter(
+		$zdarzenia,
+		function ( $z ) {
+			return 'hourly' === $z['powtor'];
+		}
+	)
+);
+
+k5_check( 2 === count( $zdarzenia ), 'zdarzenia nadal dwa — singiel i JEDEN harmonogram (jest: ' . count( $zdarzenia ) . ')' );
+k5_check( 1 === count( $powtarzalne ), 'harmonogram NIE zostal zdublowany przez singla stojacego przed nim (powtarzalnych: ' . count( $powtarzalne ) . ')' );
 
 // ---------------------------------------------------------------------------
 // 4. Dezaktywacja — zero zaplanowanych zdarzen.
@@ -924,12 +981,14 @@ echo "
 === 9. Budzet czasu: dzialki faz i faza pominieta ===
 ";
 
-k5_check( 20 === Runner::TICK_BUDGET, 'zalozony budzet ticku to 20 sekund' );
+// 25, nie 20 — audyt 8.10: zmierzone 20,58 s na poprawnej odpowiedzi
+// (wariancja thoughts) przepalalo slot przy starym budzecie.
+k5_check( 25 === Runner::TICK_BUDGET, 'zalozony budzet ticku to 25 sekund' );
 
 $stary_limit = ini_get( 'max_execution_time' );
 
 ini_set( 'max_execution_time', '0' );
-k5_check( 20.0 === Runner::tick_budget(), 'bez limitu wykonania obowiazuje samo zalozenie' );
+k5_check( 25.0 === Runner::tick_budget(), 'bez limitu wykonania obowiazuje samo zalozenie' );
 
 /*
  * Hosting z limitem 10 s: tick liczacy na 20 zginalby przed oddaniem pozycji,

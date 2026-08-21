@@ -222,19 +222,27 @@
 	    <td>Ewentualne „Wznów nieudane”.</td></tr>
 
 	<tr><td>Model odpowiada po czasie (przekroczony timeout)</td>
-	    <td>Pozycja <code>failed</code>, <strong>treść zostaje</strong>.
-	        <strong>Slot został zużyty.</strong></td>
-	    <td>„Wznów nieudane” — zwykle udaje się za drugim razem.</td></tr>
+	    <td>Pozycja <strong>czeka</strong> — status bez zmian, wraca następnym
+	        przebiegiem. <strong>Slot został zużyty.</strong></td>
+	    <td>Nic. Powód widać w podsumowaniu przebiegu.</td></tr>
 
-	<tr><td>Model zwraca HTTP 503</td>
-	    <td>Pozycja <code>failed</code>. To niedostępność, nie limit.</td>
-	    <td>Ponowić. Przy powtarzalności odczekać.</td></tr>
+	<tr><td>Model zwraca HTTP 5xx (np. 503)</td>
+	    <td>Pozycja <strong>czeka</strong>, wraca następnym przebiegiem.
+	        To niedostępność, nie limit.</td>
+	    <td>Nic. Przy powtarzalności odczekać.</td></tr>
 
-	<tr><td>Model zwraca HTTP 400</td>
-	    <td>Pozycja <code>failed</code>. Przydział <strong>nie</strong> jest zużywany
-	        po stronie dostawcy.</td>
-	    <td>Sprawdzić nazwę modelu w Ustawieniach. Przy powtarzalności zgłosić —
-	        to zwykle błąd w budowie żądania.</td></tr>
+	<tr><td>Model zwraca HTTP 4xx (np. 400)</td>
+	    <td>Pozycja <strong>czeka</strong>, wraca następnym przebiegiem. Przydział
+	        <strong>nie</strong> jest zużywany po stronie dostawcy.</td>
+	    <td>Sprawdzić nazwę modelu w Ustawieniach — zła nazwa daje 404 przy każdej
+	        pozycji i bez poprawki ręcznej się nie skończy. Przy powtarzalności
+	        zgłosić — to zwykle błąd w budowie żądania.</td></tr>
+
+	<tr><td>Odpowiedź przychodzi urwana albo pusta</td>
+	    <td>Jedno ponowienie w tym samym przebiegu; gdy druga próba też jest urwana
+	        lub pusta — pozycja <code>failed</code>, <strong>treść zostaje</strong>.
+	        Zużyte są dwa sloty.</td>
+	    <td>„Wznów nieudane” — przy innym losowaniu próbkowania zwykle przechodzi.</td></tr>
 
 	<tr><td>Odpowiedź łamie kontrakt (za krótka treść, kategoria spoza listy)</td>
 	    <td>Pozycja <code>failed</code>, <strong>artykuł nie powstaje</strong>.</td>

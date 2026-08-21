@@ -161,15 +161,24 @@ final class Runner {
 	public const AI_JSON_RETRIES = 1;
 
 	/**
-	 * Budzet czasu CALEGO ticku: 20 sekund — etap 5.3.
+	 * Budzet czasu CALEGO ticku: 25 sekund — etap 5.3, podniesiony w audycie 8.10.
 	 *
 	 * WP-Cron chodzi we wlasnym zadaniu HTTP, wiec obowiazuje go zwykly
-	 * `max_execution_time` hostingu — typowo 30 s. Tick, ktory go przekroczy,
-	 * ginie w polowie: pozycja zostaje `processing` (odzyska ja dopiero prog
-	 * 15 minut), a podsumowanie nie powstaje. Dwadziescia sekund zostawia zapas
-	 * na dopiecie pozycji, ktora akurat trwa.
+	 * `max_execution_time` hostingu — typowo 30 s, przy czym na Linuksie
+	 * limit liczy czas CPU, a czekanie na siec sie do niego nie wlicza.
+	 * Tick, ktory go przekroczy, ginie w polowie: pozycja zostaje
+	 * `processing` (odzyska ja dopiero prog 15 minut), a podsumowanie
+	 * nie powstaje.
+	 *
+	 * Dlaczego 25, nie 20: na TYM SAMYM ladunku zmierzono 9,74 s i 20,58 s
+	 * (wariancja `thoughtsTokenCount` 460 vs 2562), wiec przy 20 s wolniejsze
+	 * losowanie przepalalo slot z dobowej puli mimo poprawnej odpowiedzi.
+	 * 25 pokrywa zmierzony ogon, publikacja po cwiartkach zbierania
+	 * i przygotowania dostaje ~12,5 s (nadal > TIMEOUT_MIN), a nierownosc
+	 * z PUBLISH_BUDGET=30 zostaje — na niej stoi test rozrozniajacy budzety
+	 * z etapu 8.7.
 	 */
-	public const TICK_BUDGET = 20;
+	public const TICK_BUDGET = 25;
 
 	/**
 	 * Ile z budzetu ticku wolno zjesc fazie zbierania i fazie przygotowania.
@@ -1184,12 +1193,19 @@ final class Runner {
 	 * naleza do etapu 4.5 — dzieki temu ponowienie i kontrakt daja sie sprawdzic
 	 * bez atrapy calej tabeli.
 	 *
-	 * PONOWIENIE. Powtarzamy WYLACZNIE niepoprawny JSON i WYLACZNIE raz.
-	 * Kazdy inny powod — brak klucza, wyczerpany sufit, za maly budzet czasu,
-	 * blad transportu, kod inny niz 200, pusta odpowiedz — konczy sprawe od
-	 * razu: ponawianie ich w tym samym przebiegu zjada dobowa pule i nic nie
-	 * naprawia. Odpowiedz, ktora nie spelnia KONTRAKTU, tez nie jest ponawiana:
-	 * model dostal ten sam material i te sama instrukcje, wiec odda to samo.
+	 * PONOWIENIE. Powtarzamy WYLACZNIE odpowiedz urwana (`bad_json`) albo
+	 * pusta (`empty`) i WYLACZNIE raz. Oba bywaja przejsciowe — przy
+	 * temperaturze probkowania kolejna proba potrafi przejsc — a po powtorce
+	 * sa TERMINALNE. Bez terminalu pusta odpowiedz (np. zatrzymanie
+	 * SAFETY/RECITATION na cudzym materiale) nigdy nie konczyla sprawy:
+	 * pozycja zostawala w kolejce, a ze kolejka idzie po `id` rosnaco, TA SAMA
+	 * pozycja palila slot z dobowej puli na KAZDYM przebiegu i blokowala
+	 * wszystkie za soba (ustalenie B1, audyt 8.10). Kazdy inny powod — brak
+	 * klucza, wyczerpany sufit, za maly budzet czasu, blad transportu, kod
+	 * inny niz 200 — konczy sprawe od razu: ponawianie ich w tym samym
+	 * przebiegu zjada dobowa pule i nic nie naprawia. Odpowiedz, ktora nie
+	 * spelnia KONTRAKTU, tez nie jest ponawiana: model dostal ten sam material
+	 * i te sama instrukcje, wiec odda to samo.
 	 *
 	 * BUDZET CZASU JEST ODLICZANY MIEDZY PROBAMI. Ponowienie dostaje to, co
 	 * zostalo po pierwszym wywolaniu — inaczej dwie proby po 30 s mieszczilyby
@@ -1219,18 +1235,19 @@ final class Runner {
 			$odp = Gemini::generate( $prompt, $categories, $zostalo );
 			$calls++;
 
-			if ( $odp['ok'] || 'bad_json' !== $odp['reason'] ) {
+			if ( $odp['ok'] || ! in_array( $odp['reason'], array( 'bad_json', 'empty' ), true ) ) {
 				break;
 			}
 		}
 
 		if ( ! $odp['ok'] ) {
 			/*
-			 * `bad_json` po ponowieniu jest juz TERMINALNY: dwa razy z rzedu
-			 * urwana odpowiedz to nie jest usterka, ktora przejdzie sama,
-			 * a trzecie podejscie kosztowaloby 15% dobowej puli.
+			 * `bad_json` i `empty` po ponowieniu sa juz TERMINALNE: dwa razy
+			 * z rzedu urwana albo pusta odpowiedz to nie jest usterka, ktora
+			 * przejdzie sama — a bez terminalu ta sama pozycja wracalaby
+			 * na kazdy przebieg i palila dobowa pule bez konca.
 			 */
-			$terminal = ( 'bad_json' === $odp['reason'] );
+			$terminal = in_array( $odp['reason'], array( 'bad_json', 'empty' ), true );
 
 			return self::model_verdict( false, array(), $odp['reason'], (string) $odp['error'], $calls, $terminal );
 		}

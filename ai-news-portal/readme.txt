@@ -123,8 +123,9 @@ skasowanych wcześniej ręką właściciela.
 
 * **Administrator** — wszystko: oba ekrany wtyczki, klucz API, ustawienia, przyciski przebiegu.
   Oba ekrany wymagają uprawnienia `manage_options`.
-* **Pozostałe role** — nie widzą wtyczki. Opublikowane artykuły są zwykłymi wpisami własnego typu
-  treści, więc dostęp do ich edycji rządzi się zwykłymi uprawnieniami WordPressa.
+* **Pozostałe role** — nie widzą ekranów wtyczki. Opublikowane artykuły są zwykłymi wpisami
+  własnego typu treści, więc dostęp do ich edycji rządzi się zwykłymi uprawnieniami WordPressa —
+  Redaktor edytuje je tak samo jak wpisy.
 * **Odwiedzający** — czytają Centrum Wiedzy. Wtyczka nie przyjmuje od nich żadnych danych poza
   frazą wyszukiwania.
 
@@ -164,7 +165,7 @@ wyłącznie to, co już w niej jest, więc na świeżej instalacji trzeba najpie
 = Połowa pozycji ma status „pominięty". Czy to błąd? =
 
 Nie, to filtr przy pracy. Kolumna **„Powód"** mówi dokładnie, co odsiało pozycję: konkretne słowo
-wykluczające, brak słowa wymaganego, duplikat, za mało treści albo błąd modelu. Odsiewanie jest
+wykluczające, brak słowa wymaganego, duplikat albo za mało treści. Odsiewanie jest
 tanie — dzieje się przed wywołaniem modelu, więc nie zużywa puli.
 
 = Czym różnią się słowa wykluczające od wymaganych? =

@@ -417,15 +417,18 @@ final class Plugin {
 	/**
 	 * Czy w harmonogramie stoi juz POWTARZALNY `ainp_tick`.
 	 *
-	 * Sciezka odwrotu jest istotna: gdy `wp_get_scheduled_event()` nie istnieje
-	 * (starszy WordPress), zostaje sama odpowiedz „cos jest zaplanowane" i wtedy
-	 * NIE planujemy drugi raz. Duplikat harmonogramu jest gorszy niz jego brak —
-	 * bije w dobowa pule wywolan AI, a brak widac od razu na portalu.
+	 * Skan CALEJ tablicy crona, nie zdarzenia najblizszego: `wp_get_scheduled_event()`
+	 * oddaje zdarzenie NAJBLIZSZE, a zapis Ustawien stawia zdarzenie POJEDYNCZE
+	 * „na juz" (pierwszy przebieg po zapisie). Przez ~5/6 kazdej godziny ten
+	 * singiel stoi PRZED powtarzalnym — pytanie o najblizsze widzialoby wtedy
+	 * `schedule=false` i kazdy zapis Ustawien dokladalby KOLEJNY harmonogram,
+	 * a duplikaty mnoza zuzycie dobowej puli wywolan AI (ustalenie K1, audyt 8.10).
 	 *
-	 * `wp_get_scheduled_event()` oddaje zdarzenie NAJBLIZSZE, wiec pojedyncze
-	 * zdarzenie stojace przed powtarzalnym daloby tu `false`. Na aktywacji jest
-	 * to nieosiagalne: dezaktywacja czysci caly uchwyt, a aktywowac mozna tylko
-	 * wtyczke wylaczona.
+	 * Sciezka odwrotu jest zachowawcza: gdy tablicy nie da sie obejrzec
+	 * (`_get_cron_array()` nie istnieje albo oddaje nie-tablice, jak stare WP),
+	 * zostaje sama odpowiedz „cos jest zaplanowane" i wtedy NIE planujemy drugi
+	 * raz. Duplikat harmonogramu jest gorszy niz jego brak — brak widac od razu
+	 * na portalu.
 	 *
 	 * @return bool
 	 */
@@ -434,13 +437,29 @@ final class Plugin {
 			return false;
 		}
 
-		if ( ! function_exists( 'wp_get_scheduled_event' ) ) {
+		if ( ! function_exists( '_get_cron_array' ) ) {
 			return true;
 		}
 
-		$zdarzenie = wp_get_scheduled_event( self::CRON_HOOK );
+		$crony = _get_cron_array();
 
-		return is_object( $zdarzenie ) && self::CRON_RECURRENCE === ( $zdarzenie->schedule ?? '' );
+		if ( ! is_array( $crony ) ) {
+			return true;
+		}
+
+		foreach ( $crony as $zdarzenia ) {
+			if ( ! is_array( $zdarzenia ) || ! isset( $zdarzenia[ self::CRON_HOOK ] ) || ! is_array( $zdarzenia[ self::CRON_HOOK ] ) ) {
+				continue;
+			}
+
+			foreach ( $zdarzenia[ self::CRON_HOOK ] as $wpis ) {
+				if ( is_array( $wpis ) && ! empty( $wpis['schedule'] ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**
