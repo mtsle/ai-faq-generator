@@ -274,6 +274,94 @@ namespace {
 		k85_check( false === mb_strpos( $readme, $smiec ), "README nie zawiera niepodstawionego `$smiec`" );
 	}
 
+	echo "\n--- 9. readme.txt zderzony z kodem (etap 8.6) ---\n";
+
+	$rt_plik = $root . '/readme.txt';
+	k85_check( is_file( $rt_plik ), 'plik `readme.txt` istnieje' );
+	$rt = is_file( $rt_plik ) ? (string) file_get_contents( $rt_plik ) : '';
+
+	// Naglowek readme.txt zderzony POLE PO POLU z naglowkiem wtyczki.
+	preg_match( '/Plugin Name:\s*(.+)/', $glowny, $m_nazwa );
+	$nazwa_wtyczki = trim( $m_nazwa[1] ?? '' );
+	k85_check(
+		'' !== $nazwa_wtyczki && 1 === preg_match( '/^=== ' . preg_quote( $nazwa_wtyczki, '/' ) . ' ===$/m', $rt ),
+		"readme.txt zaczyna sie od `=== $nazwa_wtyczki ===`"
+	);
+
+	// BRAMKA ANTY-ROZJAZD: przy bumpie wersji `Stable tag` musi pojsc razem z kodem.
+	preg_match( '/^Stable tag:\s*([0-9.]+)/m', $rt, $m_stable );
+	$stable = trim( $m_stable[1] ?? '' );
+	k85_check( $stable === $wersja_const, "readme.txt `Stable tag` ($stable) === `AINP_VERSION` ($wersja_const)" );
+
+	foreach ( array( 'Requires at least', 'Requires PHP', 'Tested up to', 'License', 'License URI' ) as $pole ) {
+		preg_match( '/^\s*\*\s*' . preg_quote( $pole, '/' ) . ':\s*(.+?)\s*$/m', $glowny, $m_h );
+		$wart_h = trim( $m_h[1] ?? '' );
+		preg_match( '/^' . preg_quote( $pole, '/' ) . ':\s*(.+?)\s*$/m', $rt, $m_r );
+		$wart_r = trim( $m_r[1] ?? '' );
+		k85_check( '' !== $wart_h && $wart_h === $wart_r, "readme.txt `$pole` = \"$wart_r\" === naglowek wtyczki (\"$wart_h\")" );
+	}
+
+	foreach ( array( '== Description ==', '== Installation ==', '== Frequently Asked Questions ==', '== Changelog ==', '== Upgrade Notice ==' ) as $sekcja ) {
+		k85_check( false !== mb_strpos( $rt, $sekcja ), "readme.txt ma sekcje `$sekcja`" );
+	}
+
+	// Najnowszy wpis changeloga to BIEZACA wersja — inaczej wydanie wyszloby bez wpisu.
+	preg_match( '/== Changelog ==(.*)/su', $rt, $m_ch );
+	preg_match( '/^=\s*([0-9.]+)\s*=$/m', $m_ch[1] ?? '', $m_first );
+	$naj = $m_first[1] ?? 'brak';
+	k85_check( $naj === $wersja_const, "najnowszy wpis changeloga ($naj) === `AINP_VERSION` ($wersja_const)" );
+
+	// Wymog planu (Krok 8 pkt 6): to samo ostrzezenie, WYTLUSZCZONE, w sekcji o odinstalowaniu.
+	k85_check(
+		1 === preg_match( '/\*\*UWAGA[^*]*BEZPOWROTNIE[^*]*\*\*/u', $rt ),
+		'readme.txt: ostrzezenie o kasowaniu artykulow jest WYTLUSZCZONE'
+	);
+	k85_check(
+		1 === preg_match( '/wyłączenie wtyczki niczego nie kasuje/iu', $rt ),
+		'readme.txt rozroznia wylaczenie od usuniecia'
+	);
+
+	// Dlug K5 (bez ruchu HTTP portal milczy) i dlug K7 (OBIE drogi wylaczenia naglowkow).
+	k85_check(
+		false !== mb_strpos( $rt, 'WP-Cron' ) && 1 === preg_match( '/żądani\w+ HTTP/u', $rt ),
+		'readme.txt ostrzega, ze bez ruchu HTTP portal nie pracuje (dlug K5)'
+	);
+	k85_check( false !== mb_strpos( $rt, 'ainp_security_headers' ), 'readme.txt podaje filtr `ainp_security_headers` (dlug K7)' );
+	k85_check( false !== mb_strpos( $rt, 'AINP_NO_SECURITY_HEADERS' ), 'readme.txt podaje stala `AINP_NO_SECURITY_HEADERS` (dlug K7)' );
+
+	// Wymogi planu powtorzone za instrukcjami: hurtowe zarzadzanie i odnosnik w menu.
+	k85_check( false !== mb_strpos( $rt, 'edit.php?post_type=' . AINP\Plugin::CPT ), 'readme.txt podaje adres hurtowego zarzadzania artykulami' );
+	k85_check( 1 === preg_match( '/Wygląd → Menu/u', $rt ), 'readme.txt podaje sciezke dodania odnosnika w menu' );
+	k85_check( false !== mb_strpos( $rt, 'Centrum Wiedzy' ), 'readme.txt nazywa pozycje menu „Centrum Wiedzy"' );
+
+	// Nazwy i adresy brane z KODU, nie wpisane w tescie na sztywno.
+	k85_check( false !== mb_strpos( $rt, '/' . AINP\Plugin::ARCHIVE_SLUG . '/' ), 'readme.txt podaje adres archiwum `/' . AINP\Plugin::ARCHIVE_SLUG . '/`' );
+	k85_check( false !== mb_strpos( $rt, AINP\Plugin::CPT ), 'readme.txt wymienia typ tresci `' . AINP\Plugin::CPT . '`' );
+	k85_check( false !== mb_strpos( $rt, AINP\Plugin::TAX ), 'readme.txt wymienia taksonomie `' . AINP\Plugin::TAX . '`' );
+	k85_check( false !== mb_strpos( $rt, AINP\Portal::SEARCH_VAR ), 'readme.txt podaje parametr wyszukiwania `' . AINP\Portal::SEARCH_VAR . '`' );
+
+	$slownie[10] = 'dziesięć';
+
+	k85_check(
+		isset( $slownie[ count( $kanaly ) ] ) && false !== mb_strpos( $rt, $slownie[ count( $kanaly ) ] . ' domyślne' ),
+		'readme.txt podaje liczbe domyslnych kanalow slownie (' . count( $kanaly ) . ')'
+	);
+	k85_check(
+		isset( $slownie[ count( $kategorie ) ] ) && false !== mb_strpos( $rt, $slownie[ count( $kategorie ) ] . ' kategori' ),
+		'readme.txt podaje liczbe kategorii slownie (' . count( $kategorie ) . ')'
+	);
+	k85_check(
+		isset( $slownie[ AINP\Portal::PER_PAGE ] ) && false !== mb_strpos( $rt, 'po ' . $slownie[ AINP\Portal::PER_PAGE ] . ' kart' ),
+		'readme.txt podaje paginacje slownie (' . AINP\Portal::PER_PAGE . ')'
+	);
+	k85_check( 1 === preg_match( '/domyślnie ' . (int) $sufit . '\b/u', $rt ), "readme.txt podaje domyslny sufit dobowy ($sufit)" );
+
+	k85_check( 0 === preg_match( '/[\x{0400}-\x{04FF}]/u', $rt ), 'readme.txt nie zawiera znakow cyrylicy' );
+
+	foreach ( array( 'TODO', 'FIXME', '{{' ) as $smiec ) {
+		k85_check( false === mb_strpos( $rt, $smiec ), "readme.txt nie zawiera niepodstawionego `$smiec`" );
+	}
+
 	echo "\n";
 	echo '=== WYNIK: ' . ( $ran - $fail ) . ' / ' . $ran . " asercji ===\n";
 
