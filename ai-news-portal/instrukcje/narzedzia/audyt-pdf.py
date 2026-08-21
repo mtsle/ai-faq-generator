@@ -112,6 +112,78 @@ def sprawdz_stale(teksty):
     return zgodne, uchybienia
 
 
+# --- Sufity wagi, etap 8.9 --------------------------------------------------
+#
+# Katalog `instrukcje/` wazyl 30 MB, bo zrzuty szly bezstratnym PNG-iem,
+# a schematy trafialy do PDF-a jako rastry 5200 px. Odchudzenie samo w sobie
+# nie trzyma sie dlugo: wystarczy jedno "wrzuce oryginal, potem sie poprawi".
+# Te sufity sa stroza tamtej decyzji — z zapasem okolo 30% nad pomiarem
+# z 2026-08-21, wiec zwykla przebudowa dokumentacji ich nie dotknie.
+SUFIT_PDF = 2_000_000        # najciezszy dokument mial 1,43 MB
+SUFIT_PDF_RAZEM = 3_000_000  # piec dokumentow razem: 2,19 MB
+SUFIT_OBRAZY = 8_000_000     # zrzuty + kadry + schematy: 5,9 MB
+SUFIT_PNG_KADRU = 400_000    # powyzej tego kadr jest fotografia zapisana bezstratnie
+
+
+def waga_katalogu(katalog, rozszerzenia):
+    """Suma rozmiarow plikow o podanych rozszerzeniach, rekurencyjnie."""
+    suma = 0
+    for korzen, _, nazwy in os.walk(katalog):
+        for nazwa in nazwy:
+            if nazwa.lower().endswith(rozszerzenia):
+                suma += os.path.getsize(os.path.join(korzen, nazwa))
+    return suma
+
+
+def sprawdz_wage(pliki):
+    """Pilnuje decyzji z etapu 8.9. Zwraca liste uchybien."""
+    uchybienia = []
+
+    razem = 0
+    for sciezka in pliki:
+        waga = os.path.getsize(sciezka)
+        razem += waga
+        if waga > SUFIT_PDF:
+            uchybienia.append('%s: %.2f MB — powyzej sufitu %.2f MB (etap 8.9)' % (
+                os.path.basename(sciezka), waga / 1048576, SUFIT_PDF / 1048576))
+    print('  %s  PDF-y razem: %.2f MB (sufit %.2f MB)' % (
+        'OK  ' if razem <= SUFIT_PDF_RAZEM else 'BLAD', razem / 1048576, SUFIT_PDF_RAZEM / 1048576))
+    if razem > SUFIT_PDF_RAZEM:
+        uchybienia.append('PDF-y razem %.2f MB — powyzej sufitu %.2f MB (etap 8.9)' % (
+            razem / 1048576, SUFIT_PDF_RAZEM / 1048576))
+
+    obrazy = waga_katalogu(os.path.join(INSTRUKCJE, 'zrzuty'), ('.png', '.jpg'))
+    obrazy += waga_katalogu(os.path.join(INSTRUKCJE, 'schematy'), ('.png', '.jpg', '.svg'))
+    print('  %s  obrazy zrodlowe: %.2f MB (sufit %.2f MB)' % (
+        'OK  ' if obrazy <= SUFIT_OBRAZY else 'BLAD', obrazy / 1048576, SUFIT_OBRAZY / 1048576))
+    if obrazy > SUFIT_OBRAZY:
+        uchybienia.append('obrazy zrodlowe %.2f MB — powyzej sufitu %.2f MB (etap 8.9)' % (
+            obrazy / 1048576, SUFIT_OBRAZY / 1048576))
+
+    # Schematy maja isc do PDF-a WEKTOROWO. Raster jest ciezszy i gorszy
+    # w powiekszeniu, a przy okazji zabiera etykietom status tekstu.
+    rastry = []
+    for zrodlo in glob.glob(os.path.join(INSTRUKCJE, 'zrodla', '*.html')):
+        with open(zrodlo, encoding='utf-8') as f:
+            if 'schematy/druk/' in f.read():
+                rastry.append(os.path.basename(zrodlo))
+    print('  %s  schematy wektorowo w zrodlach HTML' % ('OK  ' if not rastry else 'BLAD'))
+    for nazwa in rastry:
+        uchybienia.append('%s: wskazuje rastrowy schemat `schematy/druk/` zamiast SVG (etap 8.9)' % nazwa)
+
+    ciezkie = [
+        os.path.basename(p) for p in glob.glob(os.path.join(INSTRUKCJE, 'zrzuty', 'kadry', '*.png'))
+        if os.path.getsize(p) > SUFIT_PNG_KADRU
+    ]
+    print('  %s  zaden kadr PNG nie przekracza %d KB' % (
+        'OK  ' if not ciezkie else 'BLAD', SUFIT_PNG_KADRU // 1024))
+    for nazwa in ciezkie:
+        uchybienia.append('%s: PNG powyzej %d KB — fotografia nalezy do JPEG (etap 8.9)' % (
+            nazwa, SUFIT_PNG_KADRU // 1024))
+
+    return uchybienia
+
+
 def main():
     wersja = z_naglowka('Version')
     licencja = z_naglowka('License')
@@ -165,6 +237,9 @@ def main():
     print('')
     print('stale kodu zacytowane zgodnie: %d z %d' % (zgodne, len(STALE)))
     uchybienia.extend(braki)
+
+    print('')
+    uchybienia.extend(sprawdz_wage(pliki))
 
     print('')
     if uchybienia:

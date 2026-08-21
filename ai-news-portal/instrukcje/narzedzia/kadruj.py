@@ -10,6 +10,12 @@ Zrodlo wspolrzednych: meta.json zapisany przez `klient-screeny.mjs` (klucz "cele
 
 Uruchomienie:  python faq-generator/ai-faq-generator/ai-news-portal/instrukcje/narzedzia/kadruj.py
 Wynik:         instrukcje/zrzuty/kadry/*.png
+
+NASTEPNY KROK: `odchudz-obrazy.py`. Kadry zapisywane sa tutaj bezstratnym
+PNG-iem, bo kadrowanie ma byc odwracalne; dopiero tamten skrypt wybiera
+docelowy format (JPEG dla fotografii, paleta 256 dla interfejsu) i przycina
+szerokosc do sufitu druku. Pominiecie go zostawia kadry piec razy ciezsze,
+niz musza byc — i audyt `audyt-pdf.py` to wylapie.
 """
 
 import json

@@ -1,10 +1,10 @@
 {
   "01-centrum-wiedzy-archiwum": {
-    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\01-centrum-wiedzy-archiwum.png",
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\01-centrum-wiedzy-archiwum.jpg",
     "cele": {}
   },
   "02-centrum-wiedzy-karty": {
-    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\02-centrum-wiedzy-karty.png",
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\02-centrum-wiedzy-karty.jpg",
     "cele": {
       "karta": {
         "x": 400,
@@ -15,15 +15,15 @@
     }
   },
   "20-artykul": {
-    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\20-artykul.png",
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\20-artykul.jpg",
     "cele": {}
   },
   "21-kategoria": {
-    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\21-kategoria.png",
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\21-kategoria.jpg",
     "cele": {}
   },
   "22-wyszukiwanie": {
-    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\22-wyszukiwanie.png",
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\22-wyszukiwanie.jpg",
     "cele": {}
   },
   "03-lista-artykulow": {

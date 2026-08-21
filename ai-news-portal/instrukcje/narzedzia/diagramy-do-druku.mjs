@@ -7,6 +7,13 @@
  *
  * URUCHOMIENIE:  node faq-generator/ai-faq-generator/ai-news-portal/instrukcje/narzedzia/diagramy-do-druku.mjs
  * Wynik:         instrukcje/schematy/druk/*.png
+ *
+ * UWAGA (etap 8.9): dokumenty NIE uzywaja juz tych rastrow. Zrodla HTML
+ * wskazuja bezposrednio `../schematy/*.svg`, bo Chromium drukuje SVG
+ * wektorowo — lzej (2,27 MB -> 49 KB), ostrzej w powiekszeniu, a etykiety
+ * schematow zostaja TEKSTEM. Skrypt zostaje jako awaryjne zrodlo rastrow
+ * (np. do prezentacji), ale jego wynik nie jest czescia pipeline'u PDF.
+ * Audyt `audyt-pdf.py` pilnuje, zeby zrodla HTML nie wrocily do `druk/`.
  */
 
 import fs from 'node:fs';
