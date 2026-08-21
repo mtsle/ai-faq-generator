@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Schema — format danych — AI News Portal</title>
+<link rel="stylesheet" href="styl-tech.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<span class="okladka__etykieta">Schema</span>
+	<h1 class="okladka__tytul">Format danych</h1>
+	<p class="okladka__podtytul">AI News Portal — struktury, pola i wartości dopuszczalne</p>
+
+	<div class="okladka__ramka">
+		<p><strong>Zakres.</strong> Dokument referencyjny. Opisuje <em>kształt</em> danych:
+		   kolumny tabeli, statusy, strukturę żądania do modelu i odpowiedzi, opcje
+		   konfiguracyjne, adresy i komunikaty. Nie opisuje przebiegu działania —
+		   ten jest w <strong>Instrukcji dla informatyka (Functional)</strong>.</p>
+		<p><strong>Sposób czytania.</strong> Każda sekcja ma identyfikator
+		   (<code>S1</code> … <code>S7</code>), do którego odwołują się pozostałe dokumenty.</p>
+	</div>
+
+	<p class="okladka__stopka">
+		AI News Portal {{WERSJA}} · licencja {{LICENCJA}}
+	</p>
+</section>
+
+<!-- ============ SPIS ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Spis treści</h1>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>S1 — Tabela kolejki materiałów</strong>
+			<span class="spis__opis">Kolumny, typy, klucze.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>S2 — Statusy pozycji i przejścia</strong>
+			<span class="spis__opis">Pięć stanów i dozwolone drogi między nimi.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>S3 — Żądanie do modelu</strong>
+			<span class="spis__opis">Materiał, ogrodzenie, parametry generowania.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>S4 — Odpowiedź modelu i kontrakt</strong>
+			<span class="spis__opis">Cztery pola i progi walidacji.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>S5 — Opcje konfiguracyjne</strong>
+			<span class="spis__opis">Pięć opcji roboczych i pola ustawień.</span></span></li>
+		<li><span class="spis__nr">6</span><span><strong>S6 — Typ treści, taksonomia, adresy</strong>
+			<span class="spis__opis">Co powstaje w WordPressie i pod jakimi adresami.</span></span></li>
+		<li><span class="spis__nr">7</span><span><strong>S7 — Komunikaty i powody odrzucenia</strong>
+			<span class="spis__opis">Teksty trafiające do kolumny „Powód”.</span></span></li>
+	</ol>
+</section>
+
+<section class="strona--diagram">
+	<img src="../schematy/druk/03-dane.png" alt="Dane wtyczki — tabela, typy treści, opcje">
+	<figcaption>Dane wtyczki w jednym ujęciu · pełna skala w <code>schematy/03-dane.drawio</code></figcaption>
+</section>
+
+<div class="ciagly">
+
+<!-- ============ S1 ============ -->
+<h1 class="rozdzial">1. S1 — Tabela kolejki materiałów</h1>
+<p class="rozdzial__wstep">Jedyna tabela własna wtyczki:
+   <code>{prefiks}ainp_items</code>. Silnik InnoDB, kodowanie i sortowanie z rdzenia
+   WordPressa.</p>
+
+<table class="tech">
+	<tr><th>Kolumna</th><th>Typ</th><th>Znaczenie</th></tr>
+	<tr><td><code>id</code></td><td><code>bigint(20) unsigned</code>, auto</td>
+	    <td>klucz główny</td></tr>
+	<tr><td><code>url</code></td><td><code>varchar(2048)</code></td>
+	    <td>adres materiału po normalizacji (bez parametrów śledzących)</td></tr>
+	<tr><td><code>url_hash</code></td><td><code>char(64)</code>, <code>UNIQUE</code></td>
+	    <td>skrót adresu — bramka powtórek po adresie</td></tr>
+	<tr><td><code>content_hash</code></td><td><code>char(64)</code> <code>NULL</code>, <code>UNIQUE</code></td>
+	    <td>skrót treści — bramka powtórek po treści; <code>NULL</code> do czasu
+	        doczytania treści</td></tr>
+	<tr><td><code>title</code></td><td><code>text</code></td><td>tytuł z kanału</td></tr>
+	<tr><td><code>excerpt</code></td><td><code>text</code></td><td>zajawka z kanału</td></tr>
+	<tr><td><code>content</code></td><td><code>longtext</code></td>
+	    <td>treść materiału; <strong>zostaje także przy niepowodzeniu</strong></td></tr>
+	<tr><td><code>status</code></td><td><code>varchar(20)</code>, domyślnie <code>new</code></td>
+	    <td>stan pozycji — patrz S2</td></tr>
+	<tr><td><code>note</code></td><td><code>text</code></td>
+	    <td>powód odrzucenia lub treść błędu — patrz S7</td></tr>
+	<tr><td><code>attempts</code></td><td><code>smallint(5) unsigned</code></td>
+	    <td>licznik prób; sufit samoczynny to <span class="nolam">3</span></td></tr>
+	<tr><td><code>post_id</code></td><td><code>bigint(20) unsigned</code></td>
+	    <td>identyfikator opublikowanego wpisu; <span class="nolam">0</span> = brak</td></tr>
+	<tr><td><code>created_at</code>, <code>updated_at</code></td><td><code>datetime</code></td>
+	    <td>znaczniki czasu</td></tr>
+</table>
+
+<h2>Klucze</h2>
+<table class="tech">
+	<tr><th>Klucz</th><th>Kolumny</th><th>Po co</th></tr>
+	<tr><td><code>PRIMARY</code></td><td><code>id</code></td><td>—</td></tr>
+	<tr><td><code>ainp_url_hash</code> (UNIQUE)</td><td><code>url_hash</code></td>
+	    <td>brak duplikatów po adresie, wymuszony przez bazę</td></tr>
+	<tr><td><code>ainp_content_hash</code> (UNIQUE)</td><td><code>content_hash</code></td>
+	    <td>brak duplikatów po treści; wiele <code>NULL</code> jest dozwolonych</td></tr>
+	<tr><td><code>ainp_status</code></td><td><code>status</code>, <code>updated_at</code></td>
+	    <td>wybór pozycji do przetworzenia i odzysk zawieszonych</td></tr>
+</table>
+
+<div class="uwaga">
+	<p><strong>Dlaczego <code>content_hash</code> dopuszcza <code>NULL</code>.</strong>
+	   Pozycje zapisane w fazie pobrania nie mają jeszcze treści. Gdyby kolumna wymagała
+	   wartości, wszystkie takie wiersze kolidowałyby ze sobą na kluczu <code>UNIQUE</code>
+	   i do kolejki weszłaby dokładnie jedna pozycja na przebieg.</p>
+</div>
+
+<!-- ============ S2 ============ -->
+<h1 class="rozdzial">2. S2 — Statusy pozycji i przejścia</h1>
+
+<table class="tech">
+	<tr><th>Status</th><th>Etykieta w panelu</th><th>Znaczenie</th></tr>
+	<tr><td><code>new</code></td><td>nowy</td>
+	    <td>pozycja w kolejce, czeka na przygotowanie albo publikację</td></tr>
+	<tr><td><code>processing</code></td><td>w trakcie</td>
+	    <td>pozycja zajęta przez przebieg; po <span class="nolam">900 s</span> wraca do <code>new</code></td></tr>
+	<tr><td><code>done</code></td><td>opublikowany</td>
+	    <td>powstał wpis; <code>post_id</code> wskazuje na artykuł</td></tr>
+	<tr><td><code>skipped</code></td><td>pominięty</td>
+	    <td>odrzucona świadomie przez bramkę; powód w <code>note</code></td></tr>
+	<tr><td><code>failed</code></td><td>nieudany</td>
+	    <td>próba nieudana; treść zostaje, możliwe wznowienie</td></tr>
+</table>
+
+<h2>Dozwolone przejścia</h2>
+<table class="tech">
+	<tr><th>Z</th><th>Do</th><th>Kiedy</th></tr>
+	<tr><td>—</td><td><code>new</code></td><td>zapis pozycji w fazie pobrania</td></tr>
+	<tr><td><code>new</code></td><td><code>skipped</code></td>
+	    <td>trafienie słowa wykluczającego, brak słowa wymaganego, powtórka treści</td></tr>
+	<tr><td><code>new</code></td><td><code>processing</code></td><td>zajęcie pozycji przez przebieg</td></tr>
+	<tr><td><code>processing</code></td><td><code>new</code></td>
+	    <td>odzysk po przekroczeniu <span class="nolam">900 s</span></td></tr>
+	<tr><td><code>processing</code></td><td><code>done</code></td><td>publikacja się powiodła</td></tr>
+	<tr><td><code>processing</code></td><td><code>failed</code></td>
+	    <td>błąd sieci, odmowa dostawcy, złamany kontrakt odpowiedzi</td></tr>
+	<tr><td><code>failed</code></td><td><code>new</code></td>
+	    <td>ręczne „Wznów nieudane”</td></tr>
+</table>
+
+<div class="uwaga">
+	<p><strong>Wyczerpanie budżetu czasu to nie porażka pozycji.</strong> Gdy przebieg
+	   kończy się z braku czasu przed wywołaniem modelu, pozycja zostaje w stanie
+	   <code>new</code> z nietkniętym licznikiem prób — nie zużywa jednej z trzech szans.</p>
+</div>
+
+<!-- ============ S3 ============ -->
+<h1 class="rozdzial">3. S3 — Żądanie do modelu</h1>
+<p class="rozdzial__wstep">Jedno żądanie <code>POST</code> na artykuł, punkt końcowy
+   <code>generativelanguage.googleapis.com/v1beta/models/{model}:generateContent</code>.</p>
+
+<h2>Materiał</h2>
+<table class="tech">
+	<tr><th>Część</th><th>Sufit</th></tr>
+	<tr><td>tytuł</td><td><span class="nolam">300</span> znaków</td></tr>
+	<tr><td>adres</td><td><span class="nolam">500</span> znaków</td></tr>
+	<tr><td>treść</td><td><span class="nolam">12 000</span> znaków</td></tr>
+</table>
+
+<p>Treść jest opakowana w ogrodzenie tekstowe:</p>
+<pre>&lt;&lt;&lt;MATERIAL_ZRODLOWY
+… treść materiału …
+MATERIAL_ZRODLOWY&gt;&gt;&gt;</pre>
+<p>Wystąpienia znacznika wewnątrz samego materiału są neutralizowane, żeby cudza strona
+   nie mogła zamknąć ogrodzenia i dopisać własnego polecenia.</p>
+
+<h2>Parametry generowania</h2>
+<table class="tech">
+	<tr><th>Pole</th><th>Wartość</th></tr>
+	<tr><td><code>responseMimeType</code></td><td><code>application/json</code></td></tr>
+	<tr><td><code>responseSchema</code></td><td>obiekt o czterech polach — patrz S4</td></tr>
+	<tr><td><code>temperature</code></td><td><span class="nolam">0.4</span></td></tr>
+	<tr><td><code>maxOutputTokens</code></td><td><span class="nolam">8192</span></td></tr>
+	<tr><td>model</td><td><code>gemini-2.5-flash</code> (domyślny, edytowalny)</td></tr>
+	<tr><td>timeout</td><td>od <span class="nolam">8</span> do <span class="nolam">30 s</span>,
+	    wyznaczany przez pozostały budżet</td></tr>
+	<tr><td>sufit odpowiedzi</td><td><span class="nolam">1 MB</span></td></tr>
+</table>
+
+<div class="uwaga">
+	<p><strong>Schemat Gemini nie jest pełnym JSON Schema.</strong> To osobny typ
+	   po stronie API i <em>każde</em> nieznane pole wywraca całe żądanie na HTTP 400 —
+	   razem z poprawną resztą. Dopisanie <code>additionalProperties</code> zablokowało
+	   kiedyś publikację w całości. Przyjmowane są m.in. <code>type</code>,
+	   <code>properties</code>, <code>enum</code>, <code>required</code>,
+	   <code>propertyOrdering</code>.</p>
+</div>
+
+<!-- ============ S4 ============ -->
+<h1 class="rozdzial">4. S4 — Odpowiedź modelu i kontrakt</h1>
+
+<h2>Struktura odpowiedzi</h2>
+<pre>{
+  "title":   "…",   // tytuł artykułu
+  "lead":    "…",   // zajawka
+  "content": "…",   // treść artykułu
+  "topic":   "…"    // kategoria — wartość z listy w Ustawieniach
+}</pre>
+
+<p>Pole <code>topic</code> jest wysyłane jako <code>enum</code> zbudowany z listy kategorii.
+   Gdy lista jest pusta, wysyłany jest zwykły <code>string</code> — puste
+   <code>enum</code> jest po stronie API błędem żądania, a nie „dowolną wartością”.</p>
+
+<h2>Kontrakt sprawdzany po stronie wtyczki</h2>
+<table class="tech">
+	<tr><th>Pole</th><th>Minimum</th><th>Maksimum</th><th>Dodatkowo</th></tr>
+	<tr><td><code>title</code></td><td><span class="nolam">5</span></td><td><span class="nolam">140</span></td><td>—</td></tr>
+	<tr><td><code>lead</code></td><td><span class="nolam">20</span></td><td><span class="nolam">400</span></td><td>—</td></tr>
+	<tr><td><code>content</code></td><td><span class="nolam">800</span></td><td>—</td><td>—</td></tr>
+	<tr><td><code>topic</code></td><td colspan="2">—</td><td>dokładne dopasowanie do kategorii z Ustawień</td></tr>
+</table>
+
+<p class="wym__meta">Wymuszony schemat gwarantuje <strong>składnię</strong>: że przyjdzie
+   poprawny JSON z czterema kluczami. Nie gwarantuje, że tytuł nie będzie pusty, a treść
+   sensowna — stąd progi powyżej.</p>
+
+<h2>Odczytywane pola pomocnicze</h2>
+<table class="tech">
+	<tr><th>Pole odpowiedzi</th><th>Do czego służy</th></tr>
+	<tr><td><code>finishReason</code></td><td>rozpoznanie odpowiedzi uciętej przez limit tokenów</td></tr>
+	<tr><td><code>usageMetadata.promptTokenCount</code></td><td>kontrola rozmiaru materiału</td></tr>
+	<tr><td><code>usageMetadata.thoughtsTokenCount</code></td>
+	    <td>wyjaśnia rozrzut czasu odpowiedzi przy identycznym wejściu (N1.4)</td></tr>
+	<tr><td><code>usageMetadata.cachedContentTokenCount</code></td>
+	    <td>sygnał, że odpowiedź pochodzi z pamięci podręcznej dostawcy — powtórzony pomiar
+	        na tym samym materiale <strong>nie jest niezależną próbką</strong></td></tr>
+</table>
+
+<!-- ============ S5 ============ -->
+<h1 class="rozdzial">5. S5 — Opcje konfiguracyjne</h1>
+
+<h2>Opcje robocze</h2>
+<table class="tech">
+	<tr><th>Opcja</th><th>Zawartość</th><th>Uwagi</th></tr>
+	<tr><td><code>ainp_settings</code></td><td>tablica pól ustawień — niżej</td><td>—</td></tr>
+	<tr><td><code>ainp_sources</code></td><td>lista adresów kanałów RSS</td>
+	    <td><strong>brak opcji ≠ pusta tablica</strong>: brak daje cztery kanały domyślne,
+	        pusta tablica wyłącza pobieranie</td></tr>
+	<tr><td><code>ainp_key</code></td><td>klucz API</td><td>autoładowanie wyłączone</td></tr>
+	<tr><td><code>ainp_usage</code></td><td><code>{ "date": "RRRR-MM-DD", "count": N }</code></td>
+	    <td>licznik dobowy wywołań modelu</td></tr>
+	<tr><td><code>ainp_run_lock</code></td><td><code>czas.identyfikator</code></td>
+	    <td>zamek przebiegu; TTL <span class="nolam">120 s</span></td></tr>
+</table>
+
+<h2>Opcje stanu</h2>
+<table class="tech">
+	<tr><th>Opcja</th><th>Zawartość</th></tr>
+	<tr><td><code>ainp_topics_seeded</code></td><td>odcisk listy kategorii już zasianych</td></tr>
+	<tr><td><code>ainp_topic_children</code></td><td>powiązania terminów podrzędnych</td></tr>
+	<tr><td><code>ainp_slug_collision</code></td>
+	    <td>sygnał, że witryna ma już Stronę o adresie <code>centrum-wiedzy</code></td></tr>
+</table>
+
+<h2>Pola w <code>ainp_settings</code></h2>
+<table class="tech">
+	<tr><th>Pole</th><th>Etykieta w kokpicie</th><th>Wartość domyślna</th></tr>
+	<tr><td><code>categories</code></td><td>Kategorie</td>
+	    <td>Żywienie, Zdrowie, Zachowanie, Szkolenie, Pielęgnacja, Rasy, Życie z psem</td></tr>
+	<tr><td><code>excluded_words</code></td><td>Słowa wykluczające</td>
+	    <td>lista trójwarstwowa: inne gatunki, ogłoszenia i komercja, treści drażliwe</td></tr>
+	<tr><td><code>required_words</code></td><td>Słowa wymagane</td>
+	    <td>formy odmienione słowa „pies”; <strong>pusta lista wyłącza bramkę</strong></td></tr>
+	<tr><td><code>prompt</code></td><td>Prompt</td><td>instrukcja systemowa dla modelu</td></tr>
+	<tr><td><code>model</code></td><td>Model</td><td><code>gemini-2.5-flash</code></td></tr>
+	<tr><td><code>daily_cap</code></td><td>Sufit wywołań AI na dobę</td><td><span class="nolam">20</span></td></tr>
+	<tr><td><code>save_as_draft</code></td><td>Publikacja</td>
+	    <td>wyłączone — artykuły publikowane, nie zapisywane jako szkice</td></tr>
+</table>
+
+<div class="uwaga">
+	<p><strong>Porównanie słów pomija znaki diakrytyczne</strong> i stosuje granicę słowa.
+	   Formy odmienione trzeba wypisać osobno — wtyczka nie odmienia wyrazów.</p>
+</div>
+
+<!-- ============ S6 ============ -->
+<h1 class="rozdzial">6. S6 — Typ treści, taksonomia, adresy</h1>
+
+<table class="tech">
+	<tr><th>Element</th><th>Wartość</th></tr>
+	<tr><td>Typ treści</td><td><code>ainp_article</code>, publiczny, edytor blokowy,
+	    <strong>bez własnej pozycji w menu kokpitu</strong></td></tr>
+	<tr><td>Obsługiwane pola</td><td>tytuł, treść, zajawka</td></tr>
+	<tr><td>Etykieta archiwum</td><td><strong>Centrum Wiedzy</strong> — pod tą nazwą pozycja
+	    występuje w edytorze menu</td></tr>
+	<tr><td>Taksonomia</td><td><code>ainp_topic</code>, hierarchiczna, widoczna jako kolumna
+	    na liście wpisów</td></tr>
+	<tr><td>Meta wpisu</td><td><code>_ainp_item_id</code> · <code>_ainp_source_url</code> ·
+	    <code>_ainp_demo</code></td></tr>
+</table>
+
+<h2>Adresy</h2>
+<table class="tech">
+	<tr><th>Widok</th><th>Adres</th></tr>
+	<tr><td>Archiwum</td><td><code>/centrum-wiedzy/</code></td></tr>
+	<tr><td>Artykuł</td><td><code>/centrum-wiedzy/{slug-artykulu}/</code></td></tr>
+	<tr><td>Kategoria</td><td><code>/centrum-wiedzy/kategoria/{slug-kategorii}/</code></td></tr>
+	<tr><td>Wyszukiwanie</td><td><code>/centrum-wiedzy/?ainp_s={fraza}</code></td></tr>
+	<tr><td>Stronicowanie</td><td><code>/centrum-wiedzy/page/{n}/</code>, po
+	    <span class="nolam">10</span> pozycji</td></tr>
+</table>
+
+<div class="uwaga">
+	<p><strong>Człon <code>kategoria</code> nie jest ozdobnikiem.</strong> Bez niego reguła
+	   adresu artykułu i reguła adresu kategorii mają identyczny wzorzec, a WordPress
+	   wybiera pierwszą z brzegu — adres kategorii zwracał wtedy 404 z zapytaniem o artykuł
+	   o takim slugu.</p>
+</div>
+
+<h2>Zasoby w paczce</h2>
+<table class="tech">
+	<tr><th>Ścieżka</th><th>Zawartość</th></tr>
+	<tr><td><code>assets/kategorie/{slug}.jpg</code></td>
+	    <td>zdjęcie kategorii, wariant podstawowy</td></tr>
+	<tr><td><code>assets/kategorie/{slug}-2.jpg</code>, <code>-3.jpg</code></td>
+	    <td>warianty dodatkowe; sufit wariantów: <span class="nolam">3</span></td></tr>
+	<tr><td>format</td><td>JPEG <span class="nolam">1200 × 675</span></td></tr>
+</table>
+
+<!-- ============ S7 ============ -->
+<h1 class="rozdzial">7. S7 — Komunikaty i powody odrzucenia</h1>
+<p class="rozdzial__wstep">Teksty trafiające do kolumny <code>note</code> i widoczne
+   w panelu w kolumnie <strong>Powód</strong>.</p>
+
+<table class="tech">
+	<tr><th>Komunikat</th><th>Status</th><th>Znaczenie</th></tr>
+	<tr><td>„Słowo wykluczające: <em>{słowo}</em>”</td><td><code>skipped</code></td>
+	    <td>trafienie listy wykluczeń w tytule, zajawce lub treści</td></tr>
+	<tr><td>„Poza tematem: brak słowa wymaganego w tytule i zajawce”</td><td><code>skipped</code></td>
+	    <td>bramka słów wymaganych</td></tr>
+	<tr><td>„Brak klucza API w Ustawieniach”</td><td><code>failed</code></td>
+	    <td>wywołanie nie zostało podjęte</td></tr>
+	<tr><td>„Wyczerpany sufit dobowy wywołań AI”</td><td><code>failed</code></td>
+	    <td>licznik osiągnął wartość z Ustawień</td></tr>
+	<tr><td>„Za mało czasu w tym przebiegu na wywołanie AI”</td><td>bez zmiany</td>
+	    <td>pozostały budżet poniżej <span class="nolam">8 s</span>; pozycja zostaje
+	        w <code>new</code>, licznik prób nietknięty</td></tr>
+	<tr><td>„cURL error 28: Operation timed out…”</td><td><code>failed</code></td>
+	    <td>żądanie ucięte po czasie — <strong>slot został zużyty</strong></td></tr>
+	<tr><td>HTTP 400 od dostawcy</td><td><code>failed</code></td>
+	    <td>błędne żądanie; odrzucone żądanie <strong>nie zużywa</strong> przydziału
+	        po stronie dostawcy</td></tr>
+	<tr><td>HTTP 503 od dostawcy</td><td><code>failed</code></td>
+	    <td>chwilowa niedostępność, nie limit — ponowienie zwykle przechodzi</td></tr>
+</table>
+
+<h2>Komunikaty kokpitu</h2>
+<table class="tech">
+	<tr><th>Komunikat</th><th>Kiedy</th></tr>
+	<tr><td>„Lista kanałów RSS jest pusta — dopisz adresy w Ustawieniach.”</td>
+	    <td>opcja kanałów zapisana jako pusta tablica</td></tr>
+	<tr><td>Ostrzeżenie o zajętym adresie <code>centrum-wiedzy</code></td>
+	    <td>witryna ma już Stronę o tym adresie — sygnał zapisany przy aktywacji</td></tr>
+	<tr><td>„Ostatni automatyczny przebieg …”</td>
+	    <td>podsumowanie z transientu ważnego <span class="nolam">24 h</span></td></tr>
+</table>
+
+</div>
+
+</body>
+</html>

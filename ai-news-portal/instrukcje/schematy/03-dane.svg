@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="900" viewBox="0 0 1560 900" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<defs><marker id="grot" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#475569"/></marker></defs>
+<rect width="1560" height="900" fill="#FFFFFF"/>
+<text x="24" y="36" font-size="19" font-weight="700" fill="#0F172A">Dane wtyczki — jedna tabela, jeden typ treści, pięć opcji</text>
+<text x="24" y="58" font-size="12.5" fill="#475569">Wszystko z prefiksem ainp_. Odinstalowanie kasuje każdą z tych rzeczy — razem z artykułami.</text>
+<rect x="20" y="90" width="520" height="560" rx="12" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="34" y="112" font-size="13" font-weight="700" fill="#334155">Tabela własna</text>
+<rect x="570" y="90" width="470" height="340" rx="12" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="584" y="112" font-size="13" font-weight="700" fill="#334155">Typy treści WordPressa</text>
+<rect x="1070" y="90" width="470" height="560" rx="12" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1084" y="112" font-size="13" font-weight="700" fill="#334155">Opcje</text>
+<line x1="520.0" y1="206.7" x2="590.0" y2="201.4" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="805.0" y1="240.0" x2="805.0" y2="260.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="805.0" y1="240.0" x2="805.0" y2="366.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="368.8" y1="320.0" x2="723.9" y2="700.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="802.6" y1="240.0" x2="782.6" y2="700.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1228.2" y1="544.0" x2="904.5" y2="700.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<rect x="40" y="130" width="480" height="190" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="280.0" y="186.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">wp_ainp_items — kolejka materiałów</text>
+<text x="280.0" y="203.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">id · url (2048) · url_hash UNIQUE</text>
+<text x="280.0" y="220.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">content_hash UNIQUE NULL · title · excerpt</text>
+<text x="280.0" y="237.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">content (longtext) · status · note</text>
+<text x="280.0" y="254.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">attempts · post_id · created_at · updated_at</text>
+<text x="280.0" y="271.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">KEY (status, updated_at) · InnoDB</text>
+<rect x="40" y="350" width="480" height="175" rx="9" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="280.0" y="399.0" font-size="12.5" font-weight="700" fill="#0F172A" text-anchor="middle">Statusy pozycji</text>
+<text x="280.0" y="416.0" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">new — czeka</text>
+<text x="280.0" y="433.0" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">processing — w obróbce (TTL 900 s)</text>
+<text x="280.0" y="450.0" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">done — powstał artykuł</text>
+<text x="280.0" y="467.0" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">skipped — odrzucona świadomie</text>
+<text x="280.0" y="484.0" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">failed — próba nieudana, treść zostaje</text>
+<rect x="40" y="550" width="480" height="80" rx="9" fill="#FFF7ED" stroke="#EA580C" stroke-width="2"/>
+<text x="280.0" y="577.0" font-size="12.5" font-weight="700" fill="#7C2D12" text-anchor="middle">Dwa klucze UNIQUE = brak duplikatów</text>
+<text x="280.0" y="594.0" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">content_hash dopuszcza NULL — pozycje</text>
+<text x="280.0" y="611.0" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">przed doczytaniem treści nie kolidują</text>
+<rect x="590" y="130" width="430" height="110" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="805.0" y="163.5" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">ainp_article (typ treści)</text>
+<text x="805.0" y="180.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">publiczny, w edytorze blokowym</text>
+<text x="805.0" y="197.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">BEZ własnej pozycji w menu kokpitu</text>
+<text x="805.0" y="214.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">archiwum: /centrum-wiedzy/</text>
+<rect x="590" y="260" width="430" height="92" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="805.0" y="293.0" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">ainp_topic (taksonomia)</text>
+<text x="805.0" y="310.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">hierarchiczna, 7 terminów zasianych</text>
+<text x="805.0" y="327.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">adres: /centrum-wiedzy/kategoria/…</text>
+<rect x="590" y="366" width="430" height="50" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="805.0" y="386.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">Meta wpisu</text>
+<text x="805.0" y="403.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">_ainp_item_id · _ainp_source_url · _ainp_demo</text>
+<rect x="1090" y="130" width="430" height="74" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="1305.0" y="154.0" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">ainp_settings</text>
+<text x="1305.0" y="171.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">kategorie, słowa, prompt, model,</text>
+<text x="1305.0" y="188.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">sufit dobowy, tryb szkicu</text>
+<rect x="1090" y="224" width="430" height="74" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="1305.0" y="248.0" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">ainp_sources</text>
+<text x="1305.0" y="265.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">lista kanałów RSS</text>
+<text x="1305.0" y="282.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">BRAK opcji ≠ pusta lista</text>
+<rect x="1090" y="318" width="430" height="56" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="1305.0" y="341.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">ainp_key</text>
+<text x="1305.0" y="358.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">klucz API, autoload wyłączony</text>
+<rect x="1090" y="394" width="430" height="56" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="1305.0" y="417.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">ainp_usage</text>
+<text x="1305.0" y="434.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">data + licznik wywołań AI</text>
+<rect x="1090" y="470" width="430" height="74" rx="9" fill="#FFF7ED" stroke="#EA580C" stroke-width="2"/>
+<text x="1305.0" y="494.0" font-size="12.5" font-weight="700" fill="#7C2D12" text-anchor="middle">ainp_run_lock</text>
+<text x="1305.0" y="511.0" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">zamek przebiegu: czas.uniqid</text>
+<text x="1305.0" y="528.0" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">INSERT IGNORE + przejęcie po TTL</text>
+<rect x="1090" y="564" width="430" height="56" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="1305.0" y="587.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">Pozostałe: ainp_topics_seeded,</text>
+<text x="1305.0" y="604.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">ainp_topic_children, ainp_slug_collision</text>
+<rect x="420" y="700" width="720" height="120" rx="9" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="780.0" y="738.5" font-size="12.5" font-weight="700" fill="#7F1D1D" text-anchor="middle">uninstall.php — kasuje WSZYSTKO powyżej</text>
+<text x="780.0" y="755.5" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">wpisy i ich meta · terminy · tabela (DROP)</text>
+<text x="780.0" y="772.5" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">opcje z jawnej listy + zamiatanie po prefiksie ainp_</text>
+<text x="780.0" y="789.5" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">transienty _transient_ainp_* · zdarzenie ainp_tick</text>
+<rect x="524.5" y="194.0" width="61.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="555.0" y="208.0" font-size="11" fill="#334155" text-anchor="middle">post_id</text>
+<rect x="767.5" y="240.0" width="75.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="805.0" y="254.0" font-size="11" fill="#334155" text-anchor="middle">kategoria</text>
+<rect x="24" y="783" width="26" height="14" rx="4" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="58" y="794" font-size="11.5" fill="#334155">Trwałe dane</text>
+<rect x="24" y="803" width="26" height="14" rx="4" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="58" y="814" font-size="11.5" fill="#334155">Twór WordPressa</text>
+<rect x="24" y="823" width="26" height="14" rx="4" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="58" y="834" font-size="11.5" fill="#334155">Zbiór wartości</text>
+<rect x="24" y="843" width="26" height="14" rx="4" fill="#FFF7ED" stroke="#EA580C" stroke-width="2"/>
+<text x="58" y="854" font-size="11.5" fill="#334155">Miejsce wrażliwe</text>
+<rect x="24" y="863" width="26" height="14" rx="4" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="58" y="874" font-size="11.5" fill="#334155">Operacja nieodwracalna</text>
+</svg>

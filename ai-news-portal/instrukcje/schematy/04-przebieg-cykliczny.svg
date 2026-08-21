@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1560" height="940" viewBox="0 0 1560 940" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<defs><marker id="grot" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#475569"/></marker></defs>
+<rect width="1560" height="940" fill="#FFFFFF"/>
+<text x="24" y="36" font-size="19" font-weight="700" fill="#0F172A">Przebieg cykliczny — trzy fazy pod jednym zamkiem</text>
+<text x="24" y="58" font-size="12.5" fill="#475569">ainp_tick, co godzinę, tylko przy ruchu na witrynie. Budżet 20 s dzielony ¼ / ¼ / reszta. Przyciski panelu wołają te same fazy z własnymi budżetami.</text>
+<rect x="500" y="100" width="700" height="470" rx="12" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="514" y="122" font-size="13" font-weight="700" fill="#334155">Trzy fazy, zawsze w tej kolejności</text>
+<line x1="260.0" y1="120.0" x2="260.0" y2="148.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="260.0" y1="226.0" x2="260.0" y2="254.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="440.0" y1="190.4" x2="520.0" y2="191.8" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="850.0" y1="252.0" x2="850.0" y2="270.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="850.0" y1="378.0" x2="850.0" y2="396.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="850.0" y1="504.0" x2="850.0" y2="620.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1005.9" y1="396.0" x2="1240.0" y2="314.9" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="440.0" y1="220.9" x2="1240.0" y2="371.7" stroke="#475569" stroke-width="2" marker-end="url(#grot)" stroke-dasharray="6 5"/>
+<line x1="850.0" y1="680.0" x2="850.0" y2="708.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="260.0" y1="620.0" x2="260.0" y2="226.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)" stroke-dasharray="6 5"/>
+<rect x="80" y="60" width="360" height="60" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="260.0" y="85.5" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">WP-Cron: ainp_tick</text>
+<text x="260.0" y="102.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">powtarzalne, hourly</text>
+<rect x="80" y="148" width="360" height="78" rx="9" fill="#FFF7ED" stroke="#EA580C" stroke-width="2"/>
+<text x="260.0" y="174.0" font-size="12.5" font-weight="700" fill="#7C2D12" text-anchor="middle">Zamek ainp_run_lock</text>
+<text x="260.0" y="191.0" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">INSERT IGNORE — kto pierwszy, ten jedzie</text>
+<text x="260.0" y="208.0" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">przejęcie po TTL 120 s (CAS po tokenie)</text>
+<rect x="80" y="254" width="360" height="60" rx="9" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="260.0" y="279.5" font-size="12.5" font-weight="700" fill="#0F172A" text-anchor="middle">Zamek zajęty → przebieg kończy się</text>
+<text x="260.0" y="296.5" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">bez pracy i bez błędu</text>
+<rect x="520" y="144" width="660" height="108" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="850.0" y="176.5" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">FAZA 1 — pobranie</text>
+<text x="850.0" y="193.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">kanały z listy, do 100 pozycji na kanał</text>
+<text x="850.0" y="210.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">dedup po adresie, zapis jako new</text>
+<text x="850.0" y="227.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">działka czasu: ¼ budżetu · ZERO wywołań AI</text>
+<rect x="520" y="270" width="660" height="108" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="850.0" y="302.5" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">FAZA 2 — przygotowanie</text>
+<text x="850.0" y="319.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">partia 10 pozycji: filtr słów, doczytanie treści,</text>
+<text x="850.0" y="336.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">dedup po treści</text>
+<text x="850.0" y="353.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">działka: ¼ budżetu · ZERO wywołań AI</text>
+<rect x="520" y="396" width="660" height="108" rx="9" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="850.0" y="428.5" font-size="12.5" font-weight="700" fill="#7F1D1D" text-anchor="middle">FAZA 3 — publikacja</text>
+<text x="850.0" y="445.5" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">do 3 pozycji, każda = 1 wywołanie AI</text>
+<text x="850.0" y="462.5" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">walidacja kontraktu, wpis, termin</text>
+<text x="850.0" y="479.5" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">działka: reszta budżetu</text>
+<rect x="1240" y="208" width="300" height="110" rx="9" fill="#FEFCE8" stroke="#CA8A04" stroke-width="2"/>
+<text x="1390.0" y="250.0" font-size="12.5" font-weight="700" fill="#713F12" text-anchor="middle">Budżet czasu przycina timeout żądania</text>
+<text x="1390.0" y="267.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">poniżej 8 s wywołania NIE zaczynamy —</text>
+<text x="1390.0" y="284.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">ucięte żądanie i tak spaliłoby slot</text>
+<rect x="1240" y="360" width="300" height="80" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="1390.0" y="395.5" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">Odzyskiwanie zawieszonych</text>
+<text x="1390.0" y="412.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">processing starszy niż 900 s wraca do new</text>
+<rect x="520" y="620" width="660" height="60" rx="9" fill="#FFF7ED" stroke="#EA580C" stroke-width="2"/>
+<text x="850.0" y="645.5" font-size="12.5" font-weight="700" fill="#7C2D12" text-anchor="middle">Zwolnienie zamka — WARUNKOWE</text>
+<text x="850.0" y="662.5" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">kasujemy tylko własny wpis (token)</text>
+<rect x="520" y="708" width="660" height="78" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="850.0" y="734.0" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">Ślad przebiegu w transiencie</text>
+<text x="850.0" y="751.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">ainp_last_tick, ważny 24 h — to on zasila ramkę</text>
+<text x="850.0" y="768.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">„Ostatni automatyczny przebieg” w panelu</text>
+<rect x="80" y="620" width="360" height="100" rx="9" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="260.0" y="657.0" font-size="12.5" font-weight="700" fill="#0F172A" text-anchor="middle">Panel: te same fazy, inne budżety</text>
+<text x="260.0" y="674.0" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">„Pobierz teraz” · „Przygotuj treści” (15 s)</text>
+<text x="260.0" y="691.0" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">„Opublikuj teraz” (30 s) · „Wznów nieudane”</text>
+<rect x="208.5" y="230.0" width="103.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="260.0" y="244.0" font-size="11" fill="#334155" text-anchor="middle">nie udało się</text>
+<rect x="428.5" y="181.1" width="103.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="480.0" y="195.1" font-size="11" fill="#334155" text-anchor="middle">zamek zdobyty</text>
+<rect x="1054.0" y="345.5" width="138.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="1123.0" y="359.5" font-size="11" fill="#334155" text-anchor="middle">ile czasu zostało?</text>
+<rect x="208.5" y="413.0" width="103.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="260.0" y="427.0" font-size="11" fill="#334155" text-anchor="middle">ten sam zamek</text>
+<rect x="24" y="783" width="26" height="14" rx="4" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="58" y="794" font-size="11.5" fill="#334155">Mechanizm WordPressa</text>
+<rect x="24" y="803" width="26" height="14" rx="4" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="58" y="814" font-size="11.5" fill="#334155">Faza bez kosztu</text>
+<rect x="24" y="823" width="26" height="14" rx="4" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="58" y="834" font-size="11.5" fill="#334155">Faza płatna slotami</text>
+<rect x="24" y="843" width="26" height="14" rx="4" fill="#FFF7ED" stroke="#EA580C" stroke-width="2"/>
+<text x="58" y="854" font-size="11.5" fill="#334155">Ochrona przed wyścigiem</text>
+<rect x="24" y="863" width="26" height="14" rx="4" fill="#FEFCE8" stroke="#CA8A04" stroke-width="2"/>
+<text x="58" y="874" font-size="11.5" fill="#334155">Ochrona kosztu</text>
+<rect x="24" y="883" width="26" height="14" rx="4" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="58" y="894" font-size="11.5" fill="#334155">Uruchomienie ręczne</text>
+<rect x="24" y="903" width="26" height="14" rx="4" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="58" y="914" font-size="11.5" fill="#334155">Ślad przebiegu</text>
+</svg>

@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Instrukcja dla informatyka (Functional) — AI News Portal</title>
+<link rel="stylesheet" href="styl-tech.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<span class="okladka__etykieta">Functional</span>
+	<h1 class="okladka__tytul">Instrukcja dla informatyka</h1>
+	<p class="okladka__podtytul">AI News Portal — co system robi</p>
+
+	<div class="okladka__ramka">
+		<p><strong>Zakres.</strong> Dokument opisuje <strong>zachowanie funkcjonalne</strong>
+		   wtyczki: co robi, w jakiej kolejności, na jakich danych i z jakimi granicami.
+		   Wymagania jakościowe są w <strong>Wymaganiach niefunkcjonalnych</strong>,
+		   formaty danych w <strong>Schema — format danych</strong>, a zachowanie
+		   samoczynne i awaryjne w <strong>Instrukcjach systemowych</strong>.</p>
+		<p><strong>Odbiorca.</strong> Osoba wdrażająca lub utrzymująca witrynę WordPress.
+		   Zakłada się znajomość wtyczek, WP-Cron i podstaw PHP.</p>
+		<p><strong>Źródło.</strong> Każde twierdzenie tego dokumentu pochodzi z kodu wtyczki
+		   w wersji podanej w stopce, nie z założeń projektowych.</p>
+	</div>
+
+	<p class="okladka__stopka">
+		AI News Portal {{WERSJA}} · licencja {{LICENCJA}}<br>
+		Wymagania: WordPress 6.5+ · PHP 8.1+
+	</p>
+</section>
+
+<!-- ============ SPIS TREŚCI ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Spis treści</h1>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>Czym jest ten system</strong>
+			<span class="spis__opis">Granice odpowiedzialności i zależności zewnętrzne.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>Architektura wykonawcza</strong>
+			<span class="spis__opis">Warstwy, klasy i przepływ sterowania.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>F1 — Pobieranie z kanałów</strong>
+			<span class="spis__opis">Od adresu RSS do wiersza w kolejce.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>F2 — Filtrowanie i przygotowanie treści</strong>
+			<span class="spis__opis">Cztery bramki działające przed modelem.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>F3 — Generowanie artykułu</strong>
+			<span class="spis__opis">Wywołanie modelu z wymuszonym schematem odpowiedzi.</span></span></li>
+		<li><span class="spis__nr">6</span><span><strong>F4 — Publikacja</strong>
+			<span class="spis__opis">Wpis, kategoria, idempotencja.</span></span></li>
+		<li><span class="spis__nr">7</span><span><strong>F5 — Warstwa publiczna</strong>
+			<span class="spis__opis">Centrum Wiedzy, artykuł, kategoria, wyszukiwanie.</span></span></li>
+		<li><span class="spis__nr">8</span><span><strong>F6 — Zadania cykliczne i zamek</strong>
+			<span class="spis__opis">Trzy fazy, budżet czasu, przejęcie po awarii.</span></span></li>
+		<li><span class="spis__nr">9</span><span><strong>F7 — Uprawnienia i ochrona żądań</strong>
+			<span class="spis__opis">Kto może co uruchomić.</span></span></li>
+		<li><span class="spis__nr">10</span><span><strong>F8 — Nagłówki bezpieczeństwa</strong>
+			<span class="spis__opis">Polityka uzupełniająca, nigdy nadpisująca.</span></span></li>
+		<li><span class="spis__nr">11</span><span><strong>Wdrożenie i weryfikacja</strong>
+			<span class="spis__opis">Kolejność kroków i kryteria odbioru.</span></span></li>
+	</ol>
+</section>
+
+<div class="ciagly">
+
+<!-- ============ 1. CZYM JEST ============ -->
+<h1 class="rozdzial">1. Czym jest ten system</h1>
+<p class="rozdzial__wstep">Wtyczka WordPressa, która buduje i utrzymuje portal wiedzy,
+   czerpiąc materiał z publicznych kanałów RSS i przepisując go modelem językowym
+   na własne artykuły.</p>
+
+<p>W odróżnieniu od typowych wtyczek treściowych <strong>nie czyta treści witryny,
+   na której działa</strong>. Materiał wchodzi wyłącznie z zewnątrz — z adresów RSS
+   podanych w Ustawieniach — i wychodzi jako wpisy własnego typu treści
+   <code>ainp_article</code>.</p>
+
+<h2>Granice odpowiedzialności</h2>
+<table class="tech">
+	<tr><th>System odpowiada za</th><th>System NIE odpowiada za</th></tr>
+	<tr>
+		<td>Pobranie i odsianie materiału, wywołanie modelu, walidację odpowiedzi,
+		    publikację, prezentację archiwum i artykułu, pilnowanie dobowego sufitu wywołań.</td>
+		<td>Merytoryczną poprawność tekstów wytworzonych przez model, prawa autorskie
+		    do treści źródłowych poza cytowaniem adresu, dostępność serwisów zewnętrznych,
+		    uruchamianie WP-Cron przy braku ruchu na witrynie.</td>
+	</tr>
+</table>
+
+<h2>Zależność zewnętrzna</h2>
+<p>Jedna: <strong>Google Gemini</strong> przez punkt końcowy
+   <code>v1beta/models/{model}:generateContent</code>. Model domyślny to
+   <code>gemini-2.5-flash</code>, edytowalny w Ustawieniach. Klucz API dostarcza właściciel
+   witryny; wtyczka nie zawiera żadnego klucza wbudowanego.</p>
+<p>Wszystkie pozostałe zależności to rdzeń WordPressa: <code>wp_safe_remote_get</code>,
+   WP-Cron, typy treści, taksonomie, <code>dbDelta</code>.</p>
+
+<div class="uwaga">
+	<p><strong>Trzy zabezpieczenia nienaruszalne</strong> — do nich sprowadza się przegląd
+	   każdej zmiany w tym systemie: nie tworzy duplikatów, nie publikuje odpowiedzi, która
+	   nie przeszła walidacji, nie zatrzymuje się na dobre z powodu pojedynczego błędu.</p>
+</div>
+
+<!-- ============ 2. ARCHITEKTURA ============ -->
+<h1 class="rozdzial">2. Architektura wykonawcza</h1>
+<p class="rozdzial__wstep">Siedemnaście plików w <code>src/</code>, jedna tabela, jeden typ
+   treści, jedna taksonomia. Zero wspólnego kodu z drugą wtyczką w paczce.</p>
+
+<h2>Warstwy</h2>
+<table class="tech">
+	<tr><th>Warstwa</th><th>Klasy</th><th>Odpowiedzialność</th></tr>
+	<tr><td>Cykl życia</td><td><code>Plugin</code></td>
+	    <td>Aktywacja, dezaktywacja, rejestracja typów treści, tabela, harmonogram.</td></tr>
+	<tr><td>Sieć</td><td><code>Http</code>, <code>Feed</code></td>
+	    <td>Żądania wychodzące z limitami i budżetem czasu; rozbiór RSS 2.0 i Atom.</td></tr>
+	<tr><td>Odsiew</td><td><code>Filter</code>, <code>Dedup</code>, <code>Article</code></td>
+	    <td>Słowa wykluczające i wymagane, powtórki po adresie i po treści, ekstrakcja tekstu.</td></tr>
+	<tr><td>Model</td><td><code>Gemini</code>, <code>Validator</code></td>
+	    <td>Wywołanie z wymuszonym schematem, licznik dobowy, kontrola kontraktu odpowiedzi.</td></tr>
+	<tr><td>Orkiestracja</td><td><code>Runner</code></td>
+	    <td>Trzy fazy przebiegu, zamek, budżet czasu, obsługa niepowodzeń.</td></tr>
+	<tr><td>Publikacja</td><td><code>Publisher</code></td>
+	    <td>Wpis, termin taksonomii, idempotencja, usunięcie artykułu powitalnego.</td></tr>
+	<tr><td>Kokpit</td><td><code>Admin</code>, <code>Admin_Screen</code>, <code>Settings</code></td>
+	    <td>Dwa ekrany, cztery akcje, zapis ustawień.</td></tr>
+	<tr><td>Front</td><td><code>Portal</code>, szablony</td>
+	    <td>Archiwum, artykuł, kategoria, wyszukiwanie na własnym parametrze.</td></tr>
+	<tr><td>Nagłówki</td><td><code>Security</code></td>
+	    <td>Uzupełniające nagłówki bezpieczeństwa na widokach wtyczki.</td></tr>
+</table>
+
+</div>
+
+<section class="strona--diagram">
+	<img src="../schematy/druk/01-architektura-runtime.png" alt="Architektura wykonawcza AI News Portal">
+	<figcaption>Architektura wykonawcza AI News Portal · pełna skala w pliku źródłowym
+	   <code>schematy/01-architektura-runtime.drawio</code></figcaption>
+</section>
+
+<div class="ciagly">
+
+<!-- ============ 3. F1 ============ -->
+<h1 class="rozdzial">3. F1 — Pobieranie z kanałów</h1>
+<p class="rozdzial__wstep">Faza pierwsza przebiegu. Zamienia adresy RSS na wiersze
+   w kolejce. <strong>Nie wywołuje modelu i nic nie kosztuje.</strong></p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F1.1</span>
+		<p class="wym__tytul">Ustalenie listy kanałów</p></div>
+	<div class="wym__tresc">
+		<p>Lista pochodzi z opcji <code>ainp_sources</code>. Rozróżnienie jest istotne
+		   funkcjonalnie:</p>
+		<table class="tech">
+			<tr><th>Stan opcji</th><th>Zachowanie</th></tr>
+			<tr><td>opcja nie istnieje (świeża instalacja)</td>
+			    <td>Cztery kanały domyślne z <code>Settings::default_sources()</code>.</td></tr>
+			<tr><td>opcja zapisana jako pusta tablica</td>
+			    <td>Pustka — pobieranie nie robi nic. Świadoma decyzja właściciela
+			        nie jest cofana.</td></tr>
+		</table>
+		<p class="wym__meta">Adresy są czyszczone: dopuszczalne tylko <code>http</code>
+		   i <code>https</code>, powtórzenia usuwane.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F1.2</span>
+		<p class="wym__tytul">Pobranie i rozbiór kanału</p></div>
+	<div class="wym__tresc">
+		<p>Żądanie <code>GET</code> przez <code>wp_safe_remote_get</code>, timeout
+		   <span class="nolam">10 s</span>, sufit odpowiedzi <span class="nolam">4 MB</span>,
+		   do <span class="nolam">3</span> przekierowań. Obsługiwane są <strong>RSS 2.0
+		   i Atom</strong>, wraz z <code>content:encoded</code> i <code>dc:date</code>.</p>
+		<p class="wym__meta">Z jednego kanału bierzemy najwyżej
+		   <span class="nolam">100</span> pozycji na przebieg.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F1.3</span>
+		<p class="wym__tytul">Normalizacja adresu i pierwsza bramka powtórek</p></div>
+	<div class="wym__tresc">
+		<p>Z adresu usuwane są parametry śledzące (<code>utm_*</code>, <code>gclid</code>,
+		   <code>fbclid</code> i pokrewne), po czym liczony jest <code>url_hash</code>.
+		   Kolumna ma klucz <code>UNIQUE</code>, więc powtórka nie ma jak wejść do tabeli
+		   nawet przy równoległych przebiegach.</p>
+		<p class="wym__meta">To jest pierwsze z trzech zabezpieczeń nienaruszalnych,
+		   wymuszone na poziomie bazy, nie kodu.</p>
+	</div>
+</div>
+
+<!-- ============ 4. F2 ============ -->
+<h1 class="rozdzial">4. F2 — Filtrowanie i przygotowanie treści</h1>
+<p class="rozdzial__wstep">Faza druga. Odsiewa materiał i uzupełnia treść, gdy kanał podał
+   samą zapowiedź. <strong>Nadal bez modelu.</strong> Partia to
+   <span class="nolam">10</span> pozycji.</p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F2.1</span>
+		<p class="wym__tytul">Filtr dwustronny — wykluczenia i wymagania</p></div>
+	<div class="wym__tresc">
+		<p>Dwie listy odpowiadające na przeciwne pytania:</p>
+		<table class="tech">
+			<tr><th>Lista</th><th>Zakres przeszukania</th><th>Skutek trafienia</th></tr>
+			<tr><td><strong>Słowa wykluczające</strong></td>
+			    <td>tytuł + zajawka + treść</td>
+			    <td>odrzucenie pozycji (<code>skipped</code>), powód w kolumnie <code>note</code></td></tr>
+			<tr><td><strong>Słowa wymagane</strong></td>
+			    <td>tytuł + zajawka</td>
+			    <td>brak trafienia = odrzucenie jako „poza tematem”</td></tr>
+		</table>
+		<p>Porównanie idzie po tekście bez znaków diakrytycznych, z granicą słowa —
+		   formy odmienione muszą być wypisane osobno.</p>
+		<p class="wym__meta"><strong>Pusta lista wymaganych wyłącza bramkę.</strong>
+		   Zachowanie zamierzone: właściciel, który wyczyści pole, dostaje filtr sprzed
+		   wariantu wymagań, a nie portal bez ochrony tematycznej mimo woli.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F2.2</span>
+		<p class="wym__tytul">Doczytanie treści ze strony źródłowej</p></div>
+	<div class="wym__tresc">
+		<p>Uruchamiane wyłącznie wtedy, gdy treść z kanału jest krótsza niż
+		   <span class="nolam">1200</span> znaków. Żądanie <code>GET</code>, timeout
+		   <span class="nolam">15 s</span>, sufit <span class="nolam">1 MB</span>.
+		   Z dokumentu wybierany jest blok o największej gęstości tekstu; wynik jest
+		   przycinany do <span class="nolam">20 000</span> znaków.</p>
+		<p class="wym__meta">Adres kanoniczny ze strony docelowej zastępuje adres z kanału,
+		   jeśli się różni — to zamyka drogę powtórkom pod adresami przekierowującymi.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F2.3</span>
+		<p class="wym__tytul">Druga bramka powtórek — po treści</p></div>
+	<div class="wym__tresc">
+		<p>Liczony jest <code>content_hash</code> (SHA-256) z próbki
+		   <span class="nolam">8 KB</span> znormalizowanego tekstu. Kolumna ma klucz
+		   <code>UNIQUE</code> dopuszczający <code>NULL</code>, więc pozycje przed
+		   doczytaniem treści nie kolidują ze sobą.</p>
+		<p class="wym__meta">Ta bramka łapie ten sam artykuł opublikowany w dwóch kanałach
+		   pod różnymi adresami.</p>
+	</div>
+</div>
+
+</div>
+
+<section class="strona--diagram">
+	<img src="../schematy/druk/02-droga-pozycji.png" alt="Droga pozycji od kanału RSS do artykułu">
+	<figcaption>Droga pozycji od kanału RSS do opublikowanego artykułu · pełna skala
+	   w <code>schematy/02-droga-pozycji.drawio</code></figcaption>
+</section>
+
+<div class="ciagly">
+
+<!-- ============ 5. F3 ============ -->
+<h1 class="rozdzial">5. F3 — Generowanie artykułu</h1>
+<p class="rozdzial__wstep">Faza trzecia i jedyna płatna. Każda przerabiana pozycja
+   to <strong>jedno wywołanie modelu</strong> z dobowej puli.</p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F3.1</span>
+		<p class="wym__tytul">Wybór pozycji i rezerwacja slotu</p></div>
+	<div class="wym__tresc">
+		<p>Brane są wiersze o statusie <code>new</code> z niepustą treścią, najwyżej
+		   <span class="nolam">3</span> w jednym oknie budżetu. Bramka słów wymaganych
+		   jest sprawdzana <strong>ponownie</strong> w punkcie wyboru — ustawienia mogły
+		   się zmienić po pobraniu.</p>
+		<p class="wym__meta"><strong>Slot rezerwowany jest PRZED wywołaniem.</strong>
+		   Żądanie ucięte po czasie również go zużywa — po stronie Google praca została
+		   wykonana.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F3.2</span>
+		<p class="wym__tytul">Budowa materiału i ochrona przed wstrzyknięciem</p></div>
+	<div class="wym__tresc">
+		<p>Materiał składa się z tytułu (do <span class="nolam">300</span> znaków), adresu
+		   (do <span class="nolam">500</span>) i treści <strong>uciętej do
+		   <span class="nolam">12 000</span> znaków</strong>. Treść jest opakowana
+		   w ogrodzenie <code>&lt;&lt;&lt;MATERIAL_ZRODLOWY … MATERIAL_ZRODLOWY&gt;&gt;&gt;</code>,
+		   a wystąpienia znacznika w samym materiale są neutralizowane.</p>
+		<p class="wym__meta">Sufit materiału jest wymogiem wydajnościowym, nie kosmetycznym:
+		   pozycje po <span class="nolam">40 000</span> znaków dawały czas odpowiedzi ponad
+		   <span class="nolam">30 s</span> i przekraczały budżet przebiegu.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F3.3</span>
+		<p class="wym__tytul">Wymuszony schemat odpowiedzi</p></div>
+	<div class="wym__tresc">
+		<p>Żądanie ustawia <code>responseMimeType</code> na JSON oraz
+		   <code>responseSchema</code> z czterema polami: <code>title</code>,
+		   <code>lead</code>, <code>content</code>, <code>topic</code>. Pole
+		   <code>topic</code> jest typu <code>enum</code> zbudowanego z listy kategorii
+		   z Ustawień.</p>
+		<p><code>temperature</code> = <span class="nolam">0.4</span>,
+		   <code>maxOutputTokens</code> = <span class="nolam">8192</span>, sufit odpowiedzi
+		   <span class="nolam">1 MB</span>.</p>
+		<p class="wym__meta">Schemat Gemini <strong>nie jest pełnym JSON Schema</strong>.
+		   Każde nieznane pole wywraca całe żądanie na HTTP 400 — dopisanie
+		   <code>additionalProperties</code> zablokowało kiedyś publikację w całości.
+		   Lista dozwolonych kluczy jest pilnowana testem.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F3.4</span>
+		<p class="wym__tytul">Walidacja kontraktu odpowiedzi</p></div>
+	<div class="wym__tresc">
+		<p>Wymuszony schemat gwarantuje <strong>składnię, nie sens</strong>. Po stronie
+		   wtyczki sprawdzane są:</p>
+		<table class="tech">
+			<tr><th>Pole</th><th>Warunek</th></tr>
+			<tr><td><code>title</code></td><td>od <span class="nolam">5</span> do <span class="nolam">140</span> znaków</td></tr>
+			<tr><td><code>lead</code></td><td>od <span class="nolam">20</span> do <span class="nolam">400</span> znaków</td></tr>
+			<tr><td><code>content</code></td><td>co najmniej <span class="nolam">800</span> znaków</td></tr>
+			<tr><td><code>topic</code></td><td>dokładne dopasowanie do kategorii z Ustawień</td></tr>
+		</table>
+		<p class="wym__meta">Niespełnienie któregokolwiek warunku oznacza
+		   <code>failed</code> — <strong>nie publikację z ostrzeżeniem</strong>.
+		   To drugie zabezpieczenie nienaruszalne.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F3.5</span>
+		<p class="wym__tytul">Sufit dobowy</p></div>
+	<div class="wym__tresc">
+		<p>Opcja <code>ainp_usage</code> trzyma parę <em>data + licznik</em>. Po osiągnięciu
+		   wartości z pola <strong>„Sufit wywołań AI na dobę”</strong> (domyślnie
+		   <span class="nolam">20</span>) dalsze wywołania nie są podejmowane, a pozycja
+		   dostaje notatkę <em>„Wyczerpany sufit dobowy wywołań AI”</em>.</p>
+		<p class="wym__meta">Licznik jest po stronie wtyczki i chroni przed odbiciem
+		   od limitu dostawcy, a nie zastępuje go.</p>
+	</div>
+</div>
+
+<!-- ============ 6. F4 ============ -->
+<h1 class="rozdzial">6. F4 — Publikacja</h1>
+<p class="rozdzial__wstep">Zamiana zwalidowanej odpowiedzi na wpis WordPressa.</p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F4.1</span>
+		<p class="wym__tytul">Wpis i powiązania</p></div>
+	<div class="wym__tresc">
+		<p>Powstaje wpis typu <code>ainp_article</code> ze statusem <code>publish</code>
+		   (albo <code>draft</code>, gdy w Ustawieniach włączono tryb szkiców). Tytuł
+		   i zajawka trafiają w pola natywne, treść w <code>post_content</code>.
+		   Kategoria z pola <code>topic</code> zostaje przypisana jako termin
+		   <code>ainp_topic</code>.</p>
+		<p>Zapisywane meta: <code>_ainp_item_id</code> (powiązanie z kolejką)
+		   oraz <code>_ainp_source_url</code> (adres źródła pokazywany w ramce artykułu).</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F4.2</span>
+		<p class="wym__tytul">Idempotencja</p></div>
+	<div class="wym__tresc">
+		<p>Wiersz kolejki niesie <code>post_id</code>. Powtórna publikacja tej samej pozycji
+		   aktualizuje istniejący wpis zamiast tworzyć drugi.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F4.3</span>
+		<p class="wym__tytul">Usunięcie artykułu powitalnego</p></div>
+	<div class="wym__tresc">
+		<p>Przy <strong>pierwszej publikacji ze statusem <code>publish</code></strong>
+		   kasowane są wpisy oznaczone meta <code>_ainp_demo</code>. Zapis szkicu
+		   artykułu powitalnego <em>nie</em> usuwa — portal nie może zostać bez treści.</p>
+	</div>
+</div>
+
+<!-- ============ 7. F5 ============ -->
+<h1 class="rozdzial">7. F5 — Warstwa publiczna</h1>
+<p class="rozdzial__wstep">Cztery widoki, zero JavaScriptu, jeden punkt załamania
+   układu (<span class="nolam">46 rem</span>).</p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F5.1</span>
+		<p class="wym__tytul">Adresy</p></div>
+	<div class="wym__tresc">
+		<table class="tech">
+			<tr><th>Widok</th><th>Adres</th></tr>
+			<tr><td>Archiwum (Centrum Wiedzy)</td><td><code>/centrum-wiedzy/</code></td></tr>
+			<tr><td>Artykuł</td><td><code>/centrum-wiedzy/tytul-artykulu/</code></td></tr>
+			<tr><td>Kategoria</td><td><code>/centrum-wiedzy/kategoria/zywienie/</code></td></tr>
+			<tr><td>Wyszukiwanie</td><td><code>/centrum-wiedzy/?ainp_s=fraza</code></td></tr>
+		</table>
+		<p class="wym__meta">Człon <code>kategoria</code> jest konieczny: bez niego reguła
+		   pojedynczego artykułu i reguła kategorii mają identyczny wzorzec, a WordPress
+		   wybiera pierwszą — adres kategorii zwracał wtedy 404.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F5.2</span>
+		<p class="wym__tytul">Pierwszeństwo motywu</p></div>
+	<div class="wym__tresc">
+		<p>Szablony wtyczki wchodzą tylko wtedy, gdy motyw nie dostarcza własnych dla tego
+		   typu treści. Arkusz stylów wtyczki <strong>nie ustawia kroju pisma ani tła</strong>
+		   — te dziedziczy z motywu, żeby portal wyglądał jak reszta witryny.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F5.3</span>
+		<p class="wym__tytul">Wyszukiwanie i paginacja</p></div>
+	<div class="wym__tresc">
+		<p>Wyszukiwarka korzysta z <strong>własnego parametru <code>ainp_s</code></strong>,
+		   nie z <code>s</code> WordPressa — dzięki temu nie miesza się z wyszukiwarką
+		   witryny. Archiwum stronicuje po <span class="nolam">10</span> pozycjach;
+		   kanał RSS archiwum nie jest ograniczany tą wartością.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F5.4</span>
+		<p class="wym__tytul">Zdjęcia kart</p></div>
+	<div class="wym__tresc">
+		<p>Karta bierze zdjęcie <strong>kategorii</strong>, nie artykułu — wtyczka świadomie
+		   nie pobiera zdjęć ze stron źródłowych ze względu na prawa autorskie. Każda
+		   kategoria ma do <span class="nolam">3</span> wariantów pliku, wybieranych
+		   rotacyjnie w obrębie listy, więc sąsiadujące karty tej samej kategorii nie
+		   powtarzają obrazu.</p>
+	</div>
+</div>
+
+</div>
+
+<section class="strona--diagram">
+	<img src="../schematy/druk/04-przebieg-cykliczny.png" alt="Przebieg cykliczny — trzy fazy pod jednym zamkiem">
+	<figcaption>Przebieg cykliczny · pełna skala w <code>schematy/04-przebieg-cykliczny.drawio</code></figcaption>
+</section>
+
+<div class="ciagly">
+
+<!-- ============ 8. F6 ============ -->
+<h1 class="rozdzial">8. F6 — Zadania cykliczne i zamek</h1>
+<p class="rozdzial__wstep">Jedno zdarzenie, trzy fazy, jeden zamek, jeden budżet czasu.</p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F6.1</span>
+		<p class="wym__tytul">Harmonogram</p></div>
+	<div class="wym__tresc">
+		<p>Zdarzenie <code>ainp_tick</code>, powtarzalne, częstotliwość <code>hourly</code>.
+		   Planowane przy aktywacji <strong>oraz domykane przy każdym starcie</strong>,
+		   więc aktualizacja wtyczki nie gubi harmonogramu. Zapis Ustawień planuje dodatkowo
+		   jedno zdarzenie jednorazowe.</p>
+		<p class="wym__meta">WP-Cron uruchamia się <strong>przy ruchu HTTP</strong>.
+		   Na witrynie bez odwiedzin portal nie pracuje — patrz rozdział 11.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F6.2</span>
+		<p class="wym__tytul">Zamek przebiegu</p></div>
+	<div class="wym__tresc">
+		<p>Opcja <code>ainp_run_lock</code> zakładana przez <code>INSERT IGNORE</code>
+		   — operację atomową na poziomie bazy. Wartość zamka to <em>czas + identyfikator
+		   przebiegu</em>. Zamek starszy niż <span class="nolam">120 s</span> może zostać
+		   przejęty przez inny przebieg (porównanie-i-zamiana po tokenie).</p>
+		<p class="wym__meta">Zwolnienie zamka jest <strong>warunkowe</strong>: przebieg
+		   kasuje wyłącznie własny wpis. Bezwarunkowe kasowanie powodowało, że proces
+		   po przekroczeniu TTL zdejmował cudzy zamek i dwa przebiegi pracowały nad tą
+		   samą pozycją.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F6.3</span>
+		<p class="wym__tytul">Budżet czasu</p></div>
+	<div class="wym__tresc">
+		<p>Przebieg cykliczny ma <span class="nolam">20 s</span>, dzielone
+		   <span class="nolam">¼</span> na pobranie, <span class="nolam">¼</span>
+		   na przygotowanie, reszta na publikację. Budżet <strong>przycina timeout
+		   żądania wychodzącego</strong>; poniżej <span class="nolam">8 s</span>
+		   wywołanie modelu nie jest w ogóle podejmowane.</p>
+		<p>Przyciski panelu mają własne budżety: przygotowanie
+		   <span class="nolam">15 s</span>, publikacja <span class="nolam">30 s</span>.</p>
+		<p class="wym__meta">Zasada: lepiej nie zaczynać niż zacząć i zostać uciętym —
+		   ucięte żądanie zużywa slot bez artykułu.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F6.4</span>
+		<p class="wym__tytul">Odzyskiwanie i ponowienia</p></div>
+	<div class="wym__tresc">
+		<p>Pozycja w stanie <code>processing</code> starszym niż
+		   <span class="nolam">900 s</span> wraca do <code>new</code>. Licznik
+		   <code>attempts</code> dopuszcza <span class="nolam">3</span> próby
+		   samoczynne; potem pozycja czeka na ręczne <strong>„Wznów nieudane”</strong>.</p>
+		<p class="wym__meta">Przy <code>failed</code> <strong>treść zawsze zostaje
+		   w tabeli</strong> — wznowienie nie wymaga ponownego pobrania ze źródła.
+		   To trzecie zabezpieczenie nienaruszalne.</p>
+	</div>
+</div>
+
+<!-- ============ 9. F7 ============ -->
+<h1 class="rozdzial">9. F7 — Uprawnienia i ochrona żądań</h1>
+<p class="rozdzial__wstep">Wtyczka nie wystawia własnych tras REST ani punktów publicznych
+   zmieniających stan. Cała obsługa idzie przez kokpit.</p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F7.1</span>
+		<p class="wym__tytul">Uprawnienie</p></div>
+	<div class="wym__tresc">
+		<p>Wszystkie ekrany i akcje wymagają <code>manage_options</code>. Typ treści
+		   korzysta ze standardowego mapowania uprawnień wpisów, więc redaktor może
+		   edytować artykuły, nie mając dostępu do panelu wtyczki.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F7.2</span>
+		<p class="wym__tytul">Cztery akcje panelu</p></div>
+	<div class="wym__tresc">
+		<table class="tech">
+			<tr><th>Akcja</th><th>Co uruchamia</th></tr>
+			<tr><td>„Pobierz teraz”</td><td>fazę F1 na pełnej liście kanałów</td></tr>
+			<tr><td>„Przygotuj treści”</td><td>fazę F2 na partii <span class="nolam">10</span> pozycji</td></tr>
+			<tr><td>„Opublikuj teraz”</td><td>fazę F3 na maks. <span class="nolam">3</span> pozycjach</td></tr>
+			<tr><td>„Wznów nieudane”</td><td>przywrócenie pozycji <code>failed</code> do kolejki</td></tr>
+		</table>
+		<p class="wym__meta">Każda akcja to żądanie <code>POST</code> chronione polem
+		   jednorazowym (nonce) i sprawdzeniem uprawnienia, wykonywane
+		   <strong>pod tym samym zamkiem</strong> co przebieg cykliczny.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F7.3</span>
+		<p class="wym__tytul">Przechowywanie klucza API</p></div>
+	<div class="wym__tresc">
+		<p>Klucz leży w osobnej opcji <code>ainp_key</code> z <strong>wyłączonym
+		   autoładowaniem</strong> — nie jest wczytywany przy każdym żądaniu do witryny.
+		   Nie trafia do żadnego widoku publicznego ani do dziennika.</p>
+	</div>
+</div>
+
+<!-- ============ 10. F8 ============ -->
+<h1 class="rozdzial">10. F8 — Nagłówki bezpieczeństwa</h1>
+<p class="rozdzial__wstep">Polityka <strong>uzupełniająca, nigdy nadpisująca</strong>:
+   wtyczka wysyła wyłącznie to, czego nikt wcześniej nie ustawił.</p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F8.1</span>
+		<p class="wym__tytul">Zestawy według widoku</p></div>
+	<div class="wym__tresc">
+		<table class="tech">
+			<tr><th>Widok</th><th>Nagłówki</th></tr>
+			<tr><td>strona portalu</td>
+			    <td><code>Referrer-Policy</code>, <code>X-Content-Type-Options</code>,
+			        <code>X-Frame-Options: SAMEORIGIN</code>, <code>Permissions-Policy</code>,
+			        <code>Content-Security-Policy</code> ograniczone do <code>frame-ancestors 'self'</code></td></tr>
+			<tr><td>osadzenie (oEmbed)</td>
+			    <td>bez <code>X-Frame-Options</code> i bez CSP — inaczej własne osadzenie
+			        przestałoby działać</td></tr>
+			<tr><td>kanał RSS</td>
+			    <td><code>X-Content-Type-Options</code> i <code>Referrer-Policy</code></td></tr>
+			<tr><td>kokpit</td><td>nic — to nie jest widok wtyczki</td></tr>
+		</table>
+		<p class="wym__meta">Pełnego CSP wtyczka <strong>nie narzuca</strong>: na cudzym
+		   motywie z własnymi skryptami zablokowałaby stronę.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">F8.2</span>
+		<p class="wym__tytul">Dwie drogi wyłączenia</p></div>
+	<div class="wym__tresc">
+		<p>Filtr <code>ainp_security_headers</code> (modyfikacja lub wyzerowanie tablicy
+		   nagłówków) oraz stała <code>AINP_NO_SECURITY_HEADERS</code> w
+		   <code>wp-config.php</code> (całkowite wyłączenie).</p>
+		<p class="wym__meta">Nagłówków wysyłanych przez serwer WWW (nginx, Apache) PHP
+		   nie widzi. Wtyczka wysyła swoje bez zastępowania, więc w takim układzie może
+		   powstać duplikat nagłówka.</p>
+	</div>
+</div>
+
+<!-- ============ 11. WDROŻENIE ============ -->
+<h1 class="rozdzial">11. Wdrożenie i weryfikacja</h1>
+
+<h2>Wymagania środowiska</h2>
+<table class="tech">
+	<tr><th>Element</th><th>Wymaganie</th></tr>
+	<tr><td>WordPress</td><td>6.5 lub nowszy</td></tr>
+	<tr><td>PHP</td><td>8.1 lub nowszy</td></tr>
+	<tr><td>Baza</td><td>MySQL/MariaDB z obsługą InnoDB</td></tr>
+	<tr><td>Ruch wychodzący</td><td>HTTPS do kanałów RSS, stron źródłowych
+	    i <code>generativelanguage.googleapis.com</code></td></tr>
+	<tr><td>Klucz API</td><td>Google Gemini, darmowy poziom wystarcza</td></tr>
+	<tr><td>Multisite</td><td><strong>nieobsługiwane</strong> — odinstalowanie działa
+	    na pojedynczej witrynie</td></tr>
+</table>
+
+<h2>Kolejność wdrożenia</h2>
+<ol class="spis">
+	<li><span class="spis__nr">1</span><span><strong>Instalacja i włączenie</strong>
+		<span class="spis__opis">Tabela, typy treści, przeładowanie reguł adresów, kategorie,
+		artykuł powitalny, harmonogram — wszystko przy aktywacji.</span></span></li>
+	<li><span class="spis__nr">2</span><span><strong>Klucz API</strong>
+		<span class="spis__opis">Ustawienia → „Klucz API Gemini”.</span></span></li>
+	<li><span class="spis__nr">3</span><span><strong>Weryfikacja adresów</strong>
+		<span class="spis__opis">Otworzyć <code>/centrum-wiedzy/</code>. Gdy 404 — zapisać
+		Bezpośrednie odnośniki.</span></span></li>
+	<li><span class="spis__nr">4</span><span><strong>Przebieg ręczny</strong>
+		<span class="spis__opis">Trzy przyciski panelu w kolejności od góry.</span></span></li>
+	<li><span class="spis__nr">5</span><span><strong>Zadanie cykliczne po stronie serwera</strong>
+		<span class="spis__opis">Zalecane na witrynach o małym ruchu — niżej.</span></span></li>
+	<li><span class="spis__nr">6</span><span><strong>Odnośnik w menu</strong>
+		<span class="spis__opis">Wygląd → Menu → panel „Artykuły” → „Zobacz wszystko” →
+		pozycja <strong>Centrum Wiedzy</strong>.</span></span></li>
+</ol>
+
+<h2>WP-Cron na witrynie bez ruchu</h2>
+<p>Domyślnie WordPress uruchamia zadania przy okazji żądań HTTP. Na nowej witrynie oznacza
+   to brak przebiegów. Zalecane rozwiązanie:</p>
+<pre>// wp-config.php
+define( 'DISABLE_WP_CRON', true );
+
+# zadanie systemowe, np. co 15 minut
+*/15 * * * * curl -s https://twojastrona.pl/wp-cron.php?doing_wp_cron &gt; /dev/null</pre>
+<p class="wym__meta">Częstotliwość zadania nie musi odpowiadać częstotliwości
+   <code>ainp_tick</code> — WordPress uruchomi zdarzenie dopiero, gdy nadejdzie jego pora.</p>
+
+<h2>Kryteria odbioru</h2>
+<table class="tech">
+	<tr><th>#</th><th>Sprawdzenie</th><th>Oczekiwany wynik</th></tr>
+	<tr><td>1</td><td>Otwarcie <code>/centrum-wiedzy/</code> zaraz po włączeniu</td>
+	    <td>HTTP 200, widoczny artykuł powitalny i siedem kategorii</td></tr>
+	<tr><td>2</td><td>Otwarcie <code>/centrum-wiedzy/kategoria/zywienie/</code></td>
+	    <td>HTTP 200, komunikat o pustej kategorii albo lista</td></tr>
+	<tr><td>3</td><td>„Pobierz teraz”</td>
+	    <td>Liczba nowych pozycji &gt; 0, zero wywołań AI</td></tr>
+	<tr><td>4</td><td>„Przygotuj treści”</td>
+	    <td>Część pozycji ze statusem <code>pominięty</code> i wypełnioną kolumną
+	        <strong>Powód</strong>, zero wywołań AI</td></tr>
+	<tr><td>5</td><td>„Opublikuj teraz”</td>
+	    <td>Co najmniej jeden artykuł, licznik wywołań AI rośnie</td></tr>
+	<tr><td>6</td><td>Powtórne „Pobierz teraz” bez nowych wpisów w kanałach</td>
+	    <td>Zero nowych pozycji — działa bramka powtórek</td></tr>
+	<tr><td>7</td><td>Wyłączenie wtyczki</td>
+	    <td><code>/centrum-wiedzy/</code> zwraca 404, dane w bazie nietknięte</td></tr>
+	<tr><td>8</td><td>Ponowne włączenie</td>
+	    <td>Artykuły i kolejka wracają w komplecie</td></tr>
+</table>
+
+<div class="uwaga">
+	<p><strong>Nie testować odinstalowania na witrynie produkcyjnej.</strong> Usunięcie
+	   wtyczki kasuje wszystkie artykuły, kategorie portalu i kolejkę bez możliwości
+	   przywrócenia.</p>
+</div>
+
+</div>
+
+</body>
+</html>
