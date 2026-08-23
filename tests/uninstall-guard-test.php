@@ -587,6 +587,10 @@ $unresolved_allow = array(
 	// w refusal_cache_key() jako 'aifaq_refuse_' . hash(pytanie); prefiks 'aifaq_'
 	// ma pokrycie wzorcem SQL LIKE '_transient_aifaq_%' już zadeklarowanym wyżej.
 	'RagService.php|$this -> refusal_cache_key ( $q )',
+	// Demo: liczniki trybu demo, klucz sklejany jako 'aifaq_demo_' . akcja . '_'
+	// . md5(IP). Prefiks 'aifaq_' ma pokrycie wzorcem SQL LIKE '_transient_aifaq_%'
+	// zadeklarowanym wyżej, więc odinstalowanie kasuje je razem z resztą.
+	'Demo.php|$klucz',
 );
 
 // ---------------------------------------------------------------------------

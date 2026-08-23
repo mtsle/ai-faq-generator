@@ -12,6 +12,7 @@
 namespace AIFAQ\Rest;
 
 use AIFAQ\Admin\IndexController;
+use AIFAQ\Core\Demo;
 use AIFAQ\Core\Settings;
 use AIFAQ\Data\QaLogRepository;
 use WP_REST_Request;
@@ -191,6 +192,21 @@ class AdminService {
 	 * @return WP_REST_Response
 	 */
 	public function verify( WP_REST_Request $request ): WP_REST_Response {
+		// Tryb demo: każde kliknięcie „Testuj połączenie" to realne wywołanie
+		// do dostawcy, a przycisk nie ma żadnego limitu — na otwartym kokpicie
+		// wystarczyłby jako sposób na wyczerpanie puli. Odpowiedź ma kształt
+		// zwykłego wyniku testu (HTTP 200 + status), więc panel pokazuje ją
+		// tam, gdzie pokazałby każdą inną.
+		if ( Demo::active() ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Instalacja demonstracyjna — test połączenia jest wyłączony.', 'ai-faq-generator' ),
+				),
+				200
+			);
+		}
+
 		$api_key = (string) $request->get_param( 'api_key' );
 		$result  = Settings::verify_key( $api_key );
 

@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Tested up to: 7.0.2
 Requires PHP: 8.0
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -154,6 +154,16 @@ narzędzia. Ekran „Narzędzie FAQ" w kokpicie pozostaje przy uprawnieniach adm
 == Changelog ==
 
 Skrót najważniejszych wydań. Pełna historia zmian znajduje się w repozytorium projektu.
+
+= 1.1.1 =
+* **Tryb demonstracyjny** dla publicznej wystawy — włączany stałą `AIFAQ_DEMO`
+  w `wp-config.php`. Na zwykłej instalacji nic się nie zmienia: bez tej stałej wtyczka
+  zachowuje się dokładnie tak, jak w 1.1.0.
+* Przy włączonym trybie: klucz API, modele i limity są niezmienne, przebudowa i czyszczenie
+  bazy wiedzy oraz test połączenia są wyłączone, a generator FAQ dostaje odstęp i dzienny
+  limit liczony na adres IP.
+* Zawiera komplet napraw z wydania 1.1.0 (opis niżej).
+* Schemat bazy bez zmian — aktualizacja z 1.1.0 nie wymaga żadnych działań.
 
 = 1.1.0 =
 * **Wydanie po audycie całości obu wtyczek.** Opis procesu i wynik: katalog `audyt/` w repozytorium.

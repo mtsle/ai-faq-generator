@@ -12,6 +12,7 @@
 
 namespace AIFAQ\Rest;
 
+use AIFAQ\Core\Demo;
 use AIFAQ\Core\Settings;
 use AIFAQ\Data\GenerationRepository;
 use AIFAQ\Faq\Exporter;
@@ -43,6 +44,25 @@ class GeneratorService {
 	 * @return WP_REST_Response
 	 */
 	public function generate( WP_REST_Request $request ): WP_REST_Response {
+		/*
+		 * Tryb demo: odstęp i dobowy limit NA ADRES IP.
+		 *
+		 * Nie zastępuje `throttle()` niżej, tylko go poprzedza. Tamten kubełek
+		 * jest per użytkownik, a na wystawie wszyscy goście siedzą na jednym
+		 * koncie `demo` — kubełek per użytkownik jest tam kubełkiem wspólnym
+		 * i nie rozdziela nikogo od nikogo. Tu potrzebne są oba: ten pilnuje,
+		 * żeby jeden gość nie zjadł puli, tamten — żeby nie zjedli jej wszyscy.
+		 */
+		if ( ! Demo::allow_generate() ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Instalacja demonstracyjna — limit generacji dla tego adresu wyczerpany. Spróbuj później.', 'ai-faq-generator' ),
+				),
+				429
+			);
+		}
+
 		$limited = $this->throttle();
 		if ( null !== $limited ) {
 			return $limited;

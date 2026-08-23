@@ -12,7 +12,11 @@
 
 namespace AIFAQ\Admin;
 
+use AIFAQ\Core\Demo;
 use AIFAQ\Core\Settings;
+// Jawna zależność mimo autoloadera — ten plik bywa ładowany punktowo przez
+// testy, bez pliku głównego. Powód opisany szerzej w `src/Core/Settings.php`.
+require_once __DIR__ . '/../Core/Demo.php';
 use AIFAQ\Data\CacheRepository;
 use AIFAQ\Data\KnowledgeRepository;
 use AIFAQ\Index\Chunker;
@@ -123,6 +127,22 @@ class IndexController {
 	 * @return array{ok:bool,status:int,message?:string,report?:array,stats?:array}
 	 */
 	public function run_reindex(): array {
+		/*
+		 * Tryb demo: przebudowa indeksu jest niedostępna. To embedding CAŁEJ
+		 * witryny — jedno kliknięcie gościa zjada dobową pulę i zostawia
+		 * wystawę bez odpowiedzi na pytania. Bramka stoi tutaj, w rdzeniu
+		 * wspólnym, więc obejmuje naraz `POST /admin/reindex` i akcję AJAX
+		 * z kokpitu; osobne warunki przy każdym wejściu byłyby dwoma miejscami
+		 * do rozjechania się.
+		 */
+		if ( Demo::active() ) {
+			return array(
+				'ok'      => false,
+				'status'  => 403,
+				'message' => __( 'Instalacja demonstracyjna — przebudowa bazy wiedzy jest wyłączona.', 'ai-faq-generator' ),
+			);
+		}
+
 		if ( '' === (string) Settings::get_field( 'api_key', '' ) ) {
 			return array(
 				'ok'      => false,
@@ -323,6 +343,20 @@ class IndexController {
 	 * @return array{ok:bool,status:int,message?:string,removed?:int,stats?:array}
 	 */
 	public function run_clear(): array {
+		/*
+		 * Tryb demo: czyszczenie bazy wiedzy jest niedostępne — jest nieodwracalne
+		 * do najbliższego resetu, a odbudowa indeksu (jedyne wyjście) jest w demo
+		 * zablokowana. Tak jak przy reindeksie: bramka w rdzeniu, wspólnym dla
+		 * REST-a i akcji AJAX.
+		 */
+		if ( Demo::active() ) {
+			return array(
+				'ok'      => false,
+				'status'  => 403,
+				'message' => __( 'Instalacja demonstracyjna — czyszczenie bazy wiedzy jest wyłączone.', 'ai-faq-generator' ),
+			);
+		}
+
 		// K23 etap 1, znalezisko A2: run_clear() dotąd tylko SPRAWDZAŁ lock F5, nie
 		// ZAKŁADAŁ go — ochrona działała jednokierunkowo (reindeks widział trwające
 		// czyszczenie, ale nie odwrotnie), więc mogły się przeplatać. Ten sam lock

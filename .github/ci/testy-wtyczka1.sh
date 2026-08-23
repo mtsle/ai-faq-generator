@@ -70,6 +70,7 @@ segments=(
   "K23 etap 5 (wsad napraw): zamek publikacji D1, S1-S4, progi D3-A/D6-B, martwy kod D4-B|krok23-etap5-naprawy-test.php"
   "Harness obciazeniowy: galezie obronne tests/load (F11, statycznie)|load-harness-guard-test.php"
   "Spojnosc numeru wersji W1: cztery zrodla + zrodla instrukcji na znaczniku (F13, statycznie)|wersja-spojnosc-test.php"
+  "Tryb demo publicznej wystawy (AIFAQ_DEMO): zamrozone ustawienia, limity per IP, reindeks|demo-tryb-test.php"
 )
 
 total_suites=0; total_fail=0; seg_fail=0

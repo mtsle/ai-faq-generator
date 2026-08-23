@@ -148,6 +148,7 @@ Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 Autoloader PSR-4-lite: przestrzeń `AIFAQ\` → katalog `src/`.
 ```
 src/Core/      Plugin, Settings, Activator, Deactivator, Router
+          (v1.0.1) Demo — tryb publicznej wystawy: zamrożone ustawienia, limity per IP
 src/Data/      Schema (5 tabel) + repozytoria + Migrator
 src/Http/      HttpClient (interfejs) + WpHttpClient — generyczny transport HTTP
 src/Providers/ ProviderInterface, GeminiProvider, ProviderFactory — warstwa AI (BYOK)
@@ -446,6 +447,37 @@ więc te dwa nie mają jak się rozjechać.
 > **Dlaczego sufit dobowy.** Darmowy przydział Gemini to **20 żądań na dobę na model** (zmierzone
 > prosto z API). Bez sufitu jeden bot wyczerpywał pulę do południa i wszyscy kolejni goście
 > dostawali błąd. Pule `generateContent` i `embedContent` są **odrębne**.
+
+### Tryb demo (v1.0.1)
+
+Do publicznej wystawy, na której kokpit jest otwarty dla wszystkich. Włącza go **stała
+w `wp-config.php`**, nie ustawienie — ustawienie da się zmienić z tego samego kokpitu:
+
+```php
+define( 'AIFAQ_DEMO', true );
+```
+
+Bez tej stałej klasa `Core\Demo` jest martwa i wtyczka zachowuje się dokładnie tak, jak opisuje
+reszta tego dokumentu. Powód istnienia: konto gościa **musi** mieć `manage_options`, bo bez tego
+nie zobaczy ani jednego ekranu wtyczki (tabela uprawnień wyżej) — czyli technicznie może wszystko,
+co właściciel. Tryb demo odbiera mu to, co niszczy wystawę albo pali darmową pulę:
+
+| Co | Jak |
+|---|---|
+| **Zamrożone ustawienia** | `api_key`, `model`, `embed_model`, `rag_daily_budget`, `rag_rate_limit`, `rag_rate_window`, `rag_trusted_proxy` wracają przy zapisie do wartości sprzed niego. Reszta ustawień działa normalnie |
+| **Niedostępne operacje** | przebudowa i czyszczenie bazy wiedzy (`run_reindex`/`run_clear`, czyli naraz REST i AJAX) oraz test połączenia (`POST /admin/verify` i akcja AJAX) |
+| **Limity na adres IP** | generator FAQ: odstęp 5 minut i **3 generacje na dobę** z jednego adresu — obok istniejącego limitu godzinowego per użytkownik, nie zamiast niego |
+
+Trzy rzeczy, które łatwo przeoczyć:
+
+1. **Zamrożenie stoi w `Settings::sanitize()`**, czyli obejmuje obie ścieżki zapisu: formularz
+   kokpitu i `POST /admin/settings` z podstrony. Blokada w samym widoku zatrzymałaby przeglądarkę,
+   ale nie ręcznie złożone żądanie.
+2. **`rag_trusted_proxy` jest na liście zamrożonych nie przez ostrożność.** Przy włączonym adres
+   gościa czytany jest z nagłówka, który ustawia sam klient — gość włączyłby go i miał po jednym
+   kubełku limitera na każdy zmyślony adres.
+3. **Limit generatora musi iść po IP**, bo istniejący kubełek jest per użytkownik, a na wystawie
+   wszyscy siedzą na jednym koncie `demo` — tam „per użytkownik" znaczy „wspólny".
 
 ### Limity dostawcy — rozróżnienie doby od minuty
 

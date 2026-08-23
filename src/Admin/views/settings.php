@@ -8,12 +8,19 @@
  * @package AI_FAQ_Generator
  */
 
+use AIFAQ\Core\Demo;
 use AIFAQ\Core\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+// Tryb demo: pola z listy zamrożonych są tylko do odczytu. Zapis i tak je
+// pomija ({@see Demo::freeze()}), więc pole aktywne obiecywałoby zmianę,
+// której nie będzie. `disabled` na `<select>`/`<input>` sprawia też, że
+// przeglądarka w ogóle ich nie wysyła.
+$aifaq_demo    = Demo::active();
+$aifaq_zamek   = $aifaq_demo ? ' disabled="disabled"' : '';
 $aifaq         = Settings::get();
 $aifaq_models  = Settings::models();
 $aifaq_langs   = Settings::languages();
@@ -44,6 +51,14 @@ $aifaq_refusal_langs = $aifaq_langs;
 		<span class="aifaq-sub"><?php esc_html_e( 'Ustawienia', 'ai-faq-generator' ); ?></span>
 	</h1>
 
+	<?php if ( $aifaq_demo ) : ?>
+		<div class="notice notice-info">
+			<p>
+				<?php esc_html_e( 'Instalacja demonstracyjna. Klucz API, modele i limity są ustawione na stałe, a przebudowa i czyszczenie bazy wiedzy są wyłączone — reszta ustawień działa normalnie i wraca do stanu wzorcowego przy najbliższym resecie.', 'ai-faq-generator' ); ?>
+			</p>
+		</div>
+	<?php endif; ?>
+
 	<?php if ( isset( $_GET['settings-updated'] ) ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
 		<div class="notice notice-success is-dismissible">
 			<p><?php esc_html_e( 'Ustawienia zapisane.', 'ai-faq-generator' ); ?></p>
@@ -73,32 +88,38 @@ $aifaq_refusal_langs = $aifaq_langs;
 						<label for="aifaq-api-key"><?php esc_html_e( 'Klucz API', 'ai-faq-generator' ); ?></label>
 					</th>
 					<td>
-						<div class="aifaq-key-row">
-							<input
-								type="password"
-								id="aifaq-api-key"
-								name="aifaq_settings[api_key]"
-								value=""
-								placeholder="<?php echo $aifaq_has_key ? esc_attr__( 'Klucz zapisany — wklej nowy, aby zmienić', 'ai-faq-generator' ) : esc_attr__( 'Wklej klucz API Gemini', 'ai-faq-generator' ); ?>"
-								class="regular-text"
-								autocomplete="off"
-								spellcheck="false"
-							>
-							<button type="button" class="button" id="aifaq-toggle-key"><?php esc_html_e( 'Pokaż', 'ai-faq-generator' ); ?></button>
-							<button
-								type="button"
-								class="button button-secondary"
-								id="aifaq-test-connection"
-								data-nonce="<?php echo esc_attr( $aifaq_test ); ?>"
-							><?php esc_html_e( 'Test połączenia', 'ai-faq-generator' ); ?></button>
-							<span id="aifaq-test-status" class="aifaq-test-status" role="status" aria-live="polite"></span>
-						</div>
-						<p class="description">
-							<?php esc_html_e( 'Wklej własny klucz. Darmowy klucz Gemini zdobędziesz bez karty płatniczej:', 'ai-faq-generator' ); ?>
-							<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">
-								<?php esc_html_e( 'Zdobądź darmowy klucz →', 'ai-faq-generator' ); ?>
-							</a>
-						</p>
+						<?php if ( $aifaq_demo ) : ?>
+							<p class="description">
+								<?php esc_html_e( 'Instalacja demonstracyjna — klucz API jest ustawiony na stałe i nie można go zmienić ani przetestować.', 'ai-faq-generator' ); ?>
+							</p>
+						<?php else : ?>
+							<div class="aifaq-key-row">
+								<input
+									type="password"
+									id="aifaq-api-key"
+									name="aifaq_settings[api_key]"
+									value=""
+									placeholder="<?php echo $aifaq_has_key ? esc_attr__( 'Klucz zapisany — wklej nowy, aby zmienić', 'ai-faq-generator' ) : esc_attr__( 'Wklej klucz API Gemini', 'ai-faq-generator' ); ?>"
+									class="regular-text"
+									autocomplete="off"
+									spellcheck="false"
+								>
+								<button type="button" class="button" id="aifaq-toggle-key"><?php esc_html_e( 'Pokaż', 'ai-faq-generator' ); ?></button>
+								<button
+									type="button"
+									class="button button-secondary"
+									id="aifaq-test-connection"
+									data-nonce="<?php echo esc_attr( $aifaq_test ); ?>"
+								><?php esc_html_e( 'Test połączenia', 'ai-faq-generator' ); ?></button>
+								<span id="aifaq-test-status" class="aifaq-test-status" role="status" aria-live="polite"></span>
+							</div>
+							<p class="description">
+								<?php esc_html_e( 'Wklej własny klucz. Darmowy klucz Gemini zdobędziesz bez karty płatniczej:', 'ai-faq-generator' ); ?>
+								<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">
+									<?php esc_html_e( 'Zdobądź darmowy klucz →', 'ai-faq-generator' ); ?>
+								</a>
+							</p>
+						<?php endif; ?>
 					</td>
 				</tr>
 
@@ -107,7 +128,7 @@ $aifaq_refusal_langs = $aifaq_langs;
 						<label for="aifaq-model"><?php esc_html_e( 'Model', 'ai-faq-generator' ); ?></label>
 					</th>
 					<td>
-						<select id="aifaq-model" name="aifaq_settings[model]">
+						<select id="aifaq-model" name="aifaq_settings[model]"<?php echo $aifaq_zamek; // phpcs:ignore WordPress.Security.EscapeOutput -- stały ciąg. ?>>
 							<?php foreach ( $aifaq_models as $value => $label ) : ?>
 								<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $aifaq['model'], $value ); ?>>
 									<?php echo esc_html( $label ); ?>
@@ -258,6 +279,7 @@ $aifaq_refusal_langs = $aifaq_langs;
 							min="0" max="200"
 							value="<?php echo esc_attr( $aifaq['rag_rate_limit'] ); ?>"
 							class="small-text"
+							<?php echo $aifaq_zamek; // phpcs:ignore WordPress.Security.EscapeOutput -- stały ciąg. ?>
 						>
 						<p class="description"><?php esc_html_e( 'Maks. pytań od jednego gościa w jednym oknie czasu. Długość okna ustawiasz niżej, w sekcji „Limity” (domyślnie godzina). 0 = bez limitu. Każde pytanie kosztuje dwa żądania do dostawcy AI, więc to pierwsza linia obrony Twojej dobowej puli.', 'ai-faq-generator' ); ?></p>
 					</td>
@@ -623,7 +645,7 @@ $aifaq_refusal_langs = $aifaq_langs;
 						<label for="aifaq-rag-rate-window"><?php esc_html_e( 'Okno limitu gościa', 'ai-faq-generator' ); ?></label>
 					</th>
 					<td>
-						<select id="aifaq-rag-rate-window" name="aifaq_settings[rag_rate_window]">
+						<select id="aifaq-rag-rate-window" name="aifaq_settings[rag_rate_window]"<?php echo $aifaq_zamek; // phpcs:ignore WordPress.Security.EscapeOutput -- stały ciąg. ?>>
 							<?php foreach ( $aifaq_rate_windows as $aifaq_win => $aifaq_win_label ) : ?>
 								<option value="<?php echo esc_attr( $aifaq_win ); ?>" <?php selected( (string) $aifaq_win, (string) ( $aifaq['rag_rate_window'] ?? 'godzina' ) ); ?>>
 									<?php echo esc_html( $aifaq_win_label ); ?>
@@ -646,6 +668,7 @@ $aifaq_refusal_langs = $aifaq_langs;
 							min="0" max="10000"
 							value="<?php echo esc_attr( (string) ( $aifaq['rag_daily_budget'] ?? 12 ) ); ?>"
 							class="small-text"
+							<?php echo $aifaq_zamek; // phpcs:ignore WordPress.Security.EscapeOutput -- stały ciąg. ?>
 						>
 						<p class="description"><?php esc_html_e( 'Łączna liczba pytań gości na dobę, licząc wszystkich razem. Po jej przekroczeniu generator odmawia do końca doby. Domyślne 12 (a nie 20) zostawia zapas na ponowne indeksowanie treści i na Twoje własne testy — jako administrator jesteś z tego sufitu wyłączony, choć Twoje pytania też zjadają pulę u dostawcy. 0 = sufit wyłączony; ustaw tak tylko przy kluczu PŁATNYM. Uwaga: pule „wyszukiwanie" i „odpowiedzi" są u dostawcy odrębne — wyczerpanie jednej nie blokuje drugiej.', 'ai-faq-generator' ); ?></p>
 					</td>
@@ -670,6 +693,7 @@ $aifaq_refusal_langs = $aifaq_langs;
 								name="aifaq_settings[rag_trusted_proxy]"
 								value="1"
 								<?php checked( '1', (string) ( $aifaq['rag_trusted_proxy'] ?? '0' ) ); ?>
+								<?php echo $aifaq_zamek; // phpcs:ignore WordPress.Security.EscapeOutput -- stały ciąg. ?>
 							>
 							<?php esc_html_e( 'Ufaj nagłówkom proxy (Cloudflare, load balancer) przy rozpoznawaniu gościa', 'ai-faq-generator' ); ?>
 						</label>

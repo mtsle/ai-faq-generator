@@ -15,6 +15,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/*
+ * Jawna zależność MIMO autoloadera — świadomie, wbrew reszcie wtyczki.
+ *
+ * `sanitize()` woła `Demo::freeze()`, a ten plik bywa ładowany PUNKTOWO,
+ * bez pliku głównego: robi tak kilkanaście zestawów testów. Tam autoloadera
+ * nie ma, więc bez tej linii każdy z nich kończy się fatalem „Class Demo
+ * not found" — i, co gorsza, ten sam fatal spotkałby każdy przyszły kod
+ * ładujący ustawienia samodzielnie. `require_once` jest idempotentne
+ * i nie przeszkadza autoloaderowi, gdy ten zdążył pierwszy.
+ */
+require_once __DIR__ . '/Demo.php';
+
 /**
  * Warstwa ustawień i konfiguracji API.
  */
@@ -595,7 +607,11 @@ class Settings {
 			$out['qa_log_keep_days'] = max( 0, min( 3650, (int) $input['qa_log_keep_days'] ) );
 		}
 
-		return $out;
+		// Tryb demo: klucz, modele i pokrętła limitów wracają do wartości sprzed
+		// zapisu. Na KOŃCU, po wszystkich blokach — jedno miejsce zamiast siedmiu
+		// warunków do przeoczenia przy następnym polu. Poza trybem demo `freeze()`
+		// oddaje tablicę bez zmian.
+		return Demo::freeze( $out, $current );
 	}
 
 	/**
@@ -744,6 +760,14 @@ class Settings {
 
 		if ( ! current_user_can( self::CAPABILITY ) ) {
 			wp_send_json_error( array( 'message' => __( 'Brak uprawnień.', 'ai-faq-generator' ) ), 403 );
+		}
+
+		// Tryb demo: to samo, co przy `POST /admin/verify` — nielimitowany
+		// przycisk wykonujący realne wywołanie nie ma prawa stać w otwartym
+		// kokpicie. Po uprawnieniu, żeby żądanie bez nonce'a nadal odpadało
+		// wcześniej i z własnym komunikatem.
+		if ( Demo::active() ) {
+			wp_send_json_error( array( 'message' => __( 'Instalacja demonstracyjna — test połączenia jest wyłączony.', 'ai-faq-generator' ) ) );
 		}
 
 		$api_key = isset( $_POST['api_key'] ) ? trim( sanitize_text_field( wp_unslash( $_POST['api_key'] ) ) ) : '';
