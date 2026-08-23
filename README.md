@@ -1,5 +1,82 @@
 # AI FAQ Generator
 
+[![Testy](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml/badge.svg)](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml)
+
+To repozytorium zawiera **dwie niezależne wtyczki WordPress**, obie wydane jako **v1.0.0**.
+Ten plik jest jednocześnie README całego repozytorium i dokumentacją wtyczki 1.
+
+## Dwie wtyczki w jednym repozytorium
+
+| Wtyczka | Folder | Wersja | Tagi wydań | README |
+|---|---|---|---|---|
+| **AI FAQ Generator** | korzeń repo | 1.0.0 | `v0.1.0`–`v1.0.0` (historyczne); ewentualne kolejne wydania: prefiks `aifaq-` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
+| **AI News Portal** | `ai-news-portal/` | 1.0.0 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.0.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
+
+**Układ „korzeń = wtyczka 1, podfolder = wtyczka 2" jest decyzją architektoniczną.**
+WordPress skanuje katalog `wp-content/plugins/` tylko dwa poziomy w głąb, więc plik główny
+wtyczki musi leżeć najwyżej jeden katalog pod `plugins/`. Korzeń repo jest jednocześnie
+katalogiem wtyczki 1, a na żywą instalację celują junctiony/symlinki dokładnie w te ścieżki —
+**przenoszenie lub zmiana nazw katalogów wtyczek psuje żywą stronę i testy.**
+
+Wtyczki są w pełni rozdzielne: osobne przestrzenie stałych (`AIFAQ_*` w `ai-faq-generator.php`,
+`AINP_*` w `ai-news-portal/ai-news-portal.php`), osobne `uninstall.php`, `LICENSE`, `readme.txt`
+i `tests/`, zero wspólnego kodu. AI News Portal „nie ma żadnej zależności od drugiej wtyczki
+z tej samej paczki, nie dzieli z nią kodu, opcji ani tabel" (jego README).
+
+## Instalacja — każda wtyczka osobno
+
+Wymagania (z nagłówków plików głównych i `readme.txt` obu wtyczek):
+
+| wtyczka | WordPress | Tested up to | PHP |
+|---|---|---|---|
+| AI FAQ Generator | ≥ 6.4 | 7.0.2 | ≥ 8.0 |
+| AI News Portal | ≥ 6.5 | 7.0.2 | ≥ 8.1 |
+
+**Wtyczka 1 — AI FAQ Generator.** Do `wp-content/plugins/ai-faq-generator/` trafia zawartość
+korzenia repo. Czystą paczkę bez wtyczki 2 daje `git archive` z tagu wydania wtyczki 1 —
+drzewo tagu `v1.0.0` nie zawiera folderu `ai-news-portal/`:
+
+```bash
+git archive v1.0.0 --prefix=ai-faq-generator/ -o ai-faq-generator.zip
+```
+
+**Wtyczka 2 — AI News Portal.** Do `wp-content/plugins/ai-news-portal/` trafia sam folder
+`ai-news-portal/` z repo. Archiwum zachowuje prefiks ścieżki, więc ZIP rozpakowuje się
+od razu we właściwy katalog:
+
+```bash
+git archive ai-news-portal-v1.0.0 ai-news-portal -o ai-news-portal.zip
+```
+
+> **Uwaga (dev):** sklonowanie całego repo prosto do `plugins/` uaktywni tylko wtyczkę 1 —
+> `ai-news-portal/ai-news-portal.php` leży wtedy trzeci poziom pod `plugins/`, poza zasięgiem
+> skanera WordPressa. Wtyczka 2 wymaga własnego katalogu albo junctiona/symlinku wskazującego
+> na `ai-news-portal/`.
+
+Paczki ZIP wiszą też przy wydaniach: <https://github.com/mtsle/ai-faq-generator/releases>.
+
+## CI — workflow „Testy"
+
+[`.github/workflows/testy.yml`](.github/workflows/testy.yml) uruchamia się przy push na `main`
+i `plugin-2` oraz przy pull requestach do `main`. Dwa równoległe joby (ubuntu-latest,
+PHP 8.2 z `mbstring`) wołają CI-owe kopie runnerów z `.github/ci/`:
+
+| job | runner | kryterium zaliczenia |
+|---|---|---|
+| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **60 zestawów, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
+| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2083 asercje** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
+
+Te same skrypty działają lokalnie (wymagany PHP CLI z rozszerzeniem `mbstring`):
+
+```bash
+bash .github/ci/testy-wtyczka1.sh
+bash .github/ci/testy-wtyczka2.sh
+```
+
+---
+
+# Dokumentacja wtyczki 1 — AI FAQ Generator
+
 Wtyczka WordPress z **generatorem FAQ zawężonym do tematu strony**: gość pyta na
 publicznej podstronie `/faqgenerator`, a odpowiedź powstaje **wyłącznie w temacie
 treści tej strony** (RAG + embeddingi Gemini) — pytania off-topic są odrzucane.
@@ -283,7 +360,9 @@ drugi raz); **realny `score` przy trafieniu cache** (dotąd log zapisywał zmyś
 | 10. Domknięcie ✅ | `AIFAQ_VERSION` → **1.0.0**, tag i release |
 
 **Testy.** W `tests/` leży **60 zestawów** spinanych własnym runnerem (`zasoby/run-tests.sh` —
-**poza tym repo**, w katalogu roboczym projektu obok wtyczki): **60/60 przechodzi**. Runner nie
+**poza tym repo**, w katalogu roboczym projektu obok wtyczki): **60/60 przechodzi**. W repo jest
+jego CI-owa kopia [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) — ta sama lista
+zestawów i to samo kryterium; woła ją workflow „Testy" (sekcja „CI" na górze). Runner nie
 jest PHPUnitem — to zwykłe skrypty PHP z atrapami WordPressa, uruchamiane bez bazy danych.
 Osobno `tests/load/` (**14 plików**, Krok 23 etap 4) wymaga żywego środowiska i **nie wchodzi**
 do tej liczby.
@@ -462,5 +541,6 @@ i `readme.txt`. `License URI` w obu: `https://www.gnu.org/licenses/gpl-2.0.html`
 Instrukcje dla odbiorcy (pięć dokumentów PDF: instrukcja wprowadzająca dla klienta, instrukcja
 dla informatyka, wymagania niefunkcjonalne, format danych, instrukcje systemowe) powstały
 w **Kroku 23 etap 6** i leżą **poza tym repozytorium** — w katalogu `instrukcje/` w folderze
-roboczym projektu, razem ze źródłami HTML i diagramami Draw.io. Repozytorium zawiera wyłącznie
-kod wtyczki; ten `README.md` jest dokumentacją **dla programisty**, nie dla klienta.
+roboczym projektu, razem ze źródłami HTML i diagramami Draw.io. (Inaczej niż przy wtyczce 2,
+której dokumentacja PDF jest wersjonowana w `ai-news-portal/instrukcje/`.) Ten `README.md`
+jest dokumentacją **dla programisty**, nie dla klienta.

@@ -1,5 +1,5 @@
 # === Zależności ===
-/node_modules/
+node_modules/
 /vendor/
 
 # === Wynik buildu ===
@@ -20,6 +20,10 @@ wp-cli.local.yml
 # === Narzędzia PHP / testy ===
 .phpunit.result.cache
 /coverage/
+
+# === Artefakty Pythona (narzędzia w ai-news-portal/instrukcje/narzedzia/) ===
+__pycache__/
+*.pyc
 
 # === Spakowana wtyczka ===
 /*.zip
