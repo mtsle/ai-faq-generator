@@ -228,6 +228,12 @@ final class Admin {
 	public static function handle_fetch(): void {
 		self::guard( self::ACTION_FETCH );
 
+		// Tryb demo: odstep na adres IP. Po guard(), zeby odmowa nonce'a
+		// nie rezerwowala odstepu; przed praca, zeby odmowa nic nie kosztowala.
+		if ( ! Demo::allow( 'fetch', Demo::FETCH_ODSTEP ) ) {
+			self::redirect_back( self::SLUG_ITEMS, 'demo' );
+		}
+
 		$podsumowanie = Runner::collect();
 
 		/*
@@ -252,6 +258,11 @@ final class Admin {
 	 */
 	public static function handle_prepare(): void {
 		self::guard( self::ACTION_PREPARE );
+
+		// Tryb demo: odstep na adres IP — kazda partia to praca sieciowa.
+		if ( ! Demo::allow( 'prepare', Demo::PREPARE_ODSTEP ) ) {
+			self::redirect_back( self::SLUG_ITEMS, 'demo' );
+		}
 
 		/*
 		 * Zamek PRZED praca, zdejmowany w `finally`. Bez `finally` wyjatek
@@ -300,6 +311,12 @@ final class Admin {
 	 */
 	public static function handle_publish(): void {
 		self::guard( self::ACTION_PUBLISH );
+
+		// Tryb demo: dobowy limit publikacji NA ADRES IP plus odstep miedzy
+		// klikami — ten przycisk pali wywolania ze wspolnej puli 20 na dobe.
+		if ( ! Demo::allow_publish() ) {
+			self::redirect_back( self::SLUG_ITEMS, 'demo' );
+		}
 
 		if ( ! self::claim_lock() ) {
 			self::redirect_back( self::SLUG_ITEMS, 'zajete' );
@@ -567,6 +584,17 @@ final class Admin {
 	 * @return void
 	 */
 	private static function save_key( string $klucz ): void {
+		/*
+		 * Tryb demo: klucz jest NIENARUSZALNY — ani zapis, ani podmiana, ani
+		 * jawne kasowanie. Kokpit demo jest otwarty dla wszystkich, a klucz
+		 * jest jedynym zasobem, ktorego reset wystawy nie umie odtworzyc
+		 * z niczego. Blokada siedzi tutaj, nie w formularzu: ukryte pole
+		 * w HTML-u zatrzymuje przegladarke, ale nie recznie zlozony POST.
+		 */
+		if ( Demo::active() ) {
+			return;
+		}
+
 		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce sprawdza guard() w handle_save_settings().
 		if ( ! empty( $_POST['ainp_key_clear'] ) ) {
 			delete_option( Settings::OPTION_KEY );
@@ -723,6 +751,17 @@ final class Admin {
 		}
 
 		unset( $latka[ Settings::KEY_DEMO_DONE ] );
+
+		/*
+		 * Tryb demo: model i sufit dobowy sa NIENARUSZALNE. Podniesiony sufit
+		 * albo model spoza darmowej puli zuzylyby cudzy klucz rownie skutecznie,
+		 * co jego podmiana — a te dwie wartosci ustawia bootstrap wystawy.
+		 * Usuniecie z latki wystarcza: `Settings::update()` scala latke
+		 * z zapisem, wiec brakujace klucze zachowuja dotychczasowa wartosc.
+		 */
+		if ( Demo::active() ) {
+			unset( $latka['model'], $latka['daily_cap'] );
+		}
 
 		return $latka;
 	}

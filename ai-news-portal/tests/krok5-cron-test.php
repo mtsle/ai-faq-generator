@@ -596,6 +596,7 @@ function wp_remote_retrieve_body( $r ) {
 }
 
 require_once $root . '/src/Settings.php';
+require_once $root . '/src/Demo.php';
 require_once $root . '/src/Http.php';
 require_once $root . '/src/Feed.php';
 require_once $root . '/src/Dedup.php';

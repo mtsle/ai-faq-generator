@@ -342,6 +342,7 @@ uninstall.php          usuwanie bez śladu (uruchamiane wyłącznie przez WordPr
 LICENSE                pełny tekst GPLv2
 src/
   Settings.php         opcje i wartości domyślne (kanały, kategorie, słowa, prompt, model)
+  Demo.php             tryb publicznej wystawy: nietykalny klucz, odstępy i limity na adres IP
   Http.php             pobieranie z sieci: timeouty, limity, robots.txt, bezpieczne żądania
   Feed.php             parsowanie kanałów RSS 2.0 i Atom
   Dedup.php            normalizacja adresu i odciski: po adresie i po treści
@@ -362,6 +363,32 @@ assets/kategorie/      zdjęcia kategorii (do trzech wariantów na kategorię)
 
 Wtyczka **nie ma autoloadera** — lista `require_once` w pliku głównym jest jedynym miejscem,
 w którym klasa trafia do pamięci. `Admin_Screen.php` (trait) musi stać **przed** `Admin.php`.
+
+---
+
+## Tryb demo
+
+Do publicznej wystawy, na której kokpit jest otwarty dla wszystkich. Włącza go **stała
+w `wp-config.php`**, nie opcja — opcję dałoby się zmienić z tego samego otwartego kokpitu:
+
+```php
+define( 'AINP_DEMO', true );
+```
+
+Bez tej stałej klasa `Demo.php` jest martwa i wtyczka zachowuje się dokładnie tak, jak opisuje
+reszta tego dokumentu. Ze stałą dochodzą cztery ograniczenia:
+
+| Ograniczenie | Po co |
+|---|---|
+| Klucz API jest nietykalny — bez zapisu, podmiany i kasowania | Klucz jest jedynym zasobem, którego reset wystawy nie odtworzy |
+| Model i sufit dobowy są nietykalne | Podniesiony sufit zużyłby cudzy klucz równie skutecznie, co podmiana |
+| Odstęp między przebiegami, liczony na adres IP | „Pobierz teraz" i „Przygotuj treści" to praca sieciowa |
+| Dzienny limit „Opublikuj teraz" na adres IP | Żeby jeden gość nie zjadł całej dobowej puli wywołań |
+
+Blokady siedzą w kodzie obsługującym żądanie, a nie w formularzu: ukryte pole zatrzymuje
+przeglądarkę, ale nie ręcznie złożony POST. Limity stoją **po** sprawdzeniu uprawnień i nonce'a,
+więc żądanie bez nonce'a odpada wcześniej i nie zajmuje nikomu odstępu. Liczniki żyją
+w transientach i znikają razem z resetem wystawy.
 
 ---
 

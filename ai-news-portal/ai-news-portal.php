@@ -70,6 +70,7 @@ define( 'AINP_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
  * Przestawienie tych dwoch linii to blad krytyczny, nie kwestia czytelnosci.
  */
 require_once AINP_PLUGIN_DIR . 'src/Settings.php';
+require_once AINP_PLUGIN_DIR . 'src/Demo.php';
 require_once AINP_PLUGIN_DIR . 'src/Http.php';
 require_once AINP_PLUGIN_DIR . 'src/Feed.php';
 require_once AINP_PLUGIN_DIR . 'src/Dedup.php';

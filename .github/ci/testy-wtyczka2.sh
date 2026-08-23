@@ -32,7 +32,8 @@ segments=(
   "S12 Front Centrum Wiedzy (Portal.php, szablony)|krok6-portal-test.php:37 krok6-karty-test.php:137 etap83-szablony-test.php:76"
   "S13 Naglowki bezpieczenstwa (Security.php)|krok7-naglowki-test.php:70"
   "S14 Usuwanie bez sladu (uninstall.php)|krok1-uninstall-test.php:45 krok4-uninstall-test.php:30"
-  "S15 Zgodnosc dokumentacji z kodem (README.md + readme.txt)|etap85-readme-test.php:147"
+  "S15 Zgodnosc dokumentacji z kodem (README.md + readme.txt)|etap85-readme-test.php:148"
+  "S16 Tryb demo publicznej wystawy (Demo.php)|demo-tryb-test.php:55"
 )
 
 total_suites=0; total_fail=0; total_asercji=0; total_oczekiwanych=0

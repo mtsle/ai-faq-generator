@@ -55,6 +55,7 @@ namespace {
 
 	// Klasy wtyczki. Trait PRZED klasa, ktora go uzywa — inaczej blad krytyczny.
 	require_once $root . '/src/Settings.php';
+	require_once $root . '/src/Demo.php';
 	require_once $root . '/src/Http.php';
 	require_once $root . '/src/Feed.php';
 	require_once $root . '/src/Dedup.php';

@@ -300,6 +300,7 @@ class AINP_Fake_WPDB {
 $GLOBALS['wpdb'] = new AINP_Fake_WPDB();
 
 require_once $root . '/src/Settings.php';
+require_once $root . '/src/Demo.php';
 require_once $root . '/src/Http.php';
 require_once $root . '/src/Feed.php';
 require_once $root . '/src/Dedup.php';

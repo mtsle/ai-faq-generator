@@ -282,6 +282,7 @@ namespace AINP {
 namespace {
 
 	require_once $root . '/src/Settings.php';
+	require_once $root . '/src/Demo.php';
 	require_once $root . '/src/Dedup.php';
 	require_once $root . '/src/Filter.php';
 	require_once $root . '/src/Http.php';

@@ -341,6 +341,7 @@ function maybe_unserialize( $d ) {
 }
 
 require_once $root . '/src/Settings.php';
+require_once $root . '/src/Demo.php';
 /*
  * Od etapu 2.5 ekran Materialow siega po `Runner::sources()`, a `Runner`
  * po `Http` i `Dedup`. Zaden z nich nie robi niczego przy ladowaniu pliku,

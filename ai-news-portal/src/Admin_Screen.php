@@ -84,6 +84,7 @@ trait Admin_Screen {
 		echo '<div class="wrap">';
 		echo '<h1>' . esc_html__( 'AI News Portal — Materiały', 'ai-news-portal' ) . '</h1>';
 
+		self::render_demo_notice();
 		self::render_lock_notice();
 		self::render_run_notice();
 		self::render_prep_notice();
@@ -345,6 +346,33 @@ trait Admin_Screen {
 	}
 
 	/**
+	 * Komunikaty trybu demo na ekranie „Materialy".
+	 *
+	 * Dwa niezalezne: staly opis wystawy (zeby gosc wiedzial, gdzie jest
+	 * i czemu czesc pol nie dziala) oraz odpowiedz na odmowe z limitu —
+	 * odmowa bez slowa wygladalaby jak przycisk, ktory czasem nie dziala,
+	 * dokladnie jak przy zamku przebiegu nizej.
+	 *
+	 * @return void
+	 */
+	private static function render_demo_notice(): void {
+		if ( ! Demo::active() ) {
+			return;
+		}
+
+		echo '<div class="notice notice-info"><p>'
+			. esc_html__( 'Instalacja demonstracyjna: przyciski mają odstępy i dzienne limity na adres IP, a dane wracają do stanu wzorcowego co kilka godzin.', 'ai-news-portal' )
+			. '</p></div>';
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- odczyt, nic nie zapisuje.
+		if ( isset( $_GET['ainp_status'] ) && 'demo' === $_GET['ainp_status'] ) {
+			echo '<div class="notice notice-warning"><p>'
+				. esc_html__( 'Limit trybu demo: odczekaj chwilę przed kolejnym przebiegiem — publikacja ma też dzienny limit na adres IP.', 'ai-news-portal' )
+				. '</p></div>';
+		}
+	}
+
+	/**
 	 * Informacja, ze partia byla juz w toku (zamek D-8).
 	 *
 	 * Osobny komunikat, nie cisza: klient, ktory kliknal dwa razy, ma zobaczyc,
@@ -588,15 +616,26 @@ trait Admin_Screen {
 		$ma_klucz = ( '' !== trim( (string) get_option( Settings::OPTION_KEY, '' ) ) );
 
 		echo '<tr><th scope="row"><label for="ainp_key">' . esc_html__( 'Klucz API Gemini', 'ai-news-portal' ) . '</label></th><td>';
-		echo '<input type="password" name="ainp_key" id="ainp_key" class="regular-text" value="" autocomplete="off" />';
-		echo '<p class="description">'
-			. ( $ma_klucz
-				? esc_html__( 'Klucz jest zapisany. Puste pole zostawia go bez zmian.', 'ai-news-portal' )
-				: esc_html__( 'Klucz nie jest jeszcze zapisany — bez niego wtyczka nie wywoła modelu.', 'ai-news-portal' ) )
-			. '</p>';
-		if ( $ma_klucz ) {
-			echo '<label><input type="checkbox" name="ainp_key_clear" value="1" /> '
-				. esc_html__( 'Usuń zapisany klucz', 'ai-news-portal' ) . '</label>';
+		if ( Demo::active() ) {
+			/*
+			 * Tryb demo: zamiast pola — jedno zdanie. Pole bez mocy (zapis
+			 * i tak blokuje `Admin::save_key()`) tylko udawaloby, ze cos
+			 * znaczy, a gosc probowalby zgadnac, czemu „nie dziala".
+			 */
+			echo '<p class="description">'
+				. esc_html__( 'Instalacja demonstracyjna — klucz API jest ustawiony na stałe i nie można go zmienić.', 'ai-news-portal' )
+				. '</p>';
+		} else {
+			echo '<input type="password" name="ainp_key" id="ainp_key" class="regular-text" value="" autocomplete="off" />';
+			echo '<p class="description">'
+				. ( $ma_klucz
+					? esc_html__( 'Klucz jest zapisany. Puste pole zostawia go bez zmian.', 'ai-news-portal' )
+					: esc_html__( 'Klucz nie jest jeszcze zapisany — bez niego wtyczka nie wywoła modelu.', 'ai-news-portal' ) )
+				. '</p>';
+			if ( $ma_klucz ) {
+				echo '<label><input type="checkbox" name="ainp_key_clear" value="1" /> '
+					. esc_html__( 'Usuń zapisany klucz', 'ai-news-portal' ) . '</label>';
+			}
 		}
 		echo '</td></tr>';
 
@@ -608,12 +647,16 @@ trait Admin_Screen {
 			. '</p>';
 		echo '</td></tr>';
 
+		// W trybie demo model i sufit dobowy sa tylko do odczytu — zapis i tak
+		// je pomija (`Admin::sanitize_settings()`), a pole aktywne klamaloby.
+		$demo_blokada = Demo::active() ? ' disabled="disabled"' : '';
+
 		echo '<tr><th scope="row"><label for="ainp_model">' . esc_html__( 'Model', 'ai-news-portal' ) . '</label></th><td>';
-		echo '<input type="text" name="ainp_model" id="ainp_model" class="regular-text" value="' . esc_attr( (string) $ustawienia['model'] ) . '" />';
+		echo '<input type="text" name="ainp_model" id="ainp_model" class="regular-text" value="' . esc_attr( (string) $ustawienia['model'] ) . '"' . $demo_blokada . ' />';
 		echo '</td></tr>';
 
 		echo '<tr><th scope="row"><label for="ainp_daily_cap">' . esc_html__( 'Sufit wywołań AI na dobę', 'ai-news-portal' ) . '</label></th><td>';
-		echo '<input type="number" name="ainp_daily_cap" id="ainp_daily_cap" min="1" max="1000" value="' . esc_attr( (string) (int) $ustawienia['daily_cap'] ) . '" />';
+		echo '<input type="number" name="ainp_daily_cap" id="ainp_daily_cap" min="1" max="1000" value="' . esc_attr( (string) (int) $ustawienia['daily_cap'] ) . '"' . $demo_blokada . ' />';
 		echo '</td></tr>';
 
 		echo '<tr><th scope="row">' . esc_html__( 'Publikacja', 'ai-news-portal' ) . '</th><td>';
