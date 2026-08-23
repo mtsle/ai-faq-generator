@@ -1,0 +1,32 @@
+name: Testy
+
+on:
+  push:
+    branches: [main, plugin-2]
+  pull_request:
+    branches: [main]
+
+jobs:
+  wtyczka-1:
+    name: "Wtyczka 1 — AI FAQ Generator"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring
+      - name: Runner testów wtyczki 1
+        run: bash .github/ci/testy-wtyczka1.sh
+
+  wtyczka-2:
+    name: "Wtyczka 2 — AI News Portal"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring
+      - name: Runner testów wtyczki 2 (2083 asercje)
+        run: bash .github/ci/testy-wtyczka2.sh
