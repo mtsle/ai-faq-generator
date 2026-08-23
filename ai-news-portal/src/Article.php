@@ -1,0 +1,952 @@
+<?php
+/**
+ * Zdobycie tresci artykulu: scraping i prosta ekstrakcja.
+ *
+ * ETAP 3.3. Klasa wchodzi do gry dopiero wtedy, gdy pozycja PRZESZLA filtr —
+ * i to jest cala oszczednosc tego etapu. Wszystkie cztery domyslne kanaly
+ * podaja pelna tresc w `content:encoded`, wiec w normalnej pracy scraping
+ * jest mechanizmem AWARYJNYM, nie glowna droga.
+ *
+ * Prog decyduje o jednym: czy tresc z kanalu wystarczy modelowi. Kanal, ktory
+ * podaje sama zajawke („Przeczytaj wiecej…"), daje 150–400 znakow; artykul
+ * ma ich kilka tysiecy. Miedzy tymi liczbami jest duzo miejsca, wiec prog nie
+ * musi byc precyzyjny — ma tylko odroznic zajawke od tekstu.
+ *
+ * PHP NIE RENDERUJE JAVASCRIPTU. Strona budowana po stronie klienta odda tu
+ * szkielet bez tresci i skonczy jako `skipped`. To jest zachowanie zamierzone,
+ * zapisane w planie — nie usterka do obejscia.
+ *
+ * @package AI_News_Portal
+ */
+
+namespace AINP;
+
+// Blokada bezposredniego wywolania pliku.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Scraping i ekstrakcja tresci.
+ */
+final class Article {
+
+	/**
+	 * Prog, ponizej ktorego tresc z kanalu uznajemy za zajawke: 1200 znakow.
+	 *
+	 * Zmierzone na czterech domyslnych kanalach: pelne teksty maja 3–15 tys.
+	 * znakow, zajawki 150–400. Prog stoi z zapasem po obu stronach, bo
+	 * pomylka w te strone kosztuje jedno zadanie HTTP, a w druga — artykul
+	 * napisany przez model z samej zajawki.
+	 */
+	public const MIN_FEED_CHARS = 1200;
+
+	/**
+	 * Prog, ponizej ktorego pozycja idzie do `skipped`: 500 znakow.
+	 *
+	 * Tyle musi zostac PO ekstrakcji i oczyszczeniu, zeby w ogole bylo
+	 * z czego pisac artykul. Ponizej tej granicy konczy strona renderowana
+	 * JavaScriptem, strona za Cloudflare i strona bledu 404 podana z kodem 200.
+	 */
+	public const MIN_TEXT_CHARS = 500;
+
+	/**
+	 * Znaczniki wycinane z drzewa PRZED szukaniem tresci.
+	 *
+	 * To nie jest lista „brzydkich" elementow, tylko lista tego, co powtarza
+	 * sie na KAZDEJ podstronie serwisu: menu, naglowek, stopka, pasek boczny,
+	 * formularz zapisu do newslettera. Zostawione w tresci trafiaja do promptu
+	 * (kosztuja tokeny), do odcisku tresci (dwa rozne artykuly z tego samego
+	 * serwisu maja wtedy bardzo podobny tekst) i do gotowego artykulu.
+	 */
+	public const STRIP_TAGS = array(
+		'script',
+		'style',
+		'noscript',
+		'nav',
+		'header',
+		'footer',
+		'aside',
+		'form',
+		'iframe',
+		'svg',
+		'button',
+		'select',
+		'textarea',
+		'template',
+	);
+
+	/** Elementy, ktore moga byc pojemnikiem na tresc artykulu. */
+	public const BLOCK_TAGS = array( 'article', 'main', 'section', 'div', 'td' );
+
+	/**
+	 * Znaczniki w nazwie klasy albo identyfikatora, po ktorych poznajemy boks
+	 * niebedacy trescia artykulu.
+	 *
+	 * Lista wzieta z audytu i z tego, co realnie przyszlo z czterech domyslnych
+	 * kanalow — w pobranych tekstach siedzialo „Rate this post". Kazdy taki boks
+	 * kosztuje trzy razy: tokeny w promptcie, falszywe trafienie filtra
+	 * („newsletter" w stopce odsial 8 dobrych artykulow o psach) i smiec
+	 * w opublikowanym tekscie.
+	 *
+	 * Znaczniki sa dlugie z rozmyslem: XPath 1.0 nie zna granicy slowa, wiec
+	 * krotki `rate` wycialby element z klasa `corporate-news`.
+	 */
+	public const CLUTTER_TOKENS = array(
+		'related',
+		'share',
+		'social',
+		'newsletter',
+		'subscribe',
+		'comment',
+		'rating',
+		'rate-this',
+		'breadcrumb',
+		'sidebar',
+		'widget',
+		'banner',
+		'promo',
+		'advert',
+		'author-box',
+		'post-nav',
+		'pagination',
+		'cookie',
+		'popup',
+	);
+
+	/**
+	 * Sufit tresci przekazywanej dalej: 20 000 znakow.
+	 *
+	 * ZMIERZONE na dworku: srednia tresc gotowa do modelu ma 38 tys. znakow,
+	 * a strona przy sufinie 1 MB przechodzi ekstrakcje w calosci. Cala ta
+	 * objetosc szlaby do promptu, do odcisku i do bazy. 20 tys. znakow to
+	 * z ogromnym zapasem wiecej, niz model potrzebuje, zeby napisac artykul
+	 * o wymaganych 800 znakach — a roznica to kilkanascie tysiecy tokenow
+	 * na kazde z 20 dobowych wywolan.
+	 *
+	 * Ciecie idzie po CALYCH wezlach, nigdy w polowie znacznika.
+	 */
+	public const MAX_CONTENT_CHARS = 20000;
+
+	/**
+	 * Ile limitu pamieci wolno zajac, zanim odpuszczamy kolejny scraping: 80%.
+	 *
+	 * Wyczerpania pamieci NIE LAPIE `try/catch` — proces po prostu ginie
+	 * w polowie przebiegu i zostawia pozycje w stanie `processing`. Jedyna
+	 * obrona jest sprawdzenie PRZED, a nie obsluga PO.
+	 */
+	public const MEMORY_FRACTION = 0.8;
+
+	// -----------------------------------------------------------------------
+	// Decyzja: czy w ogole siegac do sieci
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Czy tresc z kanalu wymaga uzupelnienia scrapingiem.
+	 *
+	 * @param string $content Tresc podana przez kanal (`content:encoded`
+	 *                        albo zajawka).
+	 *
+	 * @return bool
+	 */
+	public static function needs_scraping( string $content ): bool {
+		return self::text_length( $content ) < self::MIN_FEED_CHARS;
+	}
+
+	/**
+	 * Dlugosc GOLEGO tekstu, bez znacznikow i encji.
+	 *
+	 * Liczenie `strlen()` na HTML-u klamie w obie strony: `<div class="…">`
+	 * dokłada setki znakow, ktorych nikt nie przeczyta, a polska litera zajmuje
+	 * dwa bajty. Stad `mb_strlen` po odarciu ze znacznikow — dokladnie ta sama
+	 * definicja golego tekstu, ktorej uzywa odcisk tresci.
+	 *
+	 * @param string $tresc HTML albo goly tekst.
+	 *
+	 * @return int Liczba znakow.
+	 */
+	public static function text_length( string $tresc ): int {
+		$tekst = Dedup::normalize_text( $tresc );
+
+		if ( '' === $tekst ) {
+			return 0;
+		}
+
+		return function_exists( 'mb_strlen' ) ? mb_strlen( $tekst, 'UTF-8' ) : strlen( $tekst );
+	}
+
+	// -----------------------------------------------------------------------
+	// Sciaganie strony
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Pobiera strone artykulu.
+	 *
+	 * Cala robota sieciowa siedzi w `Http::get_article()`: timeout 15 s, sufit
+	 * 1 MB, trzy przekierowania, `robots.txt` sprawdzany per host. Tutaj
+	 * zostaje tlumaczenie wyniku na jezyk przebiegu — a najwazniejsze w tym
+	 * tlumaczeniu jest rozroznienie bledu PRZEJSCIOWEGO (wart ponowienia)
+	 * od trwalego (ponawianie go tylko zjada budzet czasu).
+	 *
+	 * @param string $url Adres artykulu.
+	 *
+	 * @return array<string,mixed> `ok`, `html`, `error`, `reason`, `retryable`,
+	 *                             `truncated`.
+	 */
+	public static function fetch( string $url, ?float $remaining = null ): array {
+		/*
+		 * Bramka pamieci stoi PRZED zadaniem, nie po nim: pobrany 1 MB HTML-a
+		 * plus drzewo DOM z niego to najdrozszy moment calego przebiegu.
+		 * Powod jest przejsciowy — nastepny tick zaczyna z czysta pamiecia —
+		 * wiec pozycja idzie do ponowienia, nie do `failed`.
+		 */
+		if ( ! self::memory_ok() ) {
+			return array(
+				'ok'        => false,
+				'html'      => '',
+				'error'     => 'Za mało pamięci na pobranie kolejnej strony',
+				'reason'    => 'memory',
+				'retryable' => true,
+				'truncated' => false,
+			);
+		}
+
+		$odpowiedz = Http::get_article( $url, $remaining );
+
+		if ( ! $odpowiedz['ok'] ) {
+			return array(
+				'ok'        => false,
+				'html'      => '',
+				'error'     => (string) $odpowiedz['error'],
+				'reason'    => (string) $odpowiedz['reason'],
+				'retryable' => Http::is_retryable( $odpowiedz ),
+				'truncated' => (bool) $odpowiedz['truncated'],
+			);
+		}
+
+		$html = (string) $odpowiedz['body'];
+
+		/*
+		 * Serwer potrafi oddac kod 200 z pusta trescia — najczesciej wtedy, gdy
+		 * strona zniknela, a przekierowanie prowadzi na strone glowna. Pusta
+		 * odpowiedz nie jest bledem sieci, wiec ponawianie jej nic nie da.
+		 */
+		if ( '' === trim( $html ) ) {
+			return array(
+				'ok'        => false,
+				'html'      => '',
+				'error'     => 'Serwer oddał pustą stronę',
+				'reason'    => 'empty',
+				'retryable' => false,
+				'truncated' => (bool) $odpowiedz['truncated'],
+			);
+		}
+
+		return array(
+			'ok'        => true,
+			'html'      => $html,
+			'error'     => '',
+			'reason'    => '',
+			'retryable' => false,
+			'truncated' => (bool) $odpowiedz['truncated'],
+		);
+	}
+
+	// -----------------------------------------------------------------------
+	// Ekstrakcja tresci ze strony
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Wyciaga z pobranej strony tresc artykulu i adres kanoniczny.
+	 *
+	 * ETAP 3.4. „Prosta ekstrakcja" jest tu okresleniem zakresu, nie jakosci:
+	 * wycinamy to, co powtarza sie na kazdej podstronie, a potem bierzemy blok
+	 * z najwieksza iloscia tekstu W AKAPITACH. Miara na akapitach jest jedyna,
+	 * ktora dziala na zagniezdzonych `<div>`-ach — sam tekst potomkow zawsze
+	 * wygrywalby `<body>`, bo rodzic zawiera wszystko, co maja dzieci.
+	 *
+	 * Trzy pulapki, ktore ta metoda omija:
+	 *
+	 *   1. `loadHTML()` bez deklaracji kodowania zaklada ISO-8859-1 i robi
+	 *      z polskich liter krzaki. Stad `<meta charset>` doklejany z przodu
+	 *      — zalecany przez plan zamiast `mb_convert_encoding(…, 'HTML-ENTITIES')`,
+	 *      ktore od PHP 8.2 jest przestarzale.
+	 *   2. Prawdziwy HTML nie jest poprawnym XML-em, a libxml zglasza kazde
+	 *      odstepstwo. Bez `libxml_use_internal_errors()` kazda strona sypie
+	 *      ostrzezeniami do logu klienta. Stan biblioteki jest PRZYWRACANY —
+	 *      wtyczka nie ma prawa zmieniac globalnych ustawien na stale.
+	 *   3. `saveHTML()` oddaje polskie litery jako encje. Rozkodowanie ich tu,
+	 *      PRZED `wp_kses_post()` (etap 3.5), jest bezpieczne: cokolwiek
+	 *      rozkodowanie odsloni, oczyszczanie i tak jeszcze zobaczy.
+	 *
+	 * @param string $html     Tresc strony.
+	 * @param string $base_url Adres, spod ktorego przyszla — do rozwiniecia
+	 *                         wzglednego `canonical`.
+	 *
+	 * @return array<string,mixed> `ok`, `html`, `canonical`, `error`.
+	 */
+	public static function extract( string $html, string $base_url = '' ): array {
+		if ( '' === trim( $html ) ) {
+			return self::extract_result( false, '', '', 'Pusta strona' );
+		}
+
+		$poprzedni = libxml_use_internal_errors( true );
+
+		try {
+			$xpath = self::load( $html );
+
+			if ( null === $xpath ) {
+				return self::extract_result( false, '', '', 'Nie udało się sparsować strony' );
+			}
+
+			$canonical = self::canonical( $xpath, $base_url );
+
+			self::strip_nodes( $xpath, true );
+
+			$blok  = self::best_block( $xpath );
+			$tresc = ( null === $blok ) ? '' : self::inner_html( $blok );
+
+			/*
+			 * SIEC ASEKURACYJNA pod odsiew boksow po klasach. Dopasowanie po
+			 * nazwie klasy jest z natury zgadywaniem: motyw, ktory nazwie
+			 * pojemnik wpisu `post-share-content`, straci przez ten odsiew caly
+			 * artykul. Dlatego gdy po odsiewie zostaje za malo tekstu, cala
+			 * ekstrakcja idzie jeszcze raz BEZ niego i wygrywa wynik dluzszy.
+			 * Kosztuje to drugie przejscie tylko w przypadku podejrzanym.
+			 */
+			if ( self::text_length( $tresc ) < self::MIN_TEXT_CHARS ) {
+				$zapasowy = self::load( $html );
+
+				if ( null !== $zapasowy ) {
+					self::strip_nodes( $zapasowy, false );
+					$blok_z = self::best_block( $zapasowy );
+
+					if ( null !== $blok_z ) {
+						$tresc_z = self::inner_html( $blok_z );
+
+						if ( self::text_length( $tresc_z ) > self::text_length( $tresc ) ) {
+							$tresc = $tresc_z;
+						}
+					}
+				}
+			}
+
+			/*
+			 * DLUG D-1 Z AUDYTU KROKU 3. Bramka pyta o dlugosc GOLEGO TEKSTU,
+			 * nie o pusty lancuch — bo te dwie rzeczy nie sa tym samym. Gdy
+			 * libxml urwie drzewo na 255. poziomie zagniezdzenia, `inner_html()`
+			 * oddaje lancuch pelen znacznikow, w ktorym nie ma ANI JEDNEGO
+			 * znaku tekstu. Warunek na pusty lancuch przepuszczal to jako
+			 * `ok = true`; pozycja i tak konczyla jako `skipped`, ale z notatka
+			 * „Za mało treści", ktora wskazuje na kanal zamiast na parser.
+			 *
+			 * Prog jest ZEROWY, nie `MIN_TEXT_CHARS`: tresc krotka, ale prawdziwa,
+			 * ma dalej isc do progu w `Runner`, ktory poda w notatce jej dlugosc.
+			 */
+			if ( 0 === self::text_length( $tresc ) ) {
+				return self::extract_result( false, '', $canonical, 'Nie znaleziono treści na stronie' );
+			}
+
+			return self::extract_result( true, self::cap( $tresc ), $canonical, '' );
+		} catch ( \Throwable $e ) {
+			return self::extract_result( false, '', '', 'Błąd ekstrakcji: ' . $e->getMessage() );
+		} finally {
+			libxml_clear_errors();
+			libxml_use_internal_errors( $poprzedni );
+		}
+	}
+
+	/**
+	 * Oczyszcza tresc Z KANALU, nie ruszajac jej zakresu.
+	 *
+	 * Kanal podaje juz sam artykul, wiec nie ma tu czego wybierac — ale bywa,
+	 * ze razem z nim przychodzi ramka „oceń wpis", boks „powiązane wpisy"
+	 * i zachęta do newslettera. Zmierzone na dworku: w pobranych tekstach
+	 * siedzi „Rate this post". Wchodzi to potem do promptu, do odcisku tresci
+	 * i do gotowego artykulu.
+	 *
+	 * Zwraca tresc niezmieniona, gdy cokolwiek pojdzie nie tak — dla tresci
+	 * z kanalu lepszy jest tekst z ramka niz brak tekstu.
+	 *
+	 * @param string $html Tresc z kanalu.
+	 *
+	 * @return string
+	 */
+	public static function declutter( string $html ): string {
+		if ( '' === trim( $html ) ) {
+			return '';
+		}
+
+		$poprzedni = libxml_use_internal_errors( true );
+
+		try {
+			$xpath = self::load( $html );
+
+			if ( null === $xpath ) {
+				return $html;
+			}
+
+			self::strip_nodes( $xpath, true );
+
+			$body = $xpath->query( '//body' );
+
+			if ( false === $body || 0 === $body->length ) {
+				return $html;
+			}
+
+			$tresc = self::inner_html( $body->item( 0 ) );
+
+			// Ta sama siec asekuracyjna co w `extract()`: odsiew po klasach nie
+			// ma prawa zamienic artykulu w pustke.
+			if ( self::text_length( $tresc ) < self::MIN_TEXT_CHARS && self::text_length( $html ) >= self::MIN_TEXT_CHARS ) {
+				return self::cap( $html );
+			}
+
+			return self::cap( $tresc );
+		} catch ( \Throwable $e ) {
+			return $html;
+		} finally {
+			libxml_clear_errors();
+			libxml_use_internal_errors( $poprzedni );
+		}
+	}
+
+	/**
+	 * Wczytuje HTML do drzewa i oddaje gotowe zapytania po nim.
+	 *
+	 * Wolajacy MUSI sam zadbac o `libxml_use_internal_errors()` — ta metoda
+	 * stanu nie rusza, zeby nie przywracac go w polowie pracy wolajacego.
+	 *
+	 * @param string $html Tresc.
+	 *
+	 * @return \DOMXPath|null
+	 */
+	private static function load( string $html ): ?\DOMXPath {
+		$dokument = new \DOMDocument();
+
+		// Deklaracja kodowania MUSI stac przed trescia, inaczej libxml
+		// zgaduje — i zgaduje ISO-8859-1.
+		$zaladowany = $dokument->loadHTML(
+			'<meta http-equiv="Content-Type" content="text/html; charset=utf-8">' . $html,
+			LIBXML_NOWARNING | LIBXML_NOERROR | LIBXML_NONET
+		);
+
+		return $zaladowany ? new \DOMXPath( $dokument ) : null;
+	}
+
+	/**
+	 * Adres kanoniczny ze strony.
+	 *
+	 * Wazny dlatego, ze ten sam artykul bywa podawany pod adresem z kanalu
+	 * i pod wlasnym adresem serwisu. `canonical` pozwala rozpoznac, ze to
+	 * jeden zasob, zanim model dostanie go po raz drugi.
+	 *
+	 * @param \DOMXPath $xpath    Zapytania po drzewie.
+	 * @param string    $base_url Adres, spod ktorego przyszla strona.
+	 *
+	 * @return string Adres bezwzgledny http(s) albo pusty lancuch.
+	 */
+	private static function canonical( \DOMXPath $xpath, string $base_url ): string {
+		$wezly = $xpath->query( '//link[translate(@rel,"CANOICL","canoicl")="canonical"][@href]' );
+
+		if ( false === $wezly || 0 === $wezly->length ) {
+			return '';
+		}
+
+		$link = $wezly->item( 0 );
+
+		if ( ! $link instanceof \DOMElement ) {
+			return '';
+		}
+
+		$href = trim( $link->getAttribute( 'href' ) );
+
+		if ( '' === $href ) {
+			return '';
+		}
+
+		// Adres wzgledny rozwijamy tylko wtedy, gdy wiemy, wzgledem czego.
+		if ( 0 === strpos( $href, '//' ) ) {
+			$schemat = (string) wp_parse_url( $base_url, PHP_URL_SCHEME );
+			$href    = ( '' === $schemat ? 'https' : $schemat ) . ':' . $href;
+		} elseif ( 0 === strpos( $href, '/' ) ) {
+			$czesci = wp_parse_url( $base_url );
+
+			if ( ! is_array( $czesci ) || empty( $czesci['scheme'] ) || empty( $czesci['host'] ) ) {
+				return '';
+			}
+
+			$href = $czesci['scheme'] . '://' . $czesci['host'] . $href;
+		}
+
+		return self::trusted_canonical( $href, $base_url );
+	}
+
+	/**
+	 * Czy temu adresowi kanonicznemu wolno podmienic adres pozycji.
+	 *
+	 * Obie bramki wzialy sie z audytu Kroku 3 i obie maja policzone skutki:
+	 *
+	 *   1. INNY HOST. `canonical` na obcej domenie jest dopuszczalny w sieci
+	 *      (syndykacja), ale u nas decyduje o tym, dokad prowadzi OBOWIAZKOWY
+	 *      link do zrodla w opublikowanym artykule. Strona trzecia nie ma
+	 *      prawa tego ustawiac — zmierzone: strona podajaca
+	 *      `<link rel="canonical" href="https://sklep.example/promocja/">`
+	 *      przepisywala adres pozycji na sklep.
+	 *   2. KORZEN SERWISU. Zle skonfigurowana wtyczka SEO podaje na kazdej
+	 *      podstronie `canonical` wskazujacy strone glowna. Zmierzone: pierwszy
+	 *      artykul z takiego kanalu dostawal adres strony glownej, a KAZDY
+	 *      kolejny konczyl jako „duplikat adresu kanonicznego". Kanal na 20
+	 *      wpisow tracil 19 dobrych artykulow, po cichu.
+	 *
+	 * @param string $href     Adres kanoniczny (juz bezwzgledny).
+	 * @param string $base_url Adres, spod ktorego przyszla strona.
+	 *
+	 * @return string Adres albo pusty lancuch, gdy nie zasluguje na zaufanie.
+	 */
+	private static function trusted_canonical( string $href, string $base_url ): string {
+		if ( '' === Dedup::normalize_url( $href ) ) {
+			return '';
+		}
+
+		$host_canonical = strtolower( (string) wp_parse_url( $href, PHP_URL_HOST ) );
+		$host_strony    = strtolower( (string) wp_parse_url( $base_url, PHP_URL_HOST ) );
+
+		if ( '' === $host_canonical || '' === $host_strony || $host_canonical !== $host_strony ) {
+			return '';
+		}
+
+		// Sciezka pusta albo `/` to strona glowna serwisu, nie artykul.
+		$sciezka = trim( (string) wp_parse_url( $href, PHP_URL_PATH ), '/' );
+
+		return ( '' === $sciezka ) ? '' : $href;
+	}
+
+	/**
+	 * Wycina z drzewa elementy powtarzajace sie na kazdej podstronie.
+	 *
+	 * @param \DOMXPath $xpath  Zapytania po drzewie.
+	 * @param bool      $boksy  Czy wycinac takze boksy rozpoznane po klasie.
+	 *
+	 * @return void
+	 */
+	private static function strip_nodes( \DOMXPath $xpath, bool $boksy = false ): void {
+		$zapytanie = '//' . implode( '|//', self::STRIP_TAGS ) . '|//comment()';
+
+		if ( $boksy ) {
+			$zapytanie .= '|' . self::clutter_query();
+		}
+
+		$wezly = $xpath->query( $zapytanie );
+
+		if ( false === $wezly ) {
+			return;
+		}
+
+		// Iteracja po zywej liscie wezlow gubi co drugi element, gdy usuwamy
+		// w trakcie — stad kopia do zwyklej tablicy.
+		$do_usuniecia = array();
+
+		foreach ( $wezly as $wezel ) {
+			$do_usuniecia[] = $wezel;
+		}
+
+		foreach ( $do_usuniecia as $wezel ) {
+			if ( $wezel->parentNode ) {
+				$wezel->parentNode->removeChild( $wezel );
+			}
+		}
+	}
+
+	/**
+	 * Zapytanie XPath na boksy rozpoznawane po nazwie klasy albo identyfikatora.
+	 *
+	 * Jedno zapytanie, nie kilkanascie — kazde osobne przejscie po drzewie
+	 * kosztuje tyle samo co pierwsze.
+	 *
+	 * Znaczniki sa dlugie i jednoznaczne (`newsletter`, nie `news`), bo XPath 1.0
+	 * nie zna granicy slowa: krotki znacznik `rate` wycialby `corporate-news`.
+	 * Dopasowanie jest po malych literach, wiec `Related-Posts` tez wpada.
+	 *
+	 * @return string
+	 */
+	private static function clutter_query(): string {
+		$czesci = array();
+
+		foreach ( self::CLUTTER_TOKENS as $token ) {
+			foreach ( array( '@class', '@id' ) as $atrybut ) {
+				$czesci[] = sprintf(
+					'//*[contains(translate(%s,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"%s")]',
+					$atrybut,
+					$token
+				);
+			}
+		}
+
+		return implode( '|', $czesci );
+	}
+
+	/**
+	 * Blok z najwieksza iloscia tekstu w akapitach.
+	 *
+	 * @param \DOMXPath $xpath Zapytania po drzewie.
+	 *
+	 * @return \DOMNode|null
+	 */
+	private static function best_block( \DOMXPath $xpath ) {
+		$kandydaci = $xpath->query( '//' . implode( '|//', self::BLOCK_TAGS ) );
+		$najlepszy = null;
+		$najwiecej = 0;
+
+		if ( false !== $kandydaci ) {
+			foreach ( $kandydaci as $wezel ) {
+				$punkty = self::paragraph_length( $xpath, $wezel );
+
+				// Ostry warunek `>` daje pierwszy z najlepszych, a przy
+				// zagniezdzeniu pierwszy jest zawsze ten szerszy — czyli ten,
+				// ktory zawiera CALY artykul, nie jego pierwsza polowe.
+				if ( $punkty > $najwiecej ) {
+					$najwiecej = $punkty;
+					$najlepszy = $wezel;
+				}
+			}
+		}
+
+		if ( null !== $najlepszy ) {
+			return $najlepszy;
+		}
+
+		/*
+		 * Zaden blok nie ma akapitow — strona moze byc zbudowana na samych
+		 * `<br>`. Wtedy bierzemy `<body>` w calosci i niech o wyniku zdecyduje
+		 * prog dlugosci z etapu 3.5.
+		 */
+		$body = $xpath->query( '//body' );
+
+		return ( false !== $body && $body->length > 0 ) ? $body->item( 0 ) : null;
+	}
+
+	/**
+	 * Ile tekstu jest w akapitach WEWNATRZ tego wezla.
+	 *
+	 * @param \DOMXPath $xpath Zapytania po drzewie.
+	 * @param \DOMNode  $wezel Kandydat.
+	 *
+	 * @return int
+	 */
+	private static function paragraph_length( \DOMXPath $xpath, \DOMNode $wezel ): int {
+		$akapity = $xpath->query( './/p|.//li', $wezel );
+
+		if ( false === $akapity ) {
+			return 0;
+		}
+
+		$suma = 0;
+
+		foreach ( $akapity as $akapit ) {
+			$suma += self::text_length( (string) $akapit->textContent );
+		}
+
+		return $suma;
+	}
+
+	/**
+	 * Zawartosc wezla jako HTML.
+	 *
+	 * @param \DOMNode $wezel Wezel.
+	 *
+	 * @return string
+	 */
+	private static function inner_html( \DOMNode $wezel ): string {
+		$dokument = $wezel->ownerDocument;
+
+		if ( null === $dokument ) {
+			return '';
+		}
+
+		$html = '';
+
+		foreach ( $wezel->childNodes as $dziecko ) {
+			$kawalek = $dokument->saveHTML( $dziecko );
+
+			if ( is_string( $kawalek ) ) {
+				$html .= $kawalek;
+			}
+		}
+
+		/*
+		 * ZMIERZONE, nie zalozone (PHP 8.2 / libxml): przy dokumencie
+		 * z zadeklarowanym UTF-8 `saveHTML()` oddaje polskie litery jako
+		 * ZWYKLE znaki, a `&nbsp;` zamienia na twarda spacje. Jedyne, co
+		 * zostaje encja, to `&amp;` — i tak ma zostac. Rozkodowanie encji
+		 * w tym miejscu bylo by szkodliwe: zamienialoby ZAPISANY jako tekst
+		 * `&lt;script&gt;` w prawdziwy znacznik.
+		 */
+		return trim( $html );
+	}
+
+	// -----------------------------------------------------------------------
+	// Oczyszczanie i progi (etap 3.5)
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Tresc przepuszczona przez `wp_kses_post()`.
+	 *
+	 * ETAP 3.5. Oczyszczanie robimy PRZY ZAPISIE, nie przy wyswietlaniu:
+	 * tresc idzie stad do promptu, do odcisku i do wpisu, a kazde z tych
+	 * miejsc ma innego odbiorce. Jedno oczyszczenie u zrodla jest jedynym,
+	 * ktore obowiazuje wszystkich trzech.
+	 *
+	 * `wp_kses_post()`, nie gole `wp_kses()` — to drugie wymaga drugiego
+	 * argumentu z lista dozwolonych znacznikow i bez niego jest bledem
+	 * krytycznym.
+	 *
+	 * @param string $html Tresc po ekstrakcji.
+	 *
+	 * @return string
+	 */
+	public static function clean( string $html ): string {
+		if ( '' === trim( $html ) ) {
+			return '';
+		}
+
+		return trim( wp_kses_post( $html ) );
+	}
+
+	/**
+	 * Przycina tresc do sufitu, nie rozrywajac znacznikow.
+	 *
+	 * Ciecie idzie po CALYCH wezlach: bierzemy kolejne dzieci, dopoki mieszcza
+	 * sie w budzecie. Wezel, ktory sam przekracza budzet, otwieramy i bierzemy
+	 * z niego tyle, ile wejdzie — dzieki temu artykul w jednym wielkim `<div>`
+	 * tez daje sie przyciac. Ostatni tekst ucinany jest na granicy slowa.
+	 *
+	 * Gdy cokolwiek pojdzie nie tak, wraca tresc NIEZMIENIONA: lepiej oddac
+	 * za duzo niz nic.
+	 *
+	 * @param string $html Tresc.
+	 *
+	 * @return string
+	 */
+	public static function cap( string $html ): string {
+		if ( self::text_length( $html ) <= self::MAX_CONTENT_CHARS ) {
+			return $html;
+		}
+
+		$poprzedni = libxml_use_internal_errors( true );
+
+		try {
+			$xpath = self::load( $html );
+
+			if ( null === $xpath ) {
+				return $html;
+			}
+
+			$body = $xpath->query( '//body' );
+
+			if ( false === $body || 0 === $body->length ) {
+				return $html;
+			}
+
+			$budzet = self::MAX_CONTENT_CHARS;
+			$wynik  = self::take( $body->item( 0 ), $budzet );
+
+			return ( '' === trim( $wynik ) ) ? $html : $wynik;
+		} catch ( \Throwable $e ) {
+			return $html;
+		} finally {
+			libxml_clear_errors();
+			libxml_use_internal_errors( $poprzedni );
+		}
+	}
+
+	/**
+	 * Bierze z wezla tyle calych dzieci, ile miesci sie w budzecie znakow.
+	 *
+	 * @param \DOMNode $wezel  Wezel zrodlowy.
+	 * @param int      $budzet Pozostaly budzet znakow (modyfikowany).
+	 *
+	 * @return string
+	 */
+	private static function take( \DOMNode $wezel, int &$budzet ): string {
+		$dokument = $wezel->ownerDocument;
+
+		if ( null === $dokument ) {
+			return '';
+		}
+
+		$html = '';
+
+		foreach ( $wezel->childNodes as $dziecko ) {
+			if ( 0 >= $budzet ) {
+				break;
+			}
+
+			/*
+			 * Koszt wezla to jego tekst PLUS jeden znak na spacje, ktora
+			 * skleja go z sasiadem. Bez tego doliczenia budzet myli sie
+			 * systematycznie o liczbe wezlow: dlugosc pojedynczego wezla jest
+			 * mierzona po przycieciu bialych znakow z brzegow, a w zlozonym
+			 * dokumencie te brzegi zamieniaja sie w spacje miedzy slowami.
+			 * Zmierzone: 240 akapitow dawalo 239 znakow ponad sufitem.
+			 */
+			$dlugosc = self::text_length( (string) $dziecko->textContent );
+			$koszt   = $dlugosc + 1;
+
+			if ( $koszt <= $budzet ) {
+				$kawalek = $dokument->saveHTML( $dziecko );
+
+				if ( is_string( $kawalek ) ) {
+					$html .= $kawalek;
+				}
+
+				$budzet -= $koszt;
+				continue;
+			}
+
+			// Wezel sam przekracza budzet: tekst tniemy, element otwieramy.
+			if ( XML_TEXT_NODE === $dziecko->nodeType ) {
+				$html  .= self::cut_text( (string) $dziecko->textContent, $budzet );
+				$budzet = 0;
+				break;
+			}
+
+			if ( $dziecko->hasChildNodes() ) {
+				$srodek = self::take( $dziecko, $budzet );
+
+				if ( '' !== $srodek && $dziecko instanceof \DOMElement ) {
+					$html .= self::wrap( $dziecko, $srodek );
+				}
+			}
+
+			break;
+		}
+
+		return $html;
+	}
+
+	/**
+	 * Odtwarza element wokol przycietej zawartosci.
+	 *
+	 * @param \DOMElement $element Element.
+	 * @param string      $srodek  Zawartosc.
+	 *
+	 * @return string
+	 */
+	private static function wrap( \DOMElement $element, string $srodek ): string {
+		$atrybuty = '';
+
+		foreach ( $element->attributes as $atrybut ) {
+			$atrybuty .= ' ' . $atrybut->nodeName . '="'
+				. htmlspecialchars( (string) $atrybut->nodeValue, ENT_QUOTES, 'UTF-8' ) . '"';
+		}
+
+		return '<' . $element->tagName . $atrybuty . '>' . $srodek . '</' . $element->tagName . '>';
+	}
+
+	/**
+	 * Tnie goly tekst na granicy slowa.
+	 *
+	 * @param string $tekst Tekst.
+	 * @param int    $limit Ile znakow zostawic.
+	 *
+	 * @return string
+	 */
+	private static function cut_text( string $tekst, int $limit ): string {
+		$ciety = function_exists( 'mb_substr' ) ? mb_substr( $tekst, 0, $limit, 'UTF-8' ) : substr( $tekst, 0, $limit );
+		$spacja = strrpos( $ciety, ' ' );
+
+		return rtrim( ( false === $spacja || $spacja < 1 ) ? $ciety : substr( $ciety, 0, $spacja ) ) . '…';
+	}
+
+	/**
+	 * Czy po oczyszczeniu zostalo dosc tresci, zeby isc do modelu.
+	 *
+	 * @param string $html Tresc po `self::clean()`.
+	 *
+	 * @return bool
+	 */
+	public static function is_long_enough( string $html ): bool {
+		return self::text_length( $html ) >= self::MIN_TEXT_CHARS;
+	}
+
+	/**
+	 * Powod pominiecia przy zbyt krotkiej tresci — z liczbami, nie ogolnikiem.
+	 *
+	 * Na ekranie Materialy ta notatka jest jedynym sladem po stronie, ktora
+	 * renderuje sie JavaScriptem. Bez liczb wyglada jak awaria; z liczbami
+	 * widac, ze wtyczka zachowala sie zgodnie z projektem.
+	 *
+	 * @param string $html Tresc po oczyszczeniu.
+	 *
+	 * @return string
+	 */
+	public static function short_note( string $html ): string {
+		return sprintf(
+			'Za mało treści: %1$d znaków (potrzeba %2$d)',
+			self::text_length( $html ),
+			self::MIN_TEXT_CHARS
+		);
+	}
+
+	// -----------------------------------------------------------------------
+	// Budzet pamieci
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Czy zostalo dosc pamieci na kolejna strone.
+	 *
+	 * @return bool `true` takze wtedy, gdy limitu nie ma (`memory_limit = -1`).
+	 */
+	public static function memory_ok(): bool {
+		$limit = self::memory_limit_bytes();
+
+		if ( 0 >= $limit ) {
+			return true;
+		}
+
+		return memory_get_usage( true ) < (int) ( $limit * self::MEMORY_FRACTION );
+	}
+
+	/**
+	 * Efektywny limit pamieci w bajtach.
+	 *
+	 * `memory_limit` bywa podany jako `256M`, `1G` albo `-1`. Przeliczenie
+	 * robi `wp_convert_hr_to_bytes()`; `-1` znaczy „bez limitu" i wraca stad
+	 * jako `0`, czyli „nie ma progu do pilnowania".
+	 *
+	 * @return int Bajty albo `0`, gdy progu nie ma.
+	 */
+	public static function memory_limit_bytes(): int {
+		$limit = ini_get( 'memory_limit' );
+
+		if ( false === $limit || '' === $limit ) {
+			return 0;
+		}
+
+		$bajty = function_exists( 'wp_convert_hr_to_bytes' )
+			? (int) wp_convert_hr_to_bytes( (string) $limit )
+			: (int) $limit;
+
+		return ( 0 >= $bajty ) ? 0 : $bajty;
+	}
+
+	/**
+	 * Staly ksztalt wyniku ekstrakcji.
+	 *
+	 * @param bool   $ok        Powodzenie.
+	 * @param string $html      Tresc.
+	 * @param string $canonical Adres kanoniczny.
+	 * @param string $error     Komunikat.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function extract_result( bool $ok, string $html, string $canonical, string $error ): array {
+		return array(
+			'ok'        => $ok,
+			'html'      => $html,
+			'canonical' => $canonical,
+			'error'     => $error,
+		);
+	}
+}

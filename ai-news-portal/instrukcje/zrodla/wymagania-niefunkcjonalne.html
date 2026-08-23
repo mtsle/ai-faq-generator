@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Wymagania niefunkcjonalne — AI News Portal</title>
+<link rel="stylesheet" href="styl-tech.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<span class="okladka__etykieta">Non-functional</span>
+	<h1 class="okladka__tytul">Wymagania niefunkcjonalne</h1>
+	<p class="okladka__podtytul">AI News Portal — jak system ma się zachowywać</p>
+
+	<div class="okladka__ramka">
+		<p><strong>Zakres.</strong> Osiem grup wymagań opisujących <em>jakość</em> działania,
+		   a nie funkcje. Każde wymaganie ma wartość liczbową albo jednoznaczne kryterium
+		   sprawdzenia — inaczej nie byłoby wymaganiem, tylko życzeniem.</p>
+		<p><strong>Skąd wartości.</strong> Wszystkie liczby pochodzą ze stałych w kodzie albo
+		   z pomiarów na działającej witrynie. Pomiary są oznaczone i opatrzone datą.</p>
+		<p><strong>Dokumenty pokrewne.</strong> Zachowanie funkcjonalne —
+		   <strong>Instrukcja dla informatyka (Functional)</strong>. Formaty danych —
+		   <strong>Schema</strong>. Zachowanie samoczynne — <strong>Instrukcje systemowe</strong>.</p>
+	</div>
+
+	<p class="okladka__stopka">
+		AI News Portal {{WERSJA}} · licencja {{LICENCJA}}
+	</p>
+</section>
+
+<!-- ============ SPIS + PODSUMOWANIE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Spis treści</h1>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>N1 — Wydajność i budżety czasu</strong></span></li>
+		<li><span class="spis__nr">2</span><span><strong>N2 — Bezpieczeństwo</strong></span></li>
+		<li><span class="spis__nr">3</span><span><strong>N3 — Koszt i przydział dostawcy</strong></span></li>
+		<li><span class="spis__nr">4</span><span><strong>N4 — Niezawodność</strong></span></li>
+		<li><span class="spis__nr">5</span><span><strong>N5 — Jakość publikowanych treści</strong></span></li>
+		<li><span class="spis__nr">6</span><span><strong>N6 — Zgodność i dostępność</strong></span></li>
+		<li><span class="spis__nr">7</span><span><strong>N7 — Prywatność danych</strong></span></li>
+		<li><span class="spis__nr">8</span><span><strong>N8 — Utrzymywalność</strong></span></li>
+	</ol>
+
+	<h2>Podsumowanie liczbowe</h2>
+	<table class="tech">
+		<tr><th>Wielkość</th><th>Wartość</th><th>Gdzie ustalona</th></tr>
+		<tr><td>Budżet przebiegu cyklicznego</td><td><span class="nolam">25 s</span></td><td><code>Runner::TICK_BUDGET</code></td></tr>
+		<tr><td>Podział budżetu (pobranie / przygotowanie)</td><td><span class="nolam">¼ + ¼</span></td><td><code>Runner::TICK_SHARE</code></td></tr>
+		<tr><td>Budżet przycisku „Przygotuj treści”</td><td><span class="nolam">15 s</span></td><td><code>Runner::PREPARE_BUDGET</code></td></tr>
+		<tr><td>Budżet przycisku „Opublikuj teraz”</td><td><span class="nolam">30 s</span></td><td><code>Runner::PUBLISH_BUDGET</code></td></tr>
+		<tr><td>Partia przygotowania</td><td><span class="nolam">10</span> pozycji</td><td><code>Runner::PREPARE_BATCH</code></td></tr>
+		<tr><td>Partia publikacji</td><td><span class="nolam">3</span> pozycje</td><td><code>Runner::AI_BATCH</code></td></tr>
+		<tr><td>Sufit materiału dla modelu</td><td><span class="nolam">12 000</span> znaków</td><td><code>Gemini::MATERIAL_MAX</code></td></tr>
+		<tr><td>Sufit dobowy wywołań AI</td><td><span class="nolam">20</span></td><td>pole w Ustawieniach</td></tr>
+		<tr><td>Timeout kanału / strony</td><td><span class="nolam">10 s</span> / <span class="nolam">15 s</span></td><td><code>Http::TIMEOUT_FEED</code>, <code>TIMEOUT_ARTICLE</code></td></tr>
+		<tr><td>Sufit odpowiedzi kanału / strony</td><td><span class="nolam">4 MB</span> / <span class="nolam">1 MB</span></td><td><code>Http::LIMIT_FEED</code>, <code>LIMIT_ARTICLE</code></td></tr>
+		<tr><td>Próby samoczynne</td><td><span class="nolam">3</span></td><td><code>Runner::MAX_ATTEMPTS</code></td></tr>
+		<tr><td>TTL zamka / odzysk zawieszonych</td><td><span class="nolam">120 s</span> / <span class="nolam">900 s</span></td><td><code>Admin::LOCK_TTL</code>, <code>Runner::STALE_SECONDS</code></td></tr>
+	</table>
+</section>
+
+<div class="ciagly">
+
+<!-- ============ N1 ============ -->
+<h1 class="rozdzial">1. N1 — Wydajność i budżety czasu</h1>
+<p class="rozdzial__wstep">System pracuje w oknach czasu wyznaczonych przez żądanie HTTP,
+   które go uruchomiło. Przekroczenie okna oznacza urwane żądanie i — przy modelu —
+   spalony slot.</p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N1.1</span>
+		<p class="wym__tytul">Przebieg cykliczny mieści się w budżecie</p></div>
+	<div class="wym__tresc">
+		<p>Pojedynczy przebieg <code>ainp_tick</code> ma <span class="nolam">25 s</span>.
+		   Budżet jest dzielony: <span class="nolam">¼</span> na pobranie,
+		   <span class="nolam">¼</span> na przygotowanie, reszta na publikację. Każda faza
+		   sprawdza pozostały czas przed wzięciem kolejnej pozycji.</p>
+		<p class="wym__meta">Kryterium: przebieg nigdy nie kończy się przekroczeniem
+		   <code>max_execution_time</code> serwera.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N1.2</span>
+		<p class="wym__tytul">Budżet przycina timeout żądania wychodzącego</p></div>
+	<div class="wym__tresc">
+		<p>Timeout wywołania modelu nie jest stały: to <em>minimum</em> z górnej wartości
+		   (<span class="nolam">30 s</span>) i czasu pozostałego w budżecie. Poniżej
+		   <span class="nolam">8 s</span> wywołanie <strong>nie jest podejmowane</strong>.</p>
+		<p class="wym__meta">Uzasadnienie: ucięte żądanie zużywa slot z puli dobowej
+		   tak samo jak udane — po stronie dostawcy praca została wykonana.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N1.3</span>
+		<p class="wym__tytul">Sufit materiału wysyłanego do modelu</p></div>
+	<div class="wym__tresc">
+		<p>Treść materiału jest ucinana do <span class="nolam">12 000</span> znaków.</p>
+		<p class="wym__meta"><strong>Pomiar (2026-08-16, witryna testowa):</strong>
+		   pozycja o długości <span class="nolam">58 891</span> znaków dawała
+		   <span class="nolam">18 512</span> tokenów promptu i czas odpowiedzi
+		   <span class="nolam">32–36 s</span> — ponad każdy budżet, więc żaden artykuł
+		   z takiej pozycji nie mógł powstać. Po wprowadzeniu sufitu:
+		   <span class="nolam">3 981</span> tokenów, artykuł kompletny.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N1.4</span>
+		<p class="wym__tytul">Rozrzut czasu odpowiedzi modelu</p></div>
+	<div class="wym__tresc">
+		<p>Przy planowaniu budżetu należy zakładać <strong>dwukrotny rozrzut</strong> czasu
+		   odpowiedzi przy niezmienionym wejściu.</p>
+		<p class="wym__meta"><strong>Pomiar (2026-08-16):</strong> ten sam ładunek
+		   (<span class="nolam">3 981</span> tokenów promptu, identyczny) dał raz
+		   <span class="nolam">9,74 s</span>, raz <span class="nolam">20,58 s</span>.
+		   Różnica leży po stronie „myślenia” modelu — licznik tokenów rozumowania wyniósł
+		   odpowiednio <span class="nolam">460</span> i <span class="nolam">2562</span>.
+		   Sufit materiału obniża średnią, ale <strong>ogona nie usuwa</strong>.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N1.5</span>
+		<p class="wym__tytul">Koszt filtrowania jest pomijalny</p></div>
+	<div class="wym__tresc">
+		<p>Odsiew słowami nie może stanowić zauważalnej części budżetu przebiegu.</p>
+		<p class="wym__meta"><strong>Pomiar:</strong> <span class="nolam">7,13 ms</span>
+		   na pozycję; partia <span class="nolam">10</span> pozycji to
+		   <span class="nolam">0,36 %</span> budżetu przebiegu.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N1.6</span>
+		<p class="wym__tytul">Wpływ na czas wczytania strony</p></div>
+	<div class="wym__tresc">
+		<p>Warstwa publiczna nie ładuje <strong>żadnego JavaScriptu</strong> i jednego
+		   arkusza stylów. Układ ma jeden punkt załamania
+		   (<span class="nolam">46 rem</span>).</p>
+		<p class="wym__meta"><strong>Pomiar (8 szerokości × 4 widoki = 32 wczytania):</strong>
+		   udział wtyczki w wadze strony ≈ <span class="nolam">22 %</span>, z czego
+		   <span class="nolam">91 %</span> to zdjęcia kart. Zero przewijania poziomego
+		   na wszystkich mierzonych szerokościach.</p>
+	</div>
+</div>
+
+<!-- ============ N2 ============ -->
+<h1 class="rozdzial">2. N2 — Bezpieczeństwo</h1>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N2.1</span>
+		<p class="wym__tytul">Brak publicznego punktu zmieniającego stan</p></div>
+	<div class="wym__tresc">
+		<p>Wtyczka nie rejestruje własnych tras REST ani punktów AJAX dostępnych bez
+		   logowania. Jedyne wejścia zmieniające stan to cztery akcje kokpitu, każda
+		   chroniona <strong>polem jednorazowym i sprawdzeniem
+		   <code>manage_options</code></strong>.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N2.2</span>
+		<p class="wym__tytul">Klucz API nie jest autoładowany</p></div>
+	<div class="wym__tresc">
+		<p>Klucz leży w osobnej opcji z wyłączonym autoładowaniem — nie jest wczytywany
+		   do pamięci przy każdym żądaniu do witryny i nie trafia do widoków publicznych
+		   ani do dziennika błędów.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N2.3</span>
+		<p class="wym__tytul">Żądania wychodzące przez bezpieczną warstwę rdzenia</p></div>
+	<div class="wym__tresc">
+		<p>Wszystkie pobrania idą przez <code>wp_safe_remote_get</code>, które blokuje
+		   adresy w sieciach prywatnych i pętli zwrotnej. Adresy kanałów są ograniczone
+		   do schematów <code>http</code> i <code>https</code>. Liczba przekierowań:
+		   <span class="nolam">3</span>.</p>
+		<p class="wym__meta">To zamyka drogę wymuszeniu żądania po stronie serwera (SSRF)
+		   przez wpisanie adresu wewnętrznego jako kanału RSS.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N2.4</span>
+		<p class="wym__tytul">Ochrona przed wstrzyknięciem poleceń do modelu</p></div>
+	<div class="wym__tresc">
+		<p>Materiał źródłowy jest wstawiany w ogrodzeniu tekstowym, a wystąpienia znacznika
+		   ogrodzenia w samym materiale są neutralizowane. Instrukcja systemowa stoi poza
+		   ogrodzeniem.</p>
+		<p class="wym__meta">Materiał pochodzi z cudzych stron i musi być traktowany jako
+		   dane, nigdy jako polecenie.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N2.5</span>
+		<p class="wym__tytul">Nagłówki uzupełniające, nigdy nadpisujące</p></div>
+	<div class="wym__tresc">
+		<p>Wtyczka wysyła nagłówek tylko wtedy, gdy nikt go wcześniej nie ustawił, i zawsze
+		   bez zastępowania. Pełnej polityki treści (CSP) <strong>nie narzuca</strong> —
+		   ogranicza się do <code>frame-ancestors 'self'</code>.</p>
+		<p class="wym__meta">Odrzucone świadomie, z powodami zapisanymi w kodzie i pilnowanymi
+		   testem: <code>HSTS</code> (obejmuje całą domenę, nie tylko widoki wtyczki),
+		   <code>COOP</code> (zrywa <code>window.opener</code>), <code>CORP</code>
+		   (zablokowałoby własne osadzenie), <code>X-XSS-Protection</code>
+		   i <code>X-Permitted-Cross-Domain-Policies</code> (martwe w bieżących
+		   przeglądarkach).</p>
+	</div>
+</div>
+
+<!-- ============ N3 ============ -->
+<h1 class="rozdzial">3. N3 — Koszt i przydział dostawcy</h1>
+<p class="rozdzial__wstep">System jest zaprojektowany pod <strong>darmowy poziom</strong>
+   Google Gemini i nie wymaga podpiętej karty płatniczej.</p>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N3.1</span>
+		<p class="wym__tytul">Własny licznik przed limitem dostawcy</p></div>
+	<div class="wym__tresc">
+		<p>Wtyczka liczy wywołania samodzielnie (opcja <em>data + licznik</em>)
+		   i zatrzymuje się na wartości z pola <strong>„Sufit wywołań AI na dobę”</strong>,
+		   domyślnie <span class="nolam">20</span>.</p>
+		<p class="wym__meta">Licznik chroni przed odbiciem od limitu dostawcy, nie zastępuje
+		   go. Podniesienie pola ponad darmowy przydział nie zwiększa puli.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N3.2</span>
+		<p class="wym__tytul">Wszystko, co da się odrzucić za darmo, odrzucane jest za darmo</p></div>
+	<div class="wym__tresc">
+		<p>Cztery bramki — powtórka adresu, filtr słów, powtórka treści, bramka słów
+		   wymaganych w punkcie wyboru — działają <strong>przed</strong> wywołaniem modelu.</p>
+		<p class="wym__meta"><strong>Pomiar na 70 prawdziwych pozycjach:</strong> bez bramki
+		   słów wymaganych przez filtr przechodziły teksty o weselach, jeździe konnej, pizzy,
+		   Wi-Fi i ogrzewaniu — żaden nie zawierał słowa wykluczającego, więc żadna długość
+		   listy wykluczeń by ich nie zatrzymała. Każdy z nich kosztowałby jeden slot.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N3.3</span>
+		<p class="wym__tytul">Slot rezerwowany przed wywołaniem — konsekwencje</p></div>
+	<div class="wym__tresc">
+		<p>Rezerwacja poprzedza żądanie, więc <strong>przerwane żądanie również zużywa
+		   slot</strong>. Wynika z tego ograniczenie przepustowości warte odnotowania:</p>
+		<p class="wym__meta"><strong>Pomiar (2026-08-21, ścieżka przycisku):</strong>
+		   w oknie <span class="nolam">30 s</span> partia wzięła
+		   <span class="nolam">2</span> pozycje — pierwsza zajęła <span class="nolam">~17 s</span>
+		   i dała artykuł, druga dostała <span class="nolam">13 s</span> resztki i została
+		   ucięta. Bilans: <span class="nolam">2</span> wywołania,
+		   <span class="nolam">1</span> artykuł. Przy partii
+		   <span class="nolam">3</span> i puli <span class="nolam">20</span> na dobę
+		   to realna strata.</p>
+	</div>
+</div>
+
+<!-- ============ N4 ============ -->
+<h1 class="rozdzial">4. N4 — Niezawodność</h1>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N4.1</span>
+		<p class="wym__tytul">Jeden przebieg naraz, wymuszony przez bazę</p></div>
+	<div class="wym__tresc">
+		<p>Zamek zakładany operacją atomową (<code>INSERT IGNORE</code>). Przy dwóch
+		   równoległych żądaniach dokładnie jedno przejmuje pracę, drugie kończy się
+		   bez błędu i bez pracy.</p>
+		<p class="wym__meta">Zwolnienie jest warunkowe — przebieg kasuje wyłącznie własny
+		   wpis. Bezwarunkowe zwalnianie prowadziło do zdejmowania cudzego zamka
+		   po przekroczeniu TTL i podwójnej pracy nad tą samą pozycją.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N4.2</span>
+		<p class="wym__tytul">Awaria pojedynczej pozycji nie zatrzymuje portalu</p></div>
+	<div class="wym__tresc">
+		<p>Błąd sieci, odmowa dostawcy albo złamany kontrakt odpowiedzi kończą się statusem
+		   <code>failed</code> dla tej pozycji. Przebieg idzie dalej. Do
+		   <span class="nolam">3</span> prób samoczynnych, potem ręczne wznowienie.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N4.3</span>
+		<p class="wym__tytul">Treść nie ginie przy niepowodzeniu</p></div>
+	<div class="wym__tresc">
+		<p>Przy <code>failed</code> pobrana treść <strong>zawsze zostaje w tabeli</strong>.
+		   Wznowienie nie wymaga ponownego odwiedzenia strony źródłowej — a ta mogła
+		   w międzyczasie zniknąć.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N4.4</span>
+		<p class="wym__tytul">Przerwanie w połowie nie blokuje kolejki</p></div>
+	<div class="wym__tresc">
+		<p>Pozycja w stanie <code>processing</code> starszym niż
+		   <span class="nolam">900 s</span> wraca do <code>new</code>. Zamek starszy niż
+		   <span class="nolam">120 s</span> może zostać przejęty. Żadna awaria procesu
+		   nie zostawia systemu w stanie trwale zablokowanym.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N4.5</span>
+		<p class="wym__tytul">Brak duplikatów wymuszony na poziomie bazy</p></div>
+	<div class="wym__tresc">
+		<p>Dwa klucze <code>UNIQUE</code>: po skrócie adresu i po skrócie treści. Publikacja
+		   jest idempotentna — powtórne przetworzenie tej samej pozycji aktualizuje wpis
+		   zamiast tworzyć drugi.</p>
+		<p class="wym__meta">Ochrona nie zależy od poprawności kodu wywołującego.</p>
+	</div>
+</div>
+
+<!-- ============ N5 ============ -->
+<h1 class="rozdzial">5. N5 — Jakość publikowanych treści</h1>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N5.1</span>
+		<p class="wym__tytul">Odpowiedź niespełniająca kontraktu nie jest publikowana</p></div>
+	<div class="wym__tresc">
+		<p>Progi: tytuł <span class="nolam">5–140</span> znaków, lead
+		   <span class="nolam">20–400</span>, treść co najmniej <span class="nolam">800</span>,
+		   kategoria dokładnie z listy z Ustawień. Niespełnienie któregokolwiek warunku
+		   oznacza <code>failed</code>, nie publikację z ostrzeżeniem.</p>
+		<p class="wym__meta">Wymuszony schemat po stronie API gwarantuje <strong>składnię,
+		   nie sens</strong> — stąd konieczność własnej walidacji.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N5.2</span>
+		<p class="wym__tytul">Kategoria zawsze z listy właściciela</p></div>
+	<div class="wym__tresc">
+		<p>Lista kategorii trafia do żądania jako zbiór dopuszczalnych wartości, a wynik
+		   jest dodatkowo sprawdzany po stronie wtyczki.</p>
+		<p class="wym__meta">Lista domyślna zawiera kategorię zbiorczą („Życie z psem”).
+		   Bez niej artykuł o temacie z pogranicza szedłby na <code>failed</code>
+		   i marnował jeden slot z dobowej puli.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N5.3</span>
+		<p class="wym__tytul">Treść źródłowa jest przepisywana, nie kopiowana</p></div>
+	<div class="wym__tresc">
+		<p>Model dostaje materiał i polecenie napisania własnego tekstu. Adres źródła jest
+		   zapisywany przy artykule i pokazywany czytelnikowi w ramce źródła.</p>
+		<p class="wym__meta">Zdjęcia ze stron źródłowych <strong>nie są pobierane</strong> —
+		   karty korzystają ze zdjęć kategorii dostarczonych w paczce.</p>
+	</div>
+</div>
+
+<!-- ============ N6 ============ -->
+<h1 class="rozdzial">6. N6 — Zgodność i dostępność</h1>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N6.1</span>
+		<p class="wym__tytul">Środowisko</p></div>
+	<div class="wym__tresc">
+		<table class="tech">
+			<tr><th>Element</th><th>Wymaganie</th></tr>
+			<tr><td>WordPress</td><td>6.5 lub nowszy</td></tr>
+			<tr><td>PHP</td><td>8.1 lub nowszy</td></tr>
+			<tr><td>Sprawdzone do wersji</td><td>WordPress 7.0.2</td></tr>
+			<tr><td>Multisite</td><td>nieobsługiwane</td></tr>
+			<tr><td>Licencja</td><td>{{LICENCJA}}</td></tr>
+		</table>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N6.2</span>
+		<p class="wym__tytul">Motyw ma pierwszeństwo</p></div>
+	<div class="wym__tresc">
+		<p>Szablony wtyczki wchodzą tylko wtedy, gdy motyw nie dostarcza własnych dla tego
+		   typu treści. Arkusz wtyczki nie ustawia kroju pisma ani tła.</p>
+		<p class="wym__meta">Kryterium: portal na cudzym motywie wygląda jak część witryny,
+		   nie jak wklejony obcy element.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N6.3</span>
+		<p class="wym__tytul">Kontrast tekstu</p></div>
+	<div class="wym__tresc">
+		<p>Tekst pomocniczy (data, kategoria, zajawka) ma kontrast co najmniej
+		   <span class="nolam">4,5 : 1</span> względem tła.</p>
+		<p class="wym__meta"><strong>Pomiar:</strong> wartość wyjściowa
+		   <span class="nolam">3,47 : 1</span> — poniżej progu — poprawiona do
+		   <span class="nolam">4,63 : 1</span>. Pomiar wykonano na witrynie testowej;
+		   na motywie o innym tle wynik może się różnić.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N6.4</span>
+		<p class="wym__tytul">Cele dotykowe</p></div>
+	<div class="wym__tresc">
+		<p>Przyciski kategorii i elementy stronicowania mają co najmniej
+		   <span class="nolam">24 × 24 px</span>, zgodnie z WCAG 2.2 SC 2.5.8.</p>
+		<p class="wym__meta">Wyjątek dopuszczony przez samo kryterium: odnośnik źródła
+		   wewnątrz zdania (cel „Inline”).</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N6.5</span>
+		<p class="wym__tytul">Pełna rozdzielność od drugiej wtyczki w paczce</p></div>
+	<div class="wym__tresc">
+		<p>Własne prefiksy opcji i tabel, własna przestrzeń nazw, własny plik
+		   odinstalowania. Portal działa, gdy druga wtyczka jest wyłączona albo w ogóle
+		   nie została wgrana.</p>
+		<p class="wym__meta">Rozłączne prefiksy są jedyną ochroną przed skasowaniem danych
+		   drugiej wtyczki przy odinstalowaniu.</p>
+	</div>
+</div>
+
+<!-- ============ N7 ============ -->
+<h1 class="rozdzial">7. N7 — Prywatność danych</h1>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N7.1</span>
+		<p class="wym__tytul">Wtyczka nie zbiera danych odwiedzających</p></div>
+	<div class="wym__tresc">
+		<p>Warstwa publiczna nie ustawia ciasteczek, nie ładuje skryptów i nie zapisuje
+		   niczego o gościu. Wyszukiwana fraza jest przetwarzana w obrębie żądania i nie
+		   trafia do bazy.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N7.2</span>
+		<p class="wym__tytul">Co opuszcza witrynę</p></div>
+	<div class="wym__tresc">
+		<table class="tech">
+			<tr><th>Odbiorca</th><th>Dane</th><th>Kiedy</th></tr>
+			<tr><td>Serwery kanałów RSS i stron źródłowych</td>
+			    <td>zwykłe żądanie <code>GET</code> (adres IP serwera witryny)</td>
+			    <td>faza pobrania i doczytania treści</td></tr>
+			<tr><td>Google Gemini</td>
+			    <td>tytuł, adres i treść materiału źródłowego (do <span class="nolam">12 000</span> znaków)
+			        oraz lista kategorii</td>
+			    <td>faza publikacji</td></tr>
+		</table>
+		<p class="wym__meta">Żadne dane osobowe użytkowników witryny nie są wysyłane
+		   na zewnątrz, bo wtyczka ich nie przetwarza.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N7.3</span>
+		<p class="wym__tytul">Usunięcie bez śladu</p></div>
+	<div class="wym__tresc">
+		<p>Odinstalowanie kasuje wpisy i ich meta, terminy taksonomii, tabelę (<code>DROP</code>),
+		   wszystkie opcje z prefiksem, transienty i zaplanowane zdarzenie.</p>
+		<p class="wym__meta">Cecha jest zarazem ryzykiem: <strong>artykułów nie da się
+		   przywrócić</strong>. Ostrzeżenie stoi w instrukcji klienta i w opisie wtyczki.</p>
+	</div>
+</div>
+
+<!-- ============ N8 ============ -->
+<h1 class="rozdzial">8. N8 — Utrzymywalność</h1>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N8.1</span>
+		<p class="wym__tytul">Rozmiar i struktura</p></div>
+	<div class="wym__tresc">
+		<p>Siedemnaście plików w <code>src/</code>, jedna tabela, cztery opcje robocze,
+		   jeden typ treści, jedna taksonomia. Każda klasa ma jedną odpowiedzialność
+		   wypisaną w nagłówku pliku.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N8.2</span>
+		<p class="wym__tytul">Wartości progowe w jednym miejscu</p></div>
+	<div class="wym__tresc">
+		<p>Wszystkie budżety, limity i progi są stałymi klas, nie liczbami wpisanymi
+		   w środku metod. Zmiana zachowania sprowadza się do zmiany stałej.</p>
+		<p class="wym__meta">Doświadczenie z utrzymania: asercja postawiona na wartości
+		   stałej <strong>nie pilnuje jej użycia</strong>. Test musi sprawdzać wynik
+		   przebiegu, nie deklarację.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N8.3</span>
+		<p class="wym__tytul">Pokrycie testami</p></div>
+	<div class="wym__tresc">
+		<p>Zestaw testów utrzymywany jest w repozytorium wtyczki i <strong>nie wchodzi
+		   do paczki instalacyjnej</strong>. W wersji podanej w stopce obejmuje
+		   <span class="nolam">14</span> segmentów architektury,
+		   <span class="nolam">28</span> zestawów i <span class="nolam">1926</span> asercji.</p>
+		<p class="wym__meta">Kryterium zaliczenia zestawu jest mocniejsze niż kod wyjścia
+		   procesu: wymagana jest <strong>zgodna liczba wykonanych asercji</strong>.
+		   Zestaw, który umarł przed pierwszą asercją, wygląda inaczej niż zestaw,
+		   który przeszedł wszystkie.</p>
+	</div>
+</div>
+
+<div class="wym">
+	<div class="wym__glowa"><span class="wym__id">N8.4</span>
+		<p class="wym__tytul">Wersjonowanie</p></div>
+	<div class="wym__tresc">
+		<p>Numer wersji jest deklarowany w jednym miejscu — w nagłówku pliku głównego —
+		   i stamtąd trafia do stałej wersji, do paczki i do stopek tych dokumentów.</p>
+		<p class="wym__meta">Wersja w stopce tego dokumentu została odczytana z kodu
+		   przy jego budowaniu, nie wpisana ręcznie.</p>
+	</div>
+</div>
+
+</div>
+
+</body>
+</html>

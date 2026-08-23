@@ -1,0 +1,1953 @@
+<?php
+/**
+ * Przebieg zbierania: kanaly -> pozycje w tabeli.
+ *
+ * ETAP 2.4. To POLOWA klasy — ta, ktora POBIERA. Druga polowa (tick crona,
+ * przejecie pozycji, budzet czasu i pamieci, ponowienia) dochodzi w Kroku 5;
+ * plan wskazuje `Runner.php` jako miejsce wykonania, wiec nie zakladamy tu
+ * nowego pliku.
+ *
+ * Dwie zasady, ktore rzadza calym tym przebiegiem:
+ *
+ *   1. NIC SIE NIE ZATRZYMUJE. Kazde zrodlo i kazda pozycja siedza we
+ *      wlasnym `try/catch`. Padniete zrodlo odklada sie w podsumowaniu jako
+ *      wpis o bledzie, a przebieg idzie do nastepnego.
+ *   2. O DUPLIKATY PYTA BAZA, NIE KOD. Zapis idzie przez `INSERT IGNORE`
+ *      na kolumnie z kluczem `UNIQUE`. Sprawdzenie `SELECT`-em przed zapisem
+ *      to wzorzec „przeczytaj, potem zapisz", w ktorym dwa rownolegle
+ *      przebiegi potrafia sie minac i wstawic te sama pozycje dwa razy.
+ *
+ * @package AI_News_Portal
+ */
+
+namespace AINP;
+
+// Blokada bezposredniego wywolania pliku.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+/**
+ * Zbieranie pozycji z kanalow.
+ */
+final class Runner {
+
+	/** Status pozycji swiezo zapisanej. */
+	public const STATUS_NEW = 'new';
+
+	/**
+	 * Status pozycji, ktora nie pojdzie dalej.
+	 *
+	 * Pozycja odsiana przez filtr jest ZAPISYWANA, nie pomijana przy zapisie.
+	 * Powod jest praktyczny: wiersz w tabeli z kluczem `UNIQUE` na `url_hash`
+	 * sprawia, ze przy kazdym kolejnym przebiegu ten sam adres jest duplikatem,
+	 * wiec kanal nie podaje go w kolko od nowa. Bez zapisu odsiana pozycja
+	 * wracalaby co godzine i za kazdym razem przechodzila przez filtr.
+	 */
+	public const STATUS_SKIPPED = 'skipped';
+
+	/**
+	 * Sufit pozycji branych z JEDNEGO kanalu w jednym przebiegu.
+	 *
+	 * Typowy kanal podaje 10–20 wpisow. Sufit jest zabezpieczeniem przed
+	 * kanalem, ktory oddaje cale archiwum serwisu — bez niego jeden taki
+	 * adres zapchalby tabele i budzet czasu przebiegu. Odrzucone pozycje sa
+	 * LICZONE i widoczne w podsumowaniu, zeby nikt nie znikal po cichu.
+	 */
+	public const MAX_ITEMS_PER_SOURCE = 100;
+
+	/** Status pozycji, ktorej nie udalo sie doprowadzic do konca. */
+	public const STATUS_FAILED = 'failed';
+
+	/**
+	 * Status pozycji WZIETEJ przez trwajacy przebieg — etap 5.2.
+	 *
+	 * Do Kroku 5 byl sama etykieta na ekranie Materialow, bo nic go nie nadawalo.
+	 * Nadaje go teraz `claim()`, i tylko on. Pozycja `processing` jest niewidoczna
+	 * dla obu zapytan wybierajacych (`status = 'new'`), wiec drugi przebieg jej
+	 * nie ruszy — na tym polega cale przejecie.
+	 */
+	public const STATUS_PROCESSING = 'processing';
+
+	/**
+	 * Po ilu sekundach `processing` uznajemy za PORZUCONE: 15 minut.
+	 *
+	 * Proces zabity przez `max_execution_time` nie zdazy oddac pozycji, wiec bez
+	 * tego progu jeden zgon zostawialby wiersz zablokowany na zawsze. Prog musi
+	 * byc dluzszy niz najdluzszy mozliwy przebieg (budzet 15 s plus pobranie
+	 * strony) i krotszy niz odstep miedzy tickami (godzina) — inaczej albo
+	 * odbieralby pozycje przebiegowi, ktory wciaz pracuje, albo nie odzyskiwalby
+	 * niczego przed nastepnym tickiem.
+	 */
+	public const STALE_SECONDS = 900;
+
+	/** Status pozycji, z ktorej powstal opublikowany artykul. */
+	public const STATUS_DONE = 'done';
+
+	/**
+	 * Ile pozycji bierze jeden przebieg publikacji.
+	 *
+	 * Mniej niz przy przygotowaniu tresci (10), bo tutaj kazda pozycja kosztuje
+	 * slot z dobowej puli 20 — jedno klikniecie nie ma prawa zjesc jej polowy.
+	 */
+	public const AI_BATCH = 3;
+
+	/**
+	 * Ile razy probujemy, zanim pozycja idzie na `failed`.
+	 *
+	 * Dotyczy WYLACZNIE bledow przejsciowych (timeout, 429, 5xx, brak pamieci).
+	 * Blad trwaly — 404, zakaz z `robots.txt` — konczy pozycje od razu:
+	 * ponawianie go tylko zjada budzet czasu.
+	 */
+	public const MAX_ATTEMPTS = 3;
+
+	/** Ile pozycji bierze jeden przebieg przygotowania tresci. */
+	public const PREPARE_BATCH = 10;
+
+	/**
+	 * Budzet czasu jednego przebiegu przygotowania: 15 sekund.
+	 *
+	 * Bez niego partia dziesieciu pozycji zamawia do 10 x (15 s artykul + 5 s
+	 * `robots.txt`), czyli okolo 200 s w jednym zadaniu — a typowy
+	 * `max_execution_time` w SAPI webowym to 30–60 s. Proces ginal w polowie
+	 * partii: transient z podsumowaniem nie powstawal, a klient dostawal pusta
+	 * strone i nie wiedzial, ktore pozycje zostaly przetworzone.
+	 *
+	 * Budzet sprawdzany jest PRZED wzieciem kolejnej pozycji, bo przerwac
+	 * mozna tylko miedzy pozycjami — pozycja w trakcie musi sie domknac,
+	 * inaczej zostaje w stanie posrednim.
+	 */
+	public const PREPARE_BUDGET = 15;
+
+	/**
+	 * Budzet fazy PUBLIKACJI wolanej bez budzetu, czyli z przyciskow panelu.
+	 * Etap 8.7.
+	 *
+	 * Do etapu 8.7 `publish_batch()` bez argumentu bralo `PREPARE_BUDGET`,
+	 * czyli 15 s — stala od INNEJ fazy. Skutek byl odwrotny do intuicji:
+	 * przycisk „Opublikuj teraz" dawal modelowi MNIEJ czasu (15 s) niz cron
+	 * (~19,99 s z `TICK_BUDGET`), wiec reczna publikacja udawala sie rzadziej
+	 * niz automatyczna. Wygladalo to na przeoczenie nazwy, nie na decyzje.
+	 *
+	 * 30 s to `Gemini::TIMEOUT_MAX`: wiecej i tak nie zostanie wykorzystane,
+	 * bo pojedyncze wywolanie nigdy nie czeka dluzej. Zadanie panelu nie ma
+	 * ograniczenia ticku, ale ma `max_execution_time` — stad przyciecie tym
+	 * samym mechanizmem, co budzet ticku.
+	 */
+	public const PUBLISH_BUDGET = 30;
+
+	/** Ile pozycji oglada jedno zapytanie szukajace kandydata dla modelu. */
+	public const AI_SCAN = 25;
+
+	/**
+	 * Ile razy `pick_for_ai()` ponawia zapytanie, zanim sie podda.
+	 *
+	 * Odsiane pozycje wypadaja z warunku `status = 'new'`, wiec kolejne
+	 * zapytanie widzi juz NASTEPNE wiersze — to jest cale stronicowanie.
+	 * Sufit jest po to, zeby przy kilkuset pozycjach poza tematem jedno
+	 * klikniecie nie przeorywalo calej tabeli.
+	 */
+	public const AI_SCAN_ROUNDS = 4;
+
+	/**
+	 * Ile razy ponawiamy wywolanie modelu przy niepoprawnym JSON-ie.
+	 *
+	 * JEDEN, i tylko w tym samym przebiegu. Po wymuszeniu schematu (etap 4.1)
+	 * niepoprawny JSON jest praktycznie mozliwy tylko przez obciecie odpowiedzi
+	 * w transporcie, czyli usterke przejsciowa — a taka mija albo nie mija za
+	 * pierwszym razem. Kazde ponowienie kosztuje kolejny slot z dobowej puli
+	 * 20, wiec druga proba to juz 10% dziennego budzetu na jedna pozycje.
+	 */
+	public const AI_JSON_RETRIES = 1;
+
+	/**
+	 * Budzet czasu CALEGO ticku: 25 sekund — etap 5.3, podniesiony w audycie 8.10.
+	 *
+	 * WP-Cron chodzi we wlasnym zadaniu HTTP, wiec obowiazuje go zwykly
+	 * `max_execution_time` hostingu — typowo 30 s, przy czym na Linuksie
+	 * limit liczy czas CPU, a czekanie na siec sie do niego nie wlicza.
+	 * Tick, ktory go przekroczy, ginie w polowie: pozycja zostaje
+	 * `processing` (odzyska ja dopiero prog 15 minut), a podsumowanie
+	 * nie powstaje.
+	 *
+	 * Dlaczego 25, nie 20: na TYM SAMYM ladunku zmierzono 9,74 s i 20,58 s
+	 * (wariancja `thoughtsTokenCount` 460 vs 2562), wiec przy 20 s wolniejsze
+	 * losowanie przepalalo slot z dobowej puli mimo poprawnej odpowiedzi.
+	 * 25 pokrywa zmierzony ogon, publikacja po cwiartkach zbierania
+	 * i przygotowania dostaje ~12,5 s (nadal > TIMEOUT_MIN), a nierownosc
+	 * z PUBLISH_BUDGET=30 zostaje — na niej stoi test rozrozniajacy budzety
+	 * z etapu 8.7.
+	 */
+	public const TICK_BUDGET = 25;
+
+	/**
+	 * Ile z budzetu ticku wolno zjesc fazie zbierania i fazie przygotowania.
+	 *
+	 * Po jednej czwartej kazda, reszta — czyli przynajmniej polowa — nalezy
+	 * do publikacji, i to nie jest podzial „po rowno przez trzy". `Gemini`
+	 * nie startuje ponizej OSMIU sekund pozostalego budzetu, wiec faza
+	 * publikacji z dwudziestu procent budzetu nie wywolalaby modelu ANI RAZU:
+	 * portal zbieralby material w nieskonczonosc i nigdy nic nie opublikowal.
+	 * Faza, ktora skonczy wczesniej, oddaje swoja reszte nastepnym.
+	 */
+	public const TICK_SHARE = 0.25;
+
+	/**
+	 * Jak dlugo zyje slad po automatycznym przebiegu: doba.
+	 *
+	 * Dluzej nie ma sensu — tick chodzi co godzine, wiec zapis starszy niz
+	 * doba znaczy, ze cron nie chodzi wcale, i wlasnie TO jest wtedy
+	 * informacja dla klienta.
+	 */
+	public const TICK_LOG_TTL = 86400;
+
+	/** Sufit dlugosci adresu — tyle ma kolumna `url varchar(2048)`. */
+	public const MAX_URL_BYTES = 2048;
+
+	/** Sufit dlugosci tytulu i zajawki — kolumny `text` mieszcza 65535 bajtow. */
+	public const MAX_TEXT_BYTES = 65000;
+
+	/**
+	 * Ile wywolan modelu poszlo w ostatnio przetwarzanej pozycji.
+	 *
+	 * Pole istnieje wylacznie po to, zeby ta liczba PRZEZYLA wyjatek rzucony
+	 * po wywolaniu modelu. Sloty z dobowej puli sa wtedy zuzyte, a wynik
+	 * `process_item()` nie wraca — patrz komentarz przy zapisie.
+	 *
+	 * @var int
+	 */
+	private static $last_calls = 0;
+
+	// -----------------------------------------------------------------------
+	// Tick crona
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Jeden przebieg automatyczny — sluchacz uchwytu `ainp_tick` (etap 5.1).
+	 *
+	 * Trzy fazy w tej samej kolejnosci, w jakiej klient klika trzy przyciski
+	 * w panelu: POBIERZ → PRZYGOTUJ TRESC → OPUBLIKUJ. Kolejnosc nie jest
+	 * dowolna. Pozycja zapisana w pierwszej fazie moze byc przygotowana w tym
+	 * samym przebiegu, a przygotowana — opublikowana; przy odwrotnej kolejnosci
+	 * material zawsze czekalby na nastepna godzine i pierwszy artykul powstawalby
+	 * po trzech tickach zamiast po jednym.
+	 *
+	 * ZAMEK JEST TEN SAM, CO W PANELU, i o to wlasnie chodzi: cron nie moze
+	 * wejsc w partie, ktora wlasnie mieli klient przyciskiem, bo obie wzielyby
+	 * te same wiersze. Zdejmowany w `finally` — przebieg przerwany wyjatkiem nie
+	 * ma prawa zostawic martwych przyciskow na cale `Admin::LOCK_TTL`.
+	 *
+	 * ZADNA FAZA NIE PRZERYWA NASTEPNEJ. Padniete zrodlo, brak klucza API czy
+	 * wyczerpana pula dobowa konczy sie wpisem w podsumowaniu, nie wyjatkiem —
+	 * to trzecie z zabezpieczen nienaruszalnych („nie zatrzymuje sie przy typowym
+	 * bledzie"). Sam `\Throwable` z fazy jest lapany, zeby jedna zepsuta faza nie
+	 * zabrala dwoch pozostalych.
+	 *
+	 * Przejecie pozycji (`status='processing'`) dochodzi w etapie 5.2, a budzety
+	 * czasu i pamieci calego ticku w 5.3 — tu fazy dostaja swoje wartosci domyslne.
+	 *
+	 * @param float|null $budget Budzet czasu w sekundach; `null` bierze
+	 *                           `tick_budget()`.
+	 *
+	 * @return array<string,mixed> Podsumowanie trzech faz; `locked` mowi, ze
+	 *                             przebieg nie ruszyl, bo trwal inny.
+	 */
+	public static function tick( ?float $budget = null ): array {
+		$wynik = array(
+			'locked'    => false,
+			'recovered' => 0,
+			'budget'    => 0.0,
+			'skipped'   => array(),
+			'collect'   => array(),
+			'prepare'   => array(),
+			'publish'   => array(),
+			'errors'    => array(),
+		);
+
+		/*
+		 * ZAMEK ATOMOWY (ustalenie audytowe A5). Do naprawy byla to para
+		 * odczyt-zapis, w ktorej okno miedzy sprawdzeniem a zalozeniem wymagalo
+		 * dwukliku czlowieka. Cron wchodzi w nie SAM — a dwa ticki naraz pobieraja
+		 * wszystkie kanaly dwa razy.
+		 */
+		if ( ! Admin::claim_lock() ) {
+			$wynik['locked'] = true;
+
+			return $wynik;
+		}
+
+		try {
+			$budzet  = ( null === $budget ) ? self::tick_budget() : max( 1.0, $budget );
+			$start   = microtime( true );
+			$dzialka = $budzet * self::TICK_SHARE;
+
+			$wynik['budget'] = $budzet;
+
+			/*
+			 * Zegar rusza PRZED odzyskiem, nie za nim (A2). Odzysk to jedno zapytanie
+			 * po indeksie, wiec normalnie nic nie kosztuje — ale skoro jest czescia
+			 * ticku, ma byc czescia jego rozliczenia. Budzet, ktory pomija kawalek
+			 * wlasnego przebiegu, klamie o tym, ile czasu zostalo.
+			 */
+
+			/*
+			 * ODZYSK PRZED FAZAMI (etap 5.2). Pozycja porzucona przez zabity
+			 * przebieg jest niewidoczna dla obu zapytan wybierajacych, wiec bez
+			 * tego zapytania czekalaby w nieskonczonosc, a nie 15 minut.
+			 * Wewnatrz zamka: gdyby przebieg trwal, jego pozycje sa mlodsze niz
+			 * prog i tak czy tak nie zostalyby odebrane, ale tak jest o jedno
+			 * zalozenie mniej.
+			 */
+			try {
+				$wynik['recovered'] = self::recover_stalled();
+			} catch ( \Throwable $e ) {
+				$wynik['errors']['recover'] = $e->getMessage();
+			}
+
+			foreach ( array( 'collect', 'prepare', 'publish' ) as $faza ) {
+				$zostalo = $budzet - ( microtime( true ) - $start );
+
+				/*
+				 * Faza, na ktora nie ma juz czasu, nie jest ODPALANA — nie jest
+				 * odpalana „na chwile". Partia z zerowym budzetem i tak zwrocilaby
+				 * `budget_hit` po jednym zapytaniu, ale to zapytanie i tak by padlo,
+				 * a przy fazie publikacji doszlaby jeszcze proba wywolania modelu
+				 * z budzetem, przy ktorym `Gemini` i tak odmawia startu.
+				 */
+				if ( $zostalo <= 0 ) {
+					$wynik['skipped'][] = $faza;
+					continue;
+				}
+
+				try {
+					switch ( $faza ) {
+						case 'collect':
+							$wynik['collect'] = self::collect( null, min( $dzialka, $zostalo ) );
+							break;
+						case 'prepare':
+							$wynik['prepare'] = self::prepare_batch( self::PREPARE_BATCH, min( $dzialka, $zostalo ) );
+							break;
+						default:
+							// CALA reszta budzetu, nie dzialka: to jedyna faza,
+							// ktorej praca ma wartosc dla klienta, i jedyna,
+							// ktora ma prog wejscia (osiem sekund na model).
+							$wynik['publish'] = self::publish_batch( self::AI_BATCH, $zostalo );
+							break;
+					}
+				} catch ( \Throwable $e ) {
+					$wynik['errors'][ $faza ] = $e->getMessage();
+				}
+			}
+		} finally {
+			Admin::release_lock();
+		}
+
+		/*
+		 * SLAD PO PRZEBIEGU — ustalenie audytowe A3.
+		 *
+		 * Do tej pory `tick()` oddawal komplet danych, a `add_action()` je
+		 * wyrzucal. Panel pokazywal wylacznie wyniki akcji KLIKNIETYCH, wiec
+		 * automat, ktory od tygodnia niczego nie publikuje — bo skonczyla sie
+		 * pula, bo padl kanal, bo zabraklo budzetu — byl nieodrozninalny od
+		 * automatu, ktory po prostu nie dziala. Kryterium odbioru „wyczerpany
+		 * limit WSTRZYMUJE zamiast sypac bledami" bez tego zapisu nie da sie
+		 * ani potwierdzic, ani obalic.
+		 *
+		 * Prefiks `ainp_` jest wymogiem: `uninstall.php` zamiata transienty
+		 * wzorcem `_transient_ainp_%`.
+		 */
+		$wynik['time'] = current_time( 'mysql' );
+
+		set_transient( Admin::TRANSIENT_TICK, $wynik, self::TICK_LOG_TTL );
+
+		return $wynik;
+	}
+
+	/**
+	 * Budzet czasu jednego ticku, przyciety do mozliwosci hostingu.
+	 *
+	 * `TICK_BUDGET` jest zalozeniem, `max_execution_time` — faktem. Na hostingu
+	 * z limitem 15 s tick liczacy na 20 s zginalby przed oddaniem pozycji
+	 * i przed zapisaniem podsumowania, i to CO GODZINE. Bierzemy 80% limitu,
+	 * zeby zostal zapas na domkniecie pozycji, ktora akurat trwa — ta sama
+	 * proporcja, ktora rzadzi budzetem pamieci w `Article`.
+	 *
+	 * Limit `0` znaczy „bez ograniczenia" (tak jest w CLI) i wtedy obowiazuje
+	 * samo zalozenie.
+	 *
+	 * @return float
+	 */
+	public static function tick_budget(): float {
+		return self::clamp_budget( (float) self::TICK_BUDGET );
+	}
+
+	/**
+	 * Budzet publikacji wolanej z panelu, przyciety do mozliwosci hostingu.
+	 * Etap 8.7.
+	 *
+	 * @return float
+	 */
+	public static function publish_budget(): float {
+		return self::clamp_budget( (float) self::PUBLISH_BUDGET );
+	}
+
+	/**
+	 * Zalozony budzet przyciety do 80% `max_execution_time`. Etap 8.7 —
+	 * wydzielone z `tick_budget()`, bo ta sama regula obowiazuje teraz takze
+	 * publikacje z panelu.
+	 *
+	 * @param float $zalozony Budzet zalozony przez wtyczke.
+	 *
+	 * @return float
+	 */
+	private static function clamp_budget( float $zalozony ): float {
+		$limit = (int) ini_get( 'max_execution_time' );
+
+		if ( $limit <= 0 ) {
+			return $zalozony;
+		}
+
+		return min( $zalozony, $limit * 0.8 );
+	}
+
+	// -----------------------------------------------------------------------
+	// Przejecie pozycji (etap 5.2)
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Bierze pozycje na wylacznosc: `new` → `processing`.
+	 *
+	 * CALA ATOMOWOSC SIEDZI W KLAUZULI `WHERE`, nie w kolejnosci wywolan.
+	 * Wzorzec „sprawdz `SELECT`-em, potem zapisz" ma miedzy odczytem a zapisem
+	 * okno, w ktore wchodzi drugi proces — a cron i przycisk w panelu potrafia
+	 * ruszyc w tej samej sekundzie. Warunek `status = 'new'` w samym `UPDATE`
+	 * daje rozstrzygniecie po stronie bazy: wiersz zmieni sie dla DOKLADNIE
+	 * jednego procesu, a pozostale dostana zero zmienionych wierszy.
+	 *
+	 * Druga galaz warunku odzyskuje pozycje PORZUCONA: `processing` starsze niz
+	 * `STALE_SECONDS` wraca do gry. Bez niej proces zabity w polowie zabieralby
+	 * pozycje na zawsze.
+	 *
+	 * @param int $id Identyfikator wiersza.
+	 *
+	 * @return bool `true`, gdy pozycja nalezy teraz do tego przebiegu.
+	 */
+	public static function claim( int $id ): bool {
+		global $wpdb;
+
+		if ( $id <= 0 ) {
+			return false;
+		}
+
+		$zmienione = $wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, updated_at = %s'
+				. ' WHERE id = %d AND ( status = %s OR ( status = %s AND updated_at < %s ) )',
+				self::STATUS_PROCESSING,
+				current_time( 'mysql' ),
+				$id,
+				self::STATUS_NEW,
+				self::STATUS_PROCESSING,
+				self::stale_before()
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return 1 === (int) $zmienione;
+	}
+
+	/**
+	 * Oddaje pozycje do kolejki: `processing` → `new`.
+	 *
+	 * Warunek `status = 'processing'` jest tu rownie wazny, co przy przejeciu,
+	 * tyle ze chroni przed czym innym: pozycja mogla w miedzyczasie skonczyc
+	 * jako `done`, `skipped` albo `failed`. Bezwarunkowe oddanie wskrzeszałoby
+	 * ja i portal opublikowalby ten sam artykul drugi raz.
+	 *
+	 * Wolane ZAWSZE po obsluzeniu pozycji, takze po wyjatku — dlatego jest
+	 * bezpieczne dla statusow koncowych.
+	 *
+	 * @param int $id Identyfikator wiersza.
+	 *
+	 * @return void
+	 */
+	private static function release( int $id ): void {
+		global $wpdb;
+
+		if ( $id <= 0 ) {
+			return;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, updated_at = %s WHERE id = %d AND status = %s',
+				self::STATUS_NEW,
+				current_time( 'mysql' ),
+				$id,
+				self::STATUS_PROCESSING
+			)
+		); // phpcs:ignore WordPress.DB
+	}
+
+	/**
+	 * Odzyskuje pozycje porzucone przez zabity przebieg.
+	 *
+	 * Sama galaz w `claim()` niczego by nie odzyskala: oba zapytania wybierajace
+	 * biora WYLACZNIE `status = 'new'`, wiec wiersz `processing` nigdy nie
+	 * trafilby do `claim()` i nie mialby okazji sie odblokowac. Dlatego przed
+	 * kazdym tickiem jedno zapytanie zbiorcze wraca je do kolejki.
+	 *
+	 * Miejsce wywolania to `tick()`, nie partie: `prepare_batch()` i
+	 * `publish_batch()` wola takze przyciski panelu, a te maja miec dokladnie
+	 * ten ksztalt zapytan, na ktorym stoja testy Kroku 3 i 4. Klient klikajacy
+	 * przyciski i tak generuje ruch, ktory uruchamia WP-Cron.
+	 *
+	 * @return int Ile pozycji wrocilo do kolejki.
+	 */
+	public static function recover_stalled(): int {
+		global $wpdb;
+
+		$zmienione = $wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, updated_at = %s WHERE status = %s AND updated_at < %s',
+				self::STATUS_NEW,
+				current_time( 'mysql' ),
+				self::STATUS_PROCESSING,
+				self::stale_before()
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return max( 0, (int) $zmienione );
+	}
+
+	/**
+	 * Wznawia pozycje `failed` — decyzja czlowieka, nie automatu (etap 5.4).
+	 *
+	 * WARIANT B Z AUDYTU KROKU 4 DOMKNIETY. Od tamtej decyzji tresc pozycji
+	 * `failed` ZOSTAJE w tabeli, bo jest jedynym materialem do ponowienia —
+	 * ale do Kroku 5 nie istniala zadna droga, ktora by z niej skorzystala.
+	 * Zachowana tresc byla samym kosztem: kilkadziesiat kilobajtow na wiersz
+	 * i zero pozytku.
+	 *
+	 * Automatu tu nie ma i nie moze byc. `failed` znaczy „trzy razy sie nie
+	 * udalo" albo „blad trwaly" — ponawianie tego w kolko zjadaloby budzet
+	 * czasu i sloty z dobowej puli. Wznowienie jest wiec swiadomym klikanciem
+	 * klienta, ktory naprawil przyczyne: dopisal klucz API, poprawil adres,
+	 * doczekal konca awarii serwisu.
+	 *
+	 * `attempts` wraca do zera, bo licznik prob opisuje JEDNO podejscie do
+	 * pozycji, a to jest nowe podejscie. Bez zerowania pozycja wrocilaby
+	 * z licznikiem na `MAX_ATTEMPTS` i pierwszy blad przejsciowy odeslalby ja
+	 * z powrotem na `failed`.
+	 *
+	 * @return int Ile pozycji wrocilo do kolejki.
+	 */
+	public static function revive_failed(): array {
+		global $wpdb;
+
+		/*
+		 * Liczymy PRZED zmiana, bo po niej nie ma juz czego liczyc — a klient ma
+		 * zobaczyc nie tylko „wznowiono N", tylko ile z tego wroci do MODELU (A4).
+		 */
+		$przed = self::failed_counts();
+
+		$zmienione = $wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, attempts = 0, note = %s, updated_at = %s WHERE status = %s',
+				self::STATUS_NEW,
+				'',
+				current_time( 'mysql' ),
+				self::STATUS_FAILED
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return array(
+			'revived' => max( 0, (int) $zmienione ),
+			'ai'      => $przed['ai'],
+		);
+	}
+
+	/**
+	 * Ile pozycji czeka jako `failed` i ile z nich kosztuje wywolanie AI.
+	 *
+	 * USTALENIE AUDYTOWE A4. Wznowienie nie odroznialo bledu trwalego od
+	 * przejsciowego, a klient nie mial jak zobaczyc, ile go to kosztuje.
+	 * Dziesiec pozycji, ktore padly na kontrakcie modelu, wraca do kolejki
+	 * i zjada dziesiec slotow z dobowej puli DWUDZIESTU — po czym pada ponownie
+	 * na tym samym warunku.
+	 *
+	 * ROZROZNIENIE JEST W DANYCH, nie w nowej kolumnie. Pozycja, ktora padla
+	 * przy pobieraniu albo przygotowaniu tresci, nie ma jeszcze odcisku —
+	 * `claim_content()` nie zdazyl go zapisac. Pozycja z odciskiem przeszla
+	 * przygotowanie i moze byla wybrana przez `pick_for_ai()`, wiec jej porazka
+	 * zdarzyla sie przy modelu albo przy publikacji. Odcisk jest wiec granica
+	 * miedzy „ponowienie kosztuje zadanie HTTP" a „ponowienie kosztuje slot".
+	 *
+	 * @return array{total:int,ai:int}
+	 */
+	public static function failed_counts(): array {
+		global $wpdb;
+
+		$wszystkie = $wpdb->get_var(
+			$wpdb->prepare( 'SELECT COUNT(*) FROM ' . Plugin::table() . ' WHERE status = %s', self::STATUS_FAILED )
+		); // phpcs:ignore WordPress.DB
+
+		$modelowe = $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COUNT(*) FROM ' . Plugin::table()
+					. ' WHERE status = %s AND content_hash IS NOT NULL AND content_hash <> %s',
+				self::STATUS_FAILED,
+				''
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return array(
+			'total' => max( 0, (int) $wszystkie ),
+			'ai'    => max( 0, (int) $modelowe ),
+		);
+	}
+
+	/**
+	 * Granica czasu: `processing` starsze od niej jest porzucone.
+	 *
+	 * Liczone z `current_time( 'mysql' )`, a nie z `time()`, bo dokladnie ta
+	 * funkcja zapisuje `updated_at`. Porownywanie dwoch roznych zegarow dawaloby
+	 * przesuniecie o strefe czasowa witryny — na dworku dwie godziny, czyli osiem
+	 * razy wiecej niz caly prog.
+	 *
+	 * Dopisane `UTC` nie zmienia strefy zapisanego czasu, tylko ODBIERA
+	 * `strtotime()` prawo interpretowania go wedlug domyslnej strefy PHP.
+	 * Razem z `gmdate()` daje to zamkniete kolo: cokolwiek wchodzi, wychodzi
+	 * ten sam znacznik pomniejszony o prog — a nie o prog plus strefe.
+	 *
+	 * @return string Znacznik w formacie `Y-m-d H:i:s`.
+	 */
+	private static function stale_before(): string {
+		$teraz = strtotime( (string) current_time( 'mysql' ) . ' UTC' );
+
+		if ( false === $teraz ) {
+			$teraz = time();
+		}
+
+		return gmdate( 'Y-m-d H:i:s', $teraz - self::STALE_SECONDS );
+	}
+
+	// -----------------------------------------------------------------------
+	// Przebieg
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Pobiera wszystkie kanaly i zapisuje nowe pozycje.
+	 *
+	 * @param array<int,string>|null $sources Adresy kanalow; `null` bierze je
+	 *                                        z ustawien.
+	 *
+	 * @return array<string,mixed> Podsumowanie w ksztalcie z `summary()`.
+	 */
+	public static function collect( ?array $sources = null, ?float $budget = null ): array {
+		$sources = ( null === $sources ) ? self::sources() : self::clean_sources( $sources );
+		$wynik   = self::summary();
+		$start   = microtime( true );
+
+		$wynik['sources'] = count( $sources );
+
+		foreach ( $sources as $url ) {
+			/*
+			 * Budzet czasu — etap 5.3. Sprawdzany MIEDZY kanalami, bo kanal
+			 * w trakcie musi sie domknac. Cztery kanaly po `TIMEOUT_FEED`
+			 * kazdy to w najgorszym razie minuta w jednym zadaniu, a caly tick
+			 * ma miescic sie w dwudziestu sekundach. Kanal pominiety wraca
+			 * w nastepnym ticku, bo nic go nie oznacza jako przetworzony.
+			 *
+			 * `null` znaczy „bez budzetu" — tak wola przycisk „Pobierz teraz",
+			 * gdzie na koncu siedzi czlowiek, ktory poczeka.
+			 */
+			if ( null !== $budget && ( microtime( true ) - $start ) >= $budget ) {
+				$wynik['budget_hit'] = true;
+				break;
+			}
+
+			try {
+				$jedno = self::collect_source( $url, ( null === $budget ) ? null : $budget - ( microtime( true ) - $start ) );
+			} catch ( \Throwable $e ) {
+				/*
+				 * Sam `try/catch` nie wystarczy jako obietnica „brak zatrzyman",
+				 * ale lapie wszystko, co da sie zlapac. Wyczerpania pamieci
+				 * nie zlapie nic — od tego jest budzet pamieci w Kroku 5.
+				 */
+				$jedno          = self::source_summary();
+				$jedno['error'] = 'Nieoczekiwany blad: ' . $e->getMessage();
+			}
+
+			if ( ! empty( $jedno['budget'] ) ) {
+				$wynik['budget_hit'] = true;
+				break;
+			}
+
+			$wynik['per_source'][ $url ] = $jedno;
+
+			foreach ( array( 'added', 'skipped', 'duplicates', 'invalid', 'dropped', 'failed' ) as $klucz ) {
+				$wynik[ $klucz ] += $jedno[ $klucz ];
+			}
+
+			if ( '' !== $jedno['error'] ) {
+				$wynik['errors'][ $url ] = $jedno['error'];
+			}
+		}
+
+		return $wynik;
+	}
+
+	/**
+	 * Pobiera jeden kanal.
+	 *
+	 * @param string $url Adres kanalu.
+	 *
+	 * @return array<string,mixed> Podsumowanie zrodla.
+	 */
+	private static function collect_source( string $url, ?float $remaining = null ): array {
+		$wynik = self::source_summary();
+
+		$odpowiedz = Http::get_feed( $url, $remaining );
+
+		if ( ! $odpowiedz['ok'] ) {
+			/*
+			 * Brak budzetu nie jest bledem KANALU (A2) — kanal nie zostal nawet
+			 * zapytany. Wpisanie tego do bledow zrodla oznaczaloby, ze klient widzi
+			 * na ekranie awarie serwisu, ktory ma sie dobrze.
+			 */
+			if ( 'budget' === (string) ( $odpowiedz['reason'] ?? '' ) ) {
+				$wynik['budget'] = true;
+
+				return $wynik;
+			}
+
+			$wynik['error'] = $odpowiedz['error'];
+			return $wynik;
+		}
+
+		$kanal = Feed::parse( $odpowiedz['body'] );
+
+		if ( ! $kanal['ok'] ) {
+			$wynik['error'] = $kanal['error'];
+			return $wynik;
+		}
+
+		// Pozycje bez adresu odrzucil juz parser — przepisujemy jego licznik,
+		// zeby suma w podsumowaniu zgadzala sie z tym, co bylo w kanale.
+		$wynik['invalid'] += (int) $kanal['skipped'];
+
+		$pozycje = $kanal['items'];
+
+		if ( count( $pozycje ) > self::MAX_ITEMS_PER_SOURCE ) {
+			$wynik['dropped'] = count( $pozycje ) - self::MAX_ITEMS_PER_SOURCE;
+			$pozycje          = array_slice( $pozycje, 0, self::MAX_ITEMS_PER_SOURCE );
+		}
+
+		// Obie listy czytane RAZ na kanal, nie raz na pozycje: `Settings::all()`
+		// to odczyt opcji i scalenie z domyslnymi, a kanal potrafi podac
+		// sto pozycji.
+		$listy    = Filter::lists();
+		$slowa    = $listy['excluded'];
+		$wymagane = $listy['required'];
+
+		foreach ( $pozycje as $pozycja ) {
+			try {
+				$los = self::insert_item( $pozycja, $slowa, $wymagane );
+			} catch ( \Throwable $e ) {
+				$los = 'error';
+			}
+
+			switch ( $los ) {
+				case 'added':
+					$wynik['added']++;
+					break;
+				case 'skipped':
+					$wynik['skipped']++;
+					break;
+				case 'duplicate':
+					$wynik['duplicates']++;
+					break;
+				case 'invalid':
+					$wynik['invalid']++;
+					break;
+				default:
+					// Blad bazy to co innego niz pozycja bez adresu: pierwsze
+					// wymaga uwagi czlowieka, drugie jest normalna praca.
+					$wynik['failed']++;
+					break;
+			}
+		}
+
+		return $wynik;
+	}
+
+	// -----------------------------------------------------------------------
+	// Zapis
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Zapisuje jedna pozycje.
+	 *
+	 * `INSERT IGNORE` degraduje naruszenie klucza `UNIQUE` do ostrzezenia:
+	 * zapytanie konczy sie powodzeniem, `last_error` zostaje PUSTE, a liczba
+	 * zmienionych wierszy wynosi 0. Po tej liczbie — nie po bledzie — poznajemy
+	 * duplikat.
+	 *
+	 * `wp_encode_emoji()` na tytule, zajawce i tresci: przy `DB_CHARSET`
+	 * ustawionym na `utf8` (stare instalacje, ktorych WordPress sam nie
+	 * przepisuje) emoji wywoluje blad 1366, a `INSERT IGNORE` zamienia go
+	 * w ciche ucięcie wiersza. Ryzykiem nie jest tu serwer, tylko stala
+	 * w `wp-config.php`.
+	 *
+	 * ETAP 3.2. Zapis jest tez miejscem, w ktorym zapada werdykt filtra:
+	 * pozycja ze slowem wykluczajacym ląduje w tabeli od razu ze statusem
+	 * `skipped` i POWODEM w kolumnie `note`. Powod jest tam po to, zeby seria
+	 * pominiec z jednego kanalu byla widoczna golym okiem na ekranie Materialy
+	 * — to jedyny sygnal, ze lista wykluczen jest za ostra.
+	 *
+	 * Tresc odsianej pozycji NIE jest zapisywana: do konca zycia tego wiersza
+	 * nikt jej nie przeczyta, a kanal z pelnymi tekstami potrafi podac 100
+	 * pozycji po kilkadziesiat kilobajtow.
+	 *
+	 * @param array<string,mixed>    $item  Pozycja z `Feed::parse()`.
+	 * @param array<int,string>|null $words Slowa wykluczajace; `null` bierze
+	 *                                      liste z ustawien (wygodne przy
+	 *                                      wywolaniu pojedynczym, drogie
+	 *                                      w petli — stad jawny argument
+	 *                                      w `collect_source()`).
+	 * @param array<int,string>|null $required Slowa wymagane (wariant C); `null`
+	 *                                         bierze liste z ustawien, pusta
+	 *                                         tablica wylacza bramke.
+	 *
+	 * @return string `added`, `skipped`, `duplicate`, `invalid` albo `error`.
+	 */
+	public static function insert_item( array $item, ?array $words = null, ?array $required = null ): string {
+		global $wpdb;
+
+		$url  = isset( $item['url'] ) ? trim( (string) $item['url'] ) : '';
+		$hash = Dedup::url_hash( $url );
+
+		// Bez adresu nie ma czego dedupowac, a pusty odcisk kolidowalby
+		// z kazdym innym pustym w kluczu UNIQUE.
+		if ( '' === $hash ) {
+			return 'invalid';
+		}
+
+		if ( strlen( $url ) > self::MAX_URL_BYTES ) {
+			return 'invalid';
+		}
+
+		$slowo   = self::excluded_word( $item, $words );
+		$odsiane = ( '' !== $slowo );
+		$note    = $odsiane ? Filter::note( $slowo ) : '';
+
+		/*
+		 * Bramka slow wymaganych stoi PO wykluczeniach i tylko wtedy, gdy tamte
+		 * przepuscily. Odwrotna kolejnosc dawalaby przy artykule o kocie notatke
+		 * „poza tematem" zamiast nazwy slowa, ktore zadzialalo — a nazwa slowa
+		 * jest jedynym sygnalem, po ktorym widac, ze lista wykluczen jest za
+		 * ostra. Bramka nie dotyka sieci: patrzy na tytul i zajawke z kanalu.
+		 */
+		if ( ! $odsiane && ! Filter::has_required( $item, $required ) ) {
+			$odsiane = true;
+			$note    = Filter::NOTE_OFFTOPIC;
+		}
+
+		$status  = $odsiane ? self::STATUS_SKIPPED : self::STATUS_NEW;
+		$tresc   = $odsiane ? '' : wp_encode_emoji( self::text( $item, 'content' ) );
+
+		$teraz = current_time( 'mysql' );
+
+		$sql = "INSERT IGNORE INTO " . Plugin::table() . '
+			( url, url_hash, title, excerpt, content, status, note, attempts, post_id, created_at, updated_at )
+			VALUES ( %s, %s, %s, %s, %s, %s, %s, 0, 0, %s, %s )';
+
+		$zapytanie = $wpdb->prepare(
+			$sql,
+			$url,
+			$hash,
+			self::fit( wp_encode_emoji( self::text( $item, 'title' ) ) ),
+			self::fit( wp_encode_emoji( self::text( $item, 'summary' ) ) ),
+			$tresc,
+			$status,
+			self::fit( $note ),
+			$teraz,
+			$teraz
+		);
+
+		$wynik = $wpdb->query( $zapytanie );
+
+		if ( false === $wynik ) {
+			return 'error';
+		}
+
+		// Zero zmienionych wierszy to duplikat — i to niezaleznie od werdyktu
+		// filtra: adres juz jest w tabeli, wiec wiersz zostaje taki, jaki byl.
+		if ( 0 === (int) $wynik ) {
+			return 'duplicate';
+		}
+
+		return $odsiane ? 'skipped' : 'added';
+	}
+
+	// -----------------------------------------------------------------------
+	// Przygotowanie tresci (etap 3.6)
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Doprowadza pozycje do stanu, w ktorym ma tresc i odcisk tresci.
+	 *
+	 * ETAP 3.6. To druga polowa drogi materialu: zebranie skonczylo sie na
+	 * wierszu z adresem i trescia z kanalu, tutaj dochodzi tresc pelna,
+	 * oczyszczona i ODCISNIETA. Wywolanie modelu jest dopiero w Kroku 4,
+	 * a cron w Kroku 5 — do tego czasu przebieg odpala czlowiek przyciskiem
+	 * „Przygotuj treści".
+	 *
+	 * Bierzemy tylko pozycje, ktore odcisku jeszcze nie maja. Odcisk jest
+	 * wiec jednoczesnie znacznikiem „ta pozycja jest juz przygotowana" —
+	 * osobna kolumna na to samo byla by trzecim stanem do pilnowania.
+	 *
+	 * @param int        $limit  Ile pozycji wziac.
+	 * @param float|null $budget Budzet czasu w sekundach; `null` bierze
+	 *                           `PREPARE_BUDGET`. Jawny argument jest tu dla
+	 *                           ticku z Kroku 5, ktory poda swoj POZOSTALY
+	 *                           czas — i dla testu, ktory nie ma czekac
+	 *                           pietnastu sekund, zeby sprawdzic bramke.
+	 *
+	 * @return array<string,mixed> Podsumowanie w ksztalcie `prepare_summary()`.
+	 */
+	public static function prepare_batch( int $limit = self::PREPARE_BATCH, ?float $budget = null ): array {
+		global $wpdb;
+
+		$wynik = self::prepare_summary();
+
+		$sql = 'SELECT id, url, url_hash, title, excerpt, content, status, attempts FROM ' . Plugin::table()
+			. ' WHERE status = %s AND ( content_hash IS NULL OR content_hash = %s )'
+			. ' ORDER BY id ASC LIMIT %d';
+
+		$wiersze = $wpdb->get_results( $wpdb->prepare( $sql, self::STATUS_NEW, '', max( 1, $limit ) ) ); // phpcs:ignore WordPress.DB
+
+		if ( ! is_array( $wiersze ) ) {
+			return $wynik;
+		}
+
+		$listy    = Filter::lists();
+		$slowa    = $listy['excluded'];
+		$wymagane = $listy['required'];
+		$start    = microtime( true );
+		$budzet   = ( null === $budget ) ? (float) self::PREPARE_BUDGET : max( 0.1, $budget );
+
+		$wynik['budget'] = $budzet;
+
+		foreach ( $wiersze as $wiersz ) {
+			/*
+			 * Sprawdzenie PRZED wzieciem pozycji, nie po. Pozycja raz zaczeta
+			 * musi sie domknac, bo w polowie zostawia wiersz w stanie, ktorego
+			 * nikt pozniej nie posprzata.
+			 */
+			if ( ( microtime( true ) - $start ) >= $budzet ) {
+				$wynik['budget_hit'] = true;
+				break;
+			}
+
+			$id = isset( $wiersz->id ) ? (int) $wiersz->id : 0;
+
+			/*
+			 * PRZEJECIE PRZED PRACA (etap 5.2). Partia zostala wybrana jednym
+			 * `SELECT`-em, wiec miedzy wyborem a ta linia inny przebieg mogl
+			 * juz wziac ten wiersz. Scraping bez przejecia oznaczalby dwa
+			 * pobrania tej samej strony i dwa zapisy tej samej tresci.
+			 */
+			if ( ! self::claim( $id ) ) {
+				$wynik['busy']++;
+				continue;
+			}
+
+			$wynik['taken']++;
+
+			try {
+				$los = self::prepare_item( $wiersz, $slowa, $wymagane, $budzet - ( microtime( true ) - $start ) );
+			} catch ( \Throwable $e ) {
+				// Ta sama zasada co przy zbieraniu: jedna polamana pozycja
+				// nie ma prawa zatrzymac calego przebiegu.
+				$los                                   = 'error';
+				$wynik['errors'][ (int) $wiersz->id ] = $e->getMessage();
+			} finally {
+				/*
+				 * `finally`, bo pozycja przygotowana poprawnie konczy jako `ready`
+				 * i ZOSTAJE w kolejce — to `processing` jest tu stanem przejsciowym,
+				 * nie koncowym. Bez oddania kazdy udany przebieg zostawialby wiersz
+				 * zablokowany na 15 minut, a wyjatek — do nastepnego ticku.
+				 * `release()` sprawdza status, wiec pozycji zamknietej przez
+				 * `finish()` albo `mark()` nie wskrzesi.
+				 */
+				self::release( $id );
+			}
+
+			/*
+			 * `budget` nie jest losem POZYCJI, tylko koncem PRZEBIEGU (A2). Wiersz
+			 * zostal nietkniety — bez zadania sieciowego i bez podbicia licznika prob —
+			 * wiec nastepny tick wezmie go od nowa. Liczenie tego jako porazki
+			 * zamienialoby wolny hosting w kolejke pozycji `failed`.
+			 */
+			if ( 'budget' === $los ) {
+				$wynik['budget_hit'] = true;
+				break;
+			}
+
+			if ( isset( $wynik[ $los ] ) ) {
+				$wynik[ $los ]++;
+			}
+		}
+
+		return $wynik;
+	}
+
+	/**
+	 * Przygotowuje JEDNA pozycje: tresc, adres kanoniczny, odcisk tresci.
+	 *
+	 * Kolejnosc krokow jest cala trescia tego etapu i nie wolno jej zamienic:
+	 *
+	 *   1. FILTR jeszcze raz. Wiersze zebrane, zanim filtr powstal, nigdy go
+	 *      nie widzialy; bez tego sprawdzenia poszlyby prosto do scrapingu.
+	 *      Kosztuje zero zadan sieciowych, a oszczedza jedno na kazdej
+	 *      odsianej pozycji. Razem z nim bramka slow WYMAGANYCH — z tego
+	 *      samego powodu i tez bez sieci.
+	 *   2. SCRAPING tylko wtedy, gdy tresc z kanalu jest za krotka.
+	 *   3. CANONICAL przed odciskiem tresci: podmiana adresu potrafi odslonic
+	 *      duplikat, ktorego nie widac bylo po adresie z kanalu.
+	 *   4. ODCISK TRESCI na koncu, juz po oczyszczeniu — inaczej ten sam tekst
+	 *      raz z reklama, raz bez, dawalby dwa rozne odciski.
+	 *
+	 * @param object                 $row      Wiersz tabeli.
+	 * @param array<int,string>|null $words    Slowa wykluczajace.
+	 * @param array<int,string>|null $required Slowa wymagane (wariant C).
+	 *
+	 * @return string `ready`, `skipped`, `retry`, `failed` albo `error`.
+	 */
+	public static function prepare_item( $row, ?array $words = null, ?array $required = null, ?float $remaining = null ): string {
+		$id  = isset( $row->id ) ? (int) $row->id : 0;
+		$url = isset( $row->url ) ? (string) $row->url : '';
+
+		if ( 0 === $id ) {
+			return 'error';
+		}
+
+		$pozycja = array(
+			'title'   => isset( $row->title ) ? (string) $row->title : '',
+			'excerpt' => isset( $row->excerpt ) ? (string) $row->excerpt : '',
+			'content' => isset( $row->content ) ? (string) $row->content : '',
+		);
+
+		// 1. Filtr — dla wierszy zebranych, zanim filtr istnial.
+		$slowo = self::excluded_word( $pozycja, $words );
+
+		if ( '' !== $slowo ) {
+			self::finish( $id, self::STATUS_SKIPPED, Filter::note( $slowo ) );
+			return 'skipped';
+		}
+
+		// 1b. Bramka slow wymaganych — tak samo jak przy zapisie, dla wierszy
+		// zebranych, zanim wariant C powstal. Kosztuje zero zadan sieciowych
+		// i stoi PRZED scrapingiem wlasnie po to.
+		if ( ! Filter::has_required( $pozycja, $required ) ) {
+			self::finish( $id, self::STATUS_SKIPPED, Filter::NOTE_OFFTOPIC );
+			return 'skipped';
+		}
+
+		// Tresc Z KANALU tez przechodzi odsiew boksow: kanal potrafi podac
+		// artykul razem z ramka „oceń wpis" i zachętą do newslettera. Bez tego
+		// smiec wchodzi do promptu, do odcisku tresci i do gotowego artykulu.
+		$html = Article::declutter( $pozycja['content'] );
+
+		// 2. Scraping tylko przy zbyt krotkiej tresci z kanalu.
+		if ( Article::needs_scraping( $html ) ) {
+			$pobrane = Article::fetch( $url, $remaining );
+
+			if ( ! $pobrane['ok'] ) {
+				return self::after_failure( $row, $pobrane );
+			}
+
+			$wyciete = Article::extract( $pobrane['html'], $url );
+
+			if ( ! $wyciete['ok'] ) {
+				self::finish( $id, self::STATUS_SKIPPED, $wyciete['error'] );
+				return 'skipped';
+			}
+
+			$html = (string) $wyciete['html'];
+
+			// 3. Canonical moze odslonic duplikat niewidoczny po adresie z kanalu.
+			if ( '' !== $wyciete['canonical'] && ! self::claim_canonical( $id, (string) $wyciete['canonical'], $row ) ) {
+				self::finish( $id, self::STATUS_SKIPPED, 'Duplikat: ten sam artykuł jest już w tabeli pod adresem kanonicznym' );
+				return 'skipped';
+			}
+		}
+
+		$czysta = Article::clean( $html );
+
+		if ( ! Article::is_long_enough( $czysta ) ) {
+			self::finish( $id, self::STATUS_SKIPPED, Article::short_note( $czysta ) );
+			return 'skipped';
+		}
+
+		// 4. Odcisk tresci — dopiero po oczyszczeniu.
+		if ( ! self::claim_content( $id, $czysta ) ) {
+			self::finish( $id, self::STATUS_SKIPPED, 'Duplikat treści: ten sam tekst jest już w tabeli pod innym adresem' );
+			return 'skipped';
+		}
+
+		return 'ready';
+	}
+
+	/**
+	 * Wybiera nastepna pozycje do wyslania do modelu. BRAMKA SLOW WYMAGANYCH.
+	 *
+	 * To jest jedyne miejsce, przez ktore przechodzi kazda droga do Gemini,
+	 * i dlatego stoi tu bramka, a nie tylko w przygotowaniu tresci.
+	 *
+	 * POWOD JEST STRUKTURALNY, NIE HISTORYCZNY. Lista slow wymaganych jest
+	 * polem w Ustawieniach, a `prepare_batch()` bierze wylacznie wiersze BEZ
+	 * odcisku tresci. Kazda zmiana listy przez klienta uniewaznia wiec wiersze
+	 * juz przygotowane i NIGDY ich nie dotknie — powstaje zestaw pozycji poza
+	 * tematem, do ktorego nie siega zaden filtr wczesniejszy. Zmierzone na
+	 * dworku 2026-08-07: 9 z 34 gotowych pozycji bylo poza tematem (wesele,
+	 * pizza, jazda konna, garderoba, obiady wegetarianskie x2, Wi-Fi,
+	 * przedszkole, ogrzewanie). Przy suficie 20 wywolan na dobe to prawie pol
+	 * doby pracy klienta wyrzucone.
+	 *
+	 * Sprawdzenie jest DARMOWE: `finish()` zeruje tylko `content`, wiec `title`
+	 * i `excerpt` — jedyne pola, ktore oglada ta bramka — zostaja w wierszu na
+	 * zawsze. Zero zadan HTTP, zero wywolan AI.
+	 *
+	 * Odrzucona pozycja konczy jako `skipped` z `Filter::NOTE_OFFTOPIC`, tak
+	 * samo jak w `prepare_item()` — jeden powod ma jedna notatke.
+	 *
+	 * @param array<int,string>|null $required Slowa wymagane; `null` z Ustawien.
+	 * @param int|null               $rounds   Ile zapytan; `null` = `AI_SCAN_ROUNDS`.
+	 *
+	 * @return array{row:object|null,offtopic:int,scanned:int}
+	 */
+	public static function pick_for_ai( ?array $required = null, ?int $rounds = null ): array {
+		global $wpdb;
+
+		$wynik = array(
+			'row'      => null,
+			'offtopic' => 0,
+			'scanned'  => 0,
+		);
+
+		$wymagane = ( null === $required ) ? Filter::required_words() : $required;
+		$rund     = ( null === $rounds ) ? self::AI_SCAN_ROUNDS : max( 1, $rounds );
+
+		/*
+		 * Warunek `content <> ''` nie jest ozdobnikiem: pozycja `new` z odciskiem,
+		 * ale z wyzerowana trescia, nie ma czego wyslac do modelu, a wybrana
+		 * w kolko blokowalaby kolejke.
+		 */
+		$sql = 'SELECT id, url, title, excerpt, content, content_hash, status FROM ' . Plugin::table()
+			. ' WHERE status = %s AND content_hash IS NOT NULL AND content_hash <> %s AND content <> %s'
+			. ' ORDER BY id ASC LIMIT %d';
+
+		for ( $runda = 0; $runda < $rund; $runda++ ) {
+			$wiersze = $wpdb->get_results(
+				$wpdb->prepare( $sql, self::STATUS_NEW, '', '', self::AI_SCAN )
+			); // phpcs:ignore WordPress.DB
+
+			if ( ! is_array( $wiersze ) || array() === $wiersze ) {
+				return $wynik;
+			}
+
+			foreach ( $wiersze as $wiersz ) {
+				$wynik['scanned']++;
+
+				/*
+				 * Do bramki idzie sam tytul i zajawka — bez tresci, i to jest
+				 * warunek jej skutecznosci. W tresci artykulu o pizzy slowo
+				 * „pies” pada w stopce albo w boksie powiazanych wpisow, wiec
+				 * bramka ogladajaca tresc nie odsialaby niczego.
+				 */
+				$pozycja = array(
+					'title'   => isset( $wiersz->title ) ? (string) $wiersz->title : '',
+					'excerpt' => isset( $wiersz->excerpt ) ? (string) $wiersz->excerpt : '',
+				);
+
+				if ( Filter::has_required( $pozycja, $wymagane ) ) {
+					$wynik['row'] = $wiersz;
+					return $wynik;
+				}
+
+				self::finish( (int) $wiersz->id, self::STATUS_SKIPPED, Filter::NOTE_OFFTOPIC );
+				$wynik['offtopic']++;
+			}
+		}
+
+		return $wynik;
+	}
+
+	/**
+	 * Pyta model o jedna pozycje i sprawdza odpowiedz. NIE dotyka bazy.
+	 *
+	 * Rozdzial jest celowy: ta metoda odpowiada na pytanie „co model oddal
+	 * i czy to sie nadaje", a nie „co z tym zrobic". Zapis statusu i publikacja
+	 * naleza do etapu 4.5 — dzieki temu ponowienie i kontrakt daja sie sprawdzic
+	 * bez atrapy calej tabeli.
+	 *
+	 * PONOWIENIE. Powtarzamy WYLACZNIE odpowiedz urwana (`bad_json`) albo
+	 * pusta (`empty`) i WYLACZNIE raz. Oba bywaja przejsciowe — przy
+	 * temperaturze probkowania kolejna proba potrafi przejsc — a po powtorce
+	 * sa TERMINALNE. Bez terminalu pusta odpowiedz (np. zatrzymanie
+	 * SAFETY/RECITATION na cudzym materiale) nigdy nie konczyla sprawy:
+	 * pozycja zostawala w kolejce, a ze kolejka idzie po `id` rosnaco, TA SAMA
+	 * pozycja palila slot z dobowej puli na KAZDYM przebiegu i blokowala
+	 * wszystkie za soba (ustalenie B1, audyt 8.10). Kazdy inny powod — brak
+	 * klucza, wyczerpany sufit, za maly budzet czasu, blad transportu, kod
+	 * inny niz 200 — konczy sprawe od razu: ponawianie ich w tym samym
+	 * przebiegu zjada dobowa pule i nic nie naprawia. Odpowiedz, ktora nie
+	 * spelnia KONTRAKTU, tez nie jest ponawiana: model dostal ten sam material
+	 * i te sama instrukcje, wiec odda to samo.
+	 *
+	 * BUDZET CZASU JEST ODLICZANY MIEDZY PROBAMI. Ponowienie dostaje to, co
+	 * zostalo po pierwszym wywolaniu — inaczej dwie proby po 30 s mieszczilyby
+	 * sie w „20 s budzetu" na papierze.
+	 *
+	 * @param object                 $row        Wiersz tabeli.
+	 * @param float|null             $remaining  Pozostaly budzet czasu w sekundach.
+	 * @param array<int,string>|null $categories Kategorie; `null` z Ustawien.
+	 *
+	 * @return array{ok:bool,data:array<string,string>,reason:string,note:string,calls:int,terminal:bool}
+	 */
+	public static function ask_model( $row, ?float $remaining = null, ?array $categories = null ): array {
+		$pozycja = array(
+			'title'   => isset( $row->title ) ? (string) $row->title : '',
+			'url'     => isset( $row->url ) ? (string) $row->url : '',
+			'content' => isset( $row->content ) ? (string) $row->content : '',
+		);
+
+		$prompt = Gemini::prompt( $pozycja, $categories );
+		$start  = microtime( true );
+		$calls  = 0;
+		$odp    = array();
+
+		for ( $proba = 0; $proba <= self::AI_JSON_RETRIES; $proba++ ) {
+			$zostalo = ( null === $remaining ) ? null : ( $remaining - ( microtime( true ) - $start ) );
+
+			$odp = Gemini::generate( $prompt, $categories, $zostalo );
+			$calls++;
+
+			if ( $odp['ok'] || ! in_array( $odp['reason'], array( 'bad_json', 'empty' ), true ) ) {
+				break;
+			}
+		}
+
+		if ( ! $odp['ok'] ) {
+			/*
+			 * `bad_json` i `empty` po ponowieniu sa juz TERMINALNE: dwa razy
+			 * z rzedu urwana albo pusta odpowiedz to nie jest usterka, ktora
+			 * przejdzie sama — a bez terminalu ta sama pozycja wracalaby
+			 * na kazdy przebieg i palila dobowa pule bez konca.
+			 */
+			$terminal = in_array( $odp['reason'], array( 'bad_json', 'empty' ), true );
+
+			return self::model_verdict( false, array(), $odp['reason'], (string) $odp['error'], $calls, $terminal );
+		}
+
+		$wynik = Validator::check( $odp['json'], $categories );
+
+		if ( ! $wynik['ok'] ) {
+			return self::model_verdict( false, array(), 'contract', (string) $wynik['error'], $calls, true );
+		}
+
+		return self::model_verdict( true, $wynik['data'], '', '', $calls, false );
+	}
+
+	/**
+	 * Przetwarza jedna pozycje: model → kontrakt → publikacja → status.
+	 *
+	 * @param object     $row       Wiersz tabeli.
+	 * @param float|null $remaining Pozostaly budzet czasu w sekundach.
+	 *
+	 * @return array{outcome:string,post_id:int,calls:int,note:string}
+	 */
+	public static function process_item( $row, ?float $remaining = null ): array {
+		$id = isset( $row->id ) ? (int) $row->id : 0;
+
+		self::$last_calls = 0;
+
+		/*
+		 * IDEMPOTENCJA PRZED MODELEM, nie za nim (ustalenie audytowe U2).
+		 * Ten sam warunek stoi w `Publisher::publish()`, ale tam wykonuje sie
+		 * DOPIERO po zaplaconym wywolaniu. Scenariusz: proces ginie miedzy
+		 * `wp_insert_post()` a `finish()`, wpis istnieje, pozycja nadal jest
+		 * `new` — nastepny przebieg bral slot z dobowej puli 20, dostawal
+		 * gotowy artykul i wyrzucal go, bo wpis juz byl. Jedno z dwudziestu
+		 * wywolan na dobe za nic, w ciszy.
+		 */
+		$istniejacy = Publisher::existing_post( $id );
+
+		if ( $istniejacy > 0 ) {
+			self::finish( $id, self::STATUS_DONE, '' );
+			self::set_post_id( $id, $istniejacy );
+
+			return self::outcome( 'exists', $istniejacy, 0, '' );
+		}
+
+		$werdykt = self::ask_model( $row, $remaining );
+		$wywolan = (int) $werdykt['calls'];
+
+		/*
+		 * Slad zostawiany OD RAZU, nie na koncu metody. Wszystko ponizej —
+		 * publikacja i trzy zapisy do tabeli — moze rzucic wyjatkiem, a wtedy
+		 * liczba wywolan ginie razem z wynikiem, mimo ze sloty z dobowej puli
+		 * sa juz zuzyte. Partia lapie ten wyjatek i bez tego pola pokazywalaby
+		 * klientowi mniej wywolan, niz naprawde poszlo.
+		 */
+		self::$last_calls = $wywolan;
+
+		if ( ! $werdykt['ok'] ) {
+			if ( $werdykt['terminal'] ) {
+				/*
+				 * `mark()`, nie `finish()`: przy `failed` tresc ZOSTAJE
+				 * w tabeli, bo jest jedynym materialem do ponowienia. Zerowanie
+				 * nalezy do `done` i `skipped`, gdzie tresc albo przeszla
+				 * do wpisu, albo nie jest juz do niczego potrzebna.
+				 */
+				self::mark( $id, self::STATUS_FAILED, $werdykt['note'] );
+
+				return self::outcome( 'failed', 0, $wywolan, $werdykt['note'] );
+			}
+
+			// Brak klucza, sufit, budzet, transport — pozycja CZEKA. Statusu
+			// nie ruszamy, zeby nastepny przebieg wzial ja bez zmian.
+			return self::outcome( 'waiting', 0, $wywolan, $werdykt['note'] );
+		}
+
+		$wpis = Publisher::publish( $row, $werdykt['data'] );
+
+		if ( ! $wpis['ok'] ) {
+			self::mark( $id, self::STATUS_FAILED, (string) $wpis['error'] );
+
+			// Przy porazce `terms` wpis ISTNIEJE (jako szkic) — bez zapisania
+			// jego numeru nie da sie do niego wrocic inaczej niz szukaniem po meta.
+			self::set_post_id( $id, (int) $wpis['post_id'] );
+
+			return self::outcome( 'failed', (int) $wpis['post_id'], $wywolan, (string) $wpis['error'] );
+		}
+
+		/*
+		 * Dopiero tutaj tresc jest zbedna: zyje we wpisie. `finish()` zeruje
+		 * `content`, zostawiajac tytul i zajawke — na nich stoi bramka slow
+		 * wymaganych przy kazdym przyszlym przebiegu.
+		 */
+		self::finish( $id, self::STATUS_DONE, '' );
+		self::set_post_id( $id, (int) $wpis['post_id'] );
+
+		return self::outcome(
+			$wpis['created'] ? 'published' : 'exists',
+			(int) $wpis['post_id'],
+			$wywolan,
+			''
+		);
+	}
+
+	/**
+	 * Partia pozycji do modelu: bramka, wywolanie, publikacja.
+	 *
+	 * Przerywamy na PIERWSZYM braku postepu (`waiting`) — wyczerpany sufit
+	 * albo brak klucza nie naprawia sie w kolejnej iteracji, a pozycja zostaje
+	 * `new`, wiec `pick_for_ai()` oddalby w kolko ta sama i petla nie mialaby
+	 * konca.
+	 *
+	 * @param int        $limit  Ile pozycji najwyzej przetworzyc.
+	 * @param float|null $budget Budzet czasu; `null` bierze `publish_budget()`
+	 *                           — czyli sciezke z panelu. Etap 8.7.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public static function publish_batch( int $limit = self::AI_BATCH, ?float $budget = null ): array {
+		$wynik  = self::publish_summary();
+		$limit  = max( 1, $limit );
+		$start  = microtime( true );
+		$budzet = ( null === $budget ) ? self::publish_budget() : max( 0.1, $budget );
+
+		$wynik['budget'] = $budzet;
+
+		for ( $i = 0; $i < $limit; $i++ ) {
+			$zostalo = $budzet - ( microtime( true ) - $start );
+
+			// Sprawdzenie PRZED wzieciem pozycji: przerwac mozna tylko miedzy
+			// pozycjami, bo pozycja w trakcie musi sie domknac.
+			if ( $zostalo <= 0 ) {
+				$wynik['budget_hit'] = true;
+				break;
+			}
+
+			$kandydat            = self::pick_for_ai();
+			$wynik['offtopic'] += (int) $kandydat['offtopic'];
+
+			if ( null === $kandydat['row'] ) {
+				break;
+			}
+
+			$id = (int) $kandydat['row']->id;
+
+			/*
+			 * PRZEJECIE PRZED WYWOLANIEM MODELU (etap 5.2). Tu chodzi juz nie
+			 * o podwojna prace, tylko o pieniadze: dwa przebiegi, ktore wziely
+			 * ten sam wiersz, zjadaja dwa sloty z dobowej puli 20 i produkuja
+			 * jeden artykul. Atomowa rezerwacja slotu z etapu 4.1 tego nie lapie —
+			 * ona pilnuje SUFITU, nie tego, czy oba wywolania dotycza tej samej
+			 * pozycji.
+			 */
+			if ( ! self::claim( $id ) ) {
+				$wynik['busy']++;
+				continue;
+			}
+
+			$wynik['taken']++;
+
+			try {
+				$los = self::process_item( $kandydat['row'], $zostalo );
+			} catch ( \Throwable $e ) {
+				$wynik['error']++;
+				$wynik['errors'][ (int) $kandydat['row']->id ] = $e->getMessage();
+
+				// Wywolania sa juz zaplacone, choc wynik przepadl — patrz
+				// `self::$last_calls`. Bez tej linii `continue` nizej omijalby
+				// zliczanie i podsumowanie klamaloby o koszcie przebiegu.
+				$wynik['calls'] += self::$last_calls;
+
+				continue;
+			} finally {
+				// Pozycja `waiting` (brak klucza, wyczerpana pula) ma wrocic do
+				// kolejki bez sladu — `release()` omija statusy koncowe.
+				self::release( $id );
+			}
+
+			$wynik['calls'] += (int) $los['calls'];
+
+			if ( isset( $wynik[ $los['outcome'] ] ) ) {
+				$wynik[ $los['outcome'] ]++;
+			}
+
+			if ( 'waiting' === $los['outcome'] ) {
+				$wynik['note'] = (string) $los['note'];
+				break;
+			}
+		}
+
+		return $wynik;
+	}
+
+	/**
+	 * Pusty ksztalt podsumowania publikacji.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function publish_summary(): array {
+		return array(
+			'taken'      => 0,
+			'busy'       => 0,
+			'budget'     => 0.0,
+			'published'  => 0,
+			'exists'     => 0,
+			'failed'     => 0,
+			'waiting'    => 0,
+			'offtopic'   => 0,
+			'error'      => 0,
+			'calls'      => 0,
+			'errors'     => array(),
+			'note'       => '',
+			'budget_hit' => false,
+		);
+	}
+
+	/**
+	 * Staly ksztalt wyniku `process_item()`.
+	 *
+	 * @param string $outcome Los pozycji.
+	 * @param int    $post_id Utworzony wpis.
+	 * @param int    $calls   Ile wywolan modelu poszlo.
+	 * @param string $note    Powod.
+	 *
+	 * @return array{outcome:string,post_id:int,calls:int,note:string}
+	 */
+	private static function outcome( string $outcome, int $post_id, int $calls, string $note ): array {
+		return array(
+			'outcome' => $outcome,
+			'post_id' => $post_id,
+			'calls'   => $calls,
+			'note'    => $note,
+		);
+	}
+
+	/**
+	 * Zapisuje numer utworzonego wpisu do kolumny `post_id`.
+	 *
+	 * Kolumna jest w schemacie z planu od Kroku 1 i do Kroku 4 nikt jej nie
+	 * wypelnial — powiazanie pozycja↔artykul zylo wylacznie w `postmeta`
+	 * (ustalenie audytowe U3). Cichy brak: nic nie padalo, tylko kazdy odczyt
+	 * tej kolumny dostawal zero.
+	 *
+	 * @param int $id      Identyfikator wiersza.
+	 * @param int $post_id Identyfikator wpisu.
+	 *
+	 * @return void
+	 */
+	private static function set_post_id( int $id, int $post_id ): void {
+		global $wpdb;
+
+		if ( $id <= 0 || $post_id <= 0 ) {
+			return;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET post_id = %d WHERE id = %d',
+				$post_id,
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+	}
+
+	/**
+	 * Zapisuje status i powod, ZOSTAWIAJAC tresc.
+	 *
+	 * Roznica wobec `finish()` jest cala trescia decyzji o `failed`: tresc
+	 * pozycji nieudanej jest jedynym materialem, z ktorego da sie ja ponowic,
+	 * a pobranie jej jeszcze raz kosztuje zadanie sieciowe albo — po zmianie
+	 * po stronie zrodla — nie jest juz mozliwe.
+	 *
+	 * @param int    $id     Identyfikator wiersza.
+	 * @param string $status Status.
+	 * @param string $note   Powod.
+	 *
+	 * @return void
+	 */
+	private static function mark( int $id, string $status, string $note ): void {
+		global $wpdb;
+
+		if ( $id <= 0 ) {
+			return;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, note = %s, updated_at = %s WHERE id = %d',
+				$status,
+				self::fit( $note ),
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+	}
+
+	/**
+	 * Staly ksztalt werdyktu `ask_model()`.
+	 *
+	 * @param bool                  $ok       Czy jest gotowa tresc.
+	 * @param array<string,string>  $data     Pola po walidacji.
+	 * @param string                $reason   Kod powodu.
+	 * @param string                $note     Powod slowami, prosto do `note`.
+	 * @param int                   $calls    Ile wywolan modelu poszlo.
+	 * @param bool                  $terminal Czy pozycja ma isc na `failed`.
+	 *
+	 * @return array{ok:bool,data:array<string,string>,reason:string,note:string,calls:int,terminal:bool}
+	 */
+	private static function model_verdict( bool $ok, array $data, string $reason, string $note, int $calls, bool $terminal ): array {
+		return array(
+			'ok'       => $ok,
+			'data'     => $data,
+			'reason'   => $reason,
+			'note'     => $note,
+			'calls'    => $calls,
+			'terminal' => $terminal,
+		);
+	}
+
+	/**
+	 * Slowo wykluczajace — potwierdzone na tresci BEZ boksow serwisu.
+	 *
+	 * Odsiew idzie w dwóch spojrzeniach i to jest cala sztuczka:
+	 *
+	 *   1. Tanie: pelny tekst z kanalu. Nic nie trafia — pozycja przechodzi
+	 *      i nie kosztuje ani jednego przetworzenia drzewa HTML.
+	 *   2. Drogie, tylko przy PODEJRZENIU: tresc bez ramek „oceń wpis",
+	 *      „powiązane wpisy" i „zapisz się do newslettera”. Dopiero jesli slowo
+	 *      przetrwa to oczyszczenie, pozycja idzie do `skipped`.
+	 *
+	 * Powod jest policzony na zywym materiale: z 70 pobranych pozycji filtr
+	 * odsiewal 36, ale 15 z nich to byly DOBRE artykuly o psach, zabite przez
+	 * slowo ze stopki („newsletter” — 8 pozycji), z boksu powiazanych wpisow
+	 * („kot” — 5) i z banera („promocja” — 1). Drugie spojrzenie kosztuje
+	 * jedno przetworzenie drzewa na pozycje PODEJRZANA, nie na kazda.
+	 *
+	 * Zakres pol sie nie zmienia — nadal tytul, zajawka i tresc z kanalu.
+	 * Zmienia sie tylko to, ze tresc jest ogladana bez mebli serwisu.
+	 *
+	 * @param array<string,mixed>    $item  Pozycja.
+	 * @param array<int,string>|null $words Slowa wykluczajace.
+	 *
+	 * @return string Dopasowane slowo albo pusty lancuch.
+	 */
+	private static function excluded_word( array $item, ?array $words ): string {
+		$slowo = Filter::match( $item, $words );
+
+		if ( '' === $slowo ) {
+			return '';
+		}
+
+		$tresc = isset( $item['content'] ) ? (string) $item['content'] : '';
+
+		if ( '' === trim( $tresc ) ) {
+			return $slowo;
+		}
+
+		$item['content'] = Article::declutter( $tresc );
+
+		return Filter::match( $item, $words );
+	}
+
+	/**
+	 * Los pozycji po nieudanym pobraniu.
+	 *
+	 * Blad przejsciowy wraca do kolejki z podbitym licznikiem prob; przy
+	 * `MAX_ATTEMPTS` konczy jako `failed`. Blad trwaly konczy od razu.
+	 *
+	 * @param object              $row     Wiersz.
+	 * @param array<string,mixed> $pobrane Wynik `Article::fetch()`.
+	 *
+	 * @return string `retry` albo `failed`.
+	 */
+	private static function after_failure( $row, array $pobrane ): string {
+		global $wpdb;
+
+		/*
+		 * Wyczerpany budzet przebiegu to NIE jest wina pozycji ani serwisu (A2).
+		 * Wiersz zostaje dokladnie taki, jaki byl: bez statusu koncowego, bez
+		 * podbitego licznika prob i bez notatki, ktora klamalaby o przyczynie.
+		 */
+		if ( 'budget' === (string) ( $pobrane['reason'] ?? '' ) ) {
+			return 'budget';
+		}
+
+		$id    = (int) $row->id;
+		$proby = isset( $row->attempts ) ? (int) $row->attempts : 0;
+		$blad  = (string) $pobrane['error'];
+
+		/*
+		 * `mark()`, nie `finish()` — WARIANT B z audytu Kroku 4 (ustalenie U5).
+		 * Plan mowi wprost, ze tresc zostaje w tabeli tylko dla `failed`, bo
+		 * jest tam potrzebna do ponowienia. Kod Kroku 3 zerowal ja takze przy
+		 * `failed`, wiec status znaczyl dwie rozne rzeczy zaleznie od tego,
+		 * ktora sciezka go ustawila. Teraz obie zostawiaja tresc.
+		 */
+		if ( empty( $pobrane['retryable'] ) ) {
+			self::mark( $id, self::STATUS_FAILED, $blad );
+			return 'failed';
+		}
+
+		$proby++;
+
+		if ( $proby >= self::MAX_ATTEMPTS ) {
+			self::mark( $id, self::STATUS_FAILED, $blad . ' (prób: ' . $proby . ')' );
+			return 'failed';
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, note = %s, attempts = %d, updated_at = %s WHERE id = %d',
+				self::STATUS_NEW,
+				self::fit( $blad ),
+				$proby,
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return 'retry';
+	}
+
+	/**
+	 * Podmienia adres na kanoniczny — albo rozpoznaje duplikat.
+	 *
+	 * O kolizje pyta BAZA, nie kod: `UPDATE IGNORE` na kolumnie z kluczem
+	 * `UNIQUE` przy konflikcie nie zmienia wiersza i nie zglasza bledu.
+	 * Poznajemy to po odczycie: skoro odcisk nie jest tym, ktory wpisywalismy,
+	 * to znaczy, ze zajmuje go inny wiersz.
+	 *
+	 * @param string $canonical Adres kanoniczny.
+	 * @param int    $id        Identyfikator wiersza.
+	 * @param object $row       Wiersz.
+	 *
+	 * @return bool `false`, gdy adres kanoniczny nalezy juz do innej pozycji.
+	 */
+	private static function claim_canonical( int $id, string $canonical, $row ): bool {
+		global $wpdb;
+
+		$hash = Dedup::url_hash( $canonical );
+
+		if ( '' === $hash ) {
+			return true;
+		}
+
+		$stary = isset( $row->url_hash ) ? (string) $row->url_hash : '';
+
+		// Ten sam zasob pod tym samym odciskiem — nie ma czego podmieniac.
+		if ( $hash === $stary ) {
+			return true;
+		}
+
+		if ( strlen( $canonical ) > self::MAX_URL_BYTES ) {
+			return true;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE IGNORE ' . Plugin::table() . ' SET url = %s, url_hash = %s, updated_at = %s WHERE id = %d',
+				$canonical,
+				$hash,
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return $hash === self::read_column( $id, 'url_hash' );
+	}
+
+	/**
+	 * Zapisuje tresc i jej odcisk — albo rozpoznaje duplikat tresci.
+	 *
+	 * @param int    $id     Identyfikator wiersza.
+	 * @param string $tresc  Tresc po oczyszczeniu.
+	 *
+	 * @return bool `false`, gdy ten sam tekst wisi juz pod innym adresem.
+	 */
+	private static function claim_content( int $id, string $tresc ): bool {
+		global $wpdb;
+
+		$hash = Dedup::content_hash( $tresc );
+
+		if ( '' === $hash ) {
+			return true;
+		}
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE IGNORE ' . Plugin::table() . ' SET content = %s, content_hash = %s, note = %s, attempts = 0, updated_at = %s WHERE id = %d',
+				wp_encode_emoji( $tresc ),
+				$hash,
+				'',
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+
+		return $hash === self::read_column( $id, 'content_hash' );
+	}
+
+	/**
+	 * Zamyka pozycje: status, powod i wyczyszczona tresc.
+	 *
+	 * Tresc jest zerowana, bo pozycja `skipped` i `failed` nie pojdzie juz do
+	 * modelu, a kanal z pelnymi tekstami zostawialby po kilkadziesiat kilobajtow
+	 * na kazdej odrzuconej pozycji.
+	 *
+	 * @param int    $id     Identyfikator wiersza.
+	 * @param string $status Status koncowy.
+	 * @param string $note   Powod.
+	 *
+	 * @return void
+	 */
+	private static function finish( int $id, string $status, string $note ): void {
+		global $wpdb;
+
+		$wpdb->query(
+			$wpdb->prepare(
+				'UPDATE ' . Plugin::table() . ' SET status = %s, note = %s, content = %s, updated_at = %s WHERE id = %d',
+				$status,
+				self::fit( $note ),
+				'',
+				current_time( 'mysql' ),
+				$id
+			)
+		); // phpcs:ignore WordPress.DB
+	}
+
+	/**
+	 * Odczyt jednej kolumny wiersza.
+	 *
+	 * Nazwa kolumny pochodzi WYLACZNIE ze stalych w tym pliku — nigdy
+	 * z zadania, wiec nie ma tu czego przygotowywac przez `prepare()`.
+	 *
+	 * @param int    $id      Identyfikator wiersza.
+	 * @param string $kolumna Nazwa kolumny.
+	 *
+	 * @return string
+	 */
+	private static function read_column( int $id, string $kolumna ): string {
+		global $wpdb;
+
+		$wartosc = $wpdb->get_var(
+			$wpdb->prepare( 'SELECT ' . $kolumna . ' FROM ' . Plugin::table() . ' WHERE id = %d', $id )
+		); // phpcs:ignore WordPress.DB
+
+		return ( null === $wartosc ) ? '' : (string) $wartosc;
+	}
+
+	/**
+	 * Pusty ksztalt podsumowania przygotowania tresci.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function prepare_summary(): array {
+		return array(
+			'taken'      => 0,
+			'busy'       => 0,
+			'budget'     => 0.0,
+			'ready'      => 0,
+			'skipped'    => 0,
+			'retry'      => 0,
+			'failed'     => 0,
+			'error'      => 0,
+			'errors'     => array(),
+			'budget_hit' => false,
+		);
+	}
+
+	// -----------------------------------------------------------------------
+	// Zrodla
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Adresy kanalow z ustawien.
+	 *
+	 * Rozroznienie jest celowe: BRAK opcji (swieza instalacja) daje cztery
+	 * kanaly domyslne, a opcja zapisana jako PUSTA tablica daje pustke.
+	 * Klient, ktory swiadomie wyczyscil liste, nie ma jej dostawac z powrotem
+	 * przy kazdym przebiegu.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function sources(): array {
+		$zapisane = get_option( Settings::OPTION_SOURCES, null );
+
+		if ( null === $zapisane || false === $zapisane ) {
+			return self::clean_sources( Settings::default_sources() );
+		}
+
+		return is_array( $zapisane ) ? self::clean_sources( $zapisane ) : array();
+	}
+
+	/**
+	 * Oczyszcza liste adresow: tylko http(s), bez powtorzen.
+	 *
+	 * Powtorzenie tego samego kanalu na liscie nie robi szkody w bazie (klucz
+	 * UNIQUE i tak odrzuci pozycje), ale kosztuje pelne pobranie kanalu
+	 * i miejsce w budzecie czasu.
+	 *
+	 * @param array<int,mixed> $sources Adresy.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function clean_sources( array $sources ): array {
+		$czyste = array();
+
+		foreach ( $sources as $url ) {
+			if ( ! is_string( $url ) ) {
+				continue;
+			}
+
+			$url = trim( $url );
+
+			if ( ! Http::is_http_url( $url ) ) {
+				continue;
+			}
+
+			if ( ! in_array( $url, $czyste, true ) ) {
+				$czyste[] = $url;
+			}
+		}
+
+		return $czyste;
+	}
+
+	// -----------------------------------------------------------------------
+	// Pomocnicze
+	// -----------------------------------------------------------------------
+
+	/**
+	 * Pole pozycji jako lancuch znakow.
+	 *
+	 * @param array<string,mixed> $item Pozycja.
+	 * @param string              $key  Klucz.
+	 *
+	 * @return string
+	 */
+	private static function text( array $item, string $key ): string {
+		return isset( $item[ $key ] ) ? (string) $item[ $key ] : '';
+	}
+
+	/**
+	 * Przycina tekst do rozmiaru kolumny `text`.
+	 *
+	 * Serwer w trybie scislym odrzuca za dlugi wiersz bledem 1406, a
+	 * `INSERT IGNORE` zamienia go w ciche pominiecie CALEJ pozycji. Lepiej
+	 * przyciac zajawke, niz zgubic artykul.
+	 *
+	 * @param string $tekst Wejscie.
+	 *
+	 * @return string
+	 */
+	private static function fit( string $tekst ): string {
+		if ( strlen( $tekst ) <= self::MAX_TEXT_BYTES ) {
+			return $tekst;
+		}
+
+		// Ciecie po bajtach moze rozerwac znak wielobajtowy — `mb_strcut`
+		// cofa sie do granicy znaku.
+		if ( function_exists( 'mb_strcut' ) ) {
+			return mb_strcut( $tekst, 0, self::MAX_TEXT_BYTES, 'UTF-8' );
+		}
+
+		return substr( $tekst, 0, self::MAX_TEXT_BYTES );
+	}
+
+	/**
+	 * Pusty ksztalt podsumowania calego przebiegu.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function summary(): array {
+		return array(
+			'sources'    => 0,
+			'added'      => 0,
+			'skipped'    => 0,
+			'duplicates' => 0,
+			'invalid'    => 0,
+			'dropped'    => 0,
+			'failed'     => 0,
+			'budget_hit' => false,
+			'errors'     => array(),
+			'per_source' => array(),
+		);
+	}
+
+	/**
+	 * Pusty ksztalt podsumowania jednego zrodla.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function source_summary(): array {
+		return array(
+			'budget'     => false,
+			'added'      => 0,
+			'skipped'    => 0,
+			'duplicates' => 0,
+			'invalid'    => 0,
+			'dropped'    => 0,
+			'failed'     => 0,
+			'error'      => '',
+		);
+	}
+}

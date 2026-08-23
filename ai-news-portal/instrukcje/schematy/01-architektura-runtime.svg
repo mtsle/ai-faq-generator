@@ -1,0 +1,143 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1000" viewBox="0 0 1780 1000" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<defs><marker id="grot" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#475569"/></marker></defs>
+<rect width="1780" height="1000" fill="#FFFFFF"/>
+<text x="24" y="36" font-size="19" font-weight="700" fill="#0F172A">AI News Portal — architektura wykonawcza</text>
+<text x="24" y="58" font-size="12.5" fill="#475569">Jedna wtyczka, jedna tabela, jeden klucz API. Materiał wchodzi z kanałów RSS, wychodzi jako artykuł we własnym typie treści.</text>
+<rect x="20" y="90" width="300" height="330" rx="12" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="34" y="112" font-size="13" font-weight="700" fill="#334155">Świat zewnętrzny</text>
+<rect x="350" y="90" width="330" height="330" rx="12" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="364" y="112" font-size="13" font-weight="700" fill="#334155">Warstwa sieci</text>
+<rect x="710" y="90" width="360" height="470" rx="12" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="724" y="112" font-size="13" font-weight="700" fill="#334155">Logika portalu</text>
+<rect x="1100" y="90" width="340" height="470" rx="12" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="1114" y="112" font-size="13" font-weight="700" fill="#334155">WordPress</text>
+<rect x="20" y="460" width="300" height="200" rx="12" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2" stroke-dasharray="7 5"/>
+<text x="34" y="482" font-size="13" font-weight="700" fill="#334155">Obsługa</text>
+<line x1="300.0" y1="170.4" x2="370.0" y2="172.2" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="300.0" y1="229.0" x2="370.0" y2="211.7" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="515.0" y1="222.0" x2="515.0" y2="242.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="300.0" y1="361.8" x2="370.0" y2="365.4" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="638.9" y1="242.0" x2="766.1" y2="204.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="890.0" y1="204.0" x2="890.0" y2="224.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="890.0" y1="298.0" x2="890.0" y2="318.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="730.0" y1="362.7" x2="660.0" y2="366.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="660.0" y1="402.4" x2="730.0" y2="416.6" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="890.0" y1="486.0" x2="890.0" y2="486.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="932.1" y1="486.0" x2="1214.4" y2="298.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1120.0" y1="167.0" x2="1050.0" y2="167.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="964.8" y1="204.0" x2="1195.2" y2="318.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="939.9" y1="204.0" x2="1220.1" y2="412.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1270.0" y1="298.0" x2="1270.0" y2="486.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1270.0" y1="542.0" x2="1270.0" y2="596.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="170.0" y1="556.0" x2="170.0" y2="576.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="229.7" y1="576.0" x2="830.3" y2="204.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)" stroke-dasharray="6 5"/>
+<rect x="40" y="130" width="260" height="74" rx="9" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="170.0" y="154.0" font-size="12.5" font-weight="700" fill="#7F1D1D" text-anchor="middle">Kanały RSS</text>
+<text x="170.0" y="171.0" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">4 adresy domyślne</text>
+<text x="170.0" y="188.0" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">Settings::default_sources()</text>
+<rect x="40" y="224" width="260" height="74" rx="9" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="170.0" y="248.0" font-size="12.5" font-weight="700" fill="#7F1D1D" text-anchor="middle">Strony źródłowe</text>
+<text x="170.0" y="265.0" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">doczytywane, gdy kanał</text>
+<text x="170.0" y="282.0" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">podał samą zapowiedź</text>
+<rect x="40" y="318" width="260" height="74" rx="9" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="170.0" y="342.0" font-size="12.5" font-weight="700" fill="#7F1D1D" text-anchor="middle">Gemini API</text>
+<text x="170.0" y="359.0" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">v1beta :generateContent</text>
+<text x="170.0" y="376.0" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">wymuszony schemat odpowiedzi</text>
+<rect x="370" y="130" width="290" height="92" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="515.0" y="154.5" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">Http</text>
+<text x="515.0" y="171.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">wp_safe_remote_get</text>
+<text x="515.0" y="188.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">limity: feed 4 MB / art. 1 MB</text>
+<text x="515.0" y="205.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">timeouty: 10 s / 15 s</text>
+<rect x="370" y="242" width="290" height="74" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="515.0" y="266.0" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">Feed</text>
+<text x="515.0" y="283.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">RSS 2.0 i Atom</text>
+<text x="515.0" y="300.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">content:encoded, dc:date</text>
+<rect x="370" y="336" width="290" height="74" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="515.0" y="360.0" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">Gemini (klasa)</text>
+<text x="515.0" y="377.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">licznik dobowy, sufit 20</text>
+<text x="515.0" y="394.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">materiał ≤ 12 000 znaków</text>
+<rect x="730" y="130" width="320" height="74" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="890.0" y="154.0" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">Runner</text>
+<text x="890.0" y="171.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">tick() — trzy fazy pod zamkiem</text>
+<text x="890.0" y="188.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">budżet czasu 25 s</text>
+<rect x="730" y="224" width="320" height="74" rx="9" fill="#FEFCE8" stroke="#CA8A04" stroke-width="2"/>
+<text x="890.0" y="248.0" font-size="12.5" font-weight="700" fill="#713F12" text-anchor="middle">Filter</text>
+<text x="890.0" y="265.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">słowa wykluczające + wymagane</text>
+<text x="890.0" y="282.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">działa PRZED modelem</text>
+<rect x="730" y="318" width="320" height="74" rx="9" fill="#FEFCE8" stroke="#CA8A04" stroke-width="2"/>
+<text x="890.0" y="342.0" font-size="12.5" font-weight="700" fill="#713F12" text-anchor="middle">Dedup</text>
+<text x="890.0" y="359.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">po adresie i po treści</text>
+<text x="890.0" y="376.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">SHA-256, 8 KB próbki</text>
+<rect x="730" y="412" width="320" height="74" rx="9" fill="#FEFCE8" stroke="#CA8A04" stroke-width="2"/>
+<text x="890.0" y="436.0" font-size="12.5" font-weight="700" fill="#713F12" text-anchor="middle">Validator</text>
+<text x="890.0" y="453.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">tytuł 5–140, lead 20–400</text>
+<text x="890.0" y="470.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">treść ≥ 800, kategoria z listy</text>
+<rect x="730" y="486" width="320" height="56" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="890.0" y="501.0" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">Publisher</text>
+<text x="890.0" y="518.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">wpis + termin, idempotentnie</text>
+<text x="890.0" y="535.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">kasuje artykuł powitalny</text>
+<rect x="1120" y="130" width="300" height="74" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="1270.0" y="154.0" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">WP-Cron</text>
+<text x="1270.0" y="171.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">zdarzenie ainp_tick</text>
+<text x="1270.0" y="188.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">co godzinę, przy ruchu</text>
+<rect x="1120" y="224" width="300" height="74" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="1270.0" y="248.0" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">Typ treści ainp_article</text>
+<text x="1270.0" y="265.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">+ taksonomia ainp_topic</text>
+<text x="1270.0" y="282.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">archiwum /centrum-wiedzy/</text>
+<rect x="1120" y="318" width="300" height="74" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="1270.0" y="342.0" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">Tabela wp_ainp_items</text>
+<text x="1270.0" y="359.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">kolejka materiałów</text>
+<text x="1270.0" y="376.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">statusy new … done</text>
+<rect x="1120" y="412" width="300" height="74" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="1270.0" y="436.0" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">Opcje ainp_*</text>
+<text x="1270.0" y="453.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">ustawienia, klucz, licznik</text>
+<text x="1270.0" y="470.0" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">zamek przebiegu</text>
+<rect x="1120" y="486" width="300" height="56" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="1270.0" y="501.0" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">Portal + szablony</text>
+<text x="1270.0" y="518.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">archiwum, artykuł, kategoria</text>
+<text x="1270.0" y="535.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">zero JavaScriptu</text>
+<rect x="40" y="500" width="260" height="56" rx="9" fill="#FFF4EC" stroke="#E8590C" stroke-width="2"/>
+<text x="170.0" y="523.5" font-size="12.5" font-weight="700" fill="#7C2D12" text-anchor="middle">Właściciel witryny</text>
+<text x="170.0" y="540.5" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">administrator</text>
+<rect x="40" y="576" width="260" height="74" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="170.0" y="600.0" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">Kokpit: 2 pozycje</text>
+<text x="170.0" y="617.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">Materiały · Ustawienia</text>
+<text x="170.0" y="634.0" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">+ edit.php?post_type=…</text>
+<rect x="1120" y="596" width="300" height="56" rx="9" fill="#FFF4EC" stroke="#E8590C" stroke-width="2"/>
+<text x="1270.0" y="619.5" font-size="12.5" font-weight="700" fill="#7C2D12" text-anchor="middle">Gość</text>
+<text x="1270.0" y="636.5" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">czyta Centrum Wiedzy</text>
+<rect x="301.0" y="161.3" width="68.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="335.0" y="175.3" font-size="11" fill="#334155" text-anchor="middle">pobranie</text>
+<rect x="294.0" y="210.3" width="82.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="335.0" y="224.3" font-size="11" fill="#334155" text-anchor="middle">doczytanie</text>
+<rect x="280.0" y="353.6" width="110.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="335.0" y="367.6" font-size="11" fill="#334155" text-anchor="middle">odpowiedź JSON</text>
+<rect x="672.0" y="213.0" width="61.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="702.5" y="227.0" font-size="11" fill="#334155" text-anchor="middle">pozycje</text>
+<rect x="661.0" y="354.4" width="68.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="695.0" y="368.4" font-size="11" fill="#334155" text-anchor="middle">materiał</text>
+<rect x="856.0" y="476.0" width="68.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="890.0" y="490.0" font-size="11" fill="#334155" text-anchor="middle">przeszło</text>
+<rect x="1042.7" y="382.0" width="61.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="1073.2" y="396.0" font-size="11" fill="#334155" text-anchor="middle">artykuł</text>
+<rect x="1047.5" y="157.0" width="75.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="1085.0" y="171.0" font-size="11" fill="#334155" text-anchor="middle">ainp_tick</text>
+<rect x="1032.0" y="251.0" width="96.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="1080.0" y="265.0" font-size="11" fill="#334155" text-anchor="middle">stan kolejki</text>
+<rect x="1025.0" y="298.0" width="110.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="1080.0" y="312.0" font-size="11" fill="#334155" text-anchor="middle">zamek, licznik</text>
+<rect x="485.5" y="380.0" width="89.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="530.0" y="394.0" font-size="11" fill="#334155" text-anchor="middle">3 przyciski</text>
+<rect x="24" y="863" width="26" height="14" rx="4" fill="#FFF4EC" stroke="#E8590C" stroke-width="2"/>
+<text x="58" y="874" font-size="11.5" fill="#334155">Człowiek</text>
+<rect x="24" y="883" width="26" height="14" rx="4" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="58" y="894" font-size="11.5" fill="#334155">Zasób poza witryną</text>
+<rect x="24" y="903" width="26" height="14" rx="4" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="58" y="914" font-size="11.5" fill="#334155">Logika wtyczki</text>
+<rect x="24" y="923" width="26" height="14" rx="4" fill="#FEFCE8" stroke="#CA8A04" stroke-width="2"/>
+<text x="58" y="934" font-size="11.5" fill="#334155">Bramka — decyduje, czy iść dalej</text>
+<rect x="24" y="943" width="26" height="14" rx="4" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="58" y="954" font-size="11.5" fill="#334155">Integracja z WordPressem</text>
+<rect x="24" y="963" width="26" height="14" rx="4" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="58" y="974" font-size="11.5" fill="#334155">Trwałe dane w bazie</text>
+</svg>

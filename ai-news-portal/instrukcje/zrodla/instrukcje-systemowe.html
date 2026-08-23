@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Instrukcje systemowe — AI News Portal</title>
+<link rel="stylesheet" href="styl-tech.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<span class="okladka__etykieta">System</span>
+	<h1 class="okladka__tytul">Instrukcje systemowe</h1>
+	<p class="okladka__podtytul">AI News Portal — co system robi sam i jak zachowuje się przy awarii</p>
+
+	<div class="okladka__ramka">
+		<p><strong>Zakres.</strong> Dokument dla osoby utrzymującej witrynę. Opisuje cykl
+		   życia wtyczki, stany, w jakich może się znaleźć, czynności wykonywane
+		   samoczynnie, zachowanie przy awariach oraz czynności okresowe.</p>
+		<p><strong>Czego tu nie ma.</strong> Opisu funkcji (<strong>Functional</strong>),
+		   wartości progowych z uzasadnieniem (<strong>Non-functional</strong>)
+		   i struktur danych (<strong>Schema</strong>).</p>
+	</div>
+
+	<p class="okladka__stopka">
+		AI News Portal {{WERSJA}} · licencja {{LICENCJA}}
+	</p>
+</section>
+
+<!-- ============ SPIS ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Spis treści</h1>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>Cykl życia wtyczki</strong>
+			<span class="spis__opis">Włączenie, praca, wyłączenie, usunięcie.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>Stany systemu</strong>
+			<span class="spis__opis">Pięć stanów i sygnały pozwalające je rozpoznać.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>Reakcje na zdarzenia witryny</strong>
+			<span class="spis__opis">Na co wtyczka reaguje i czego nie robi samoczynnie.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>Czynności samoczynne</strong>
+			<span class="spis__opis">Co dzieje się bez udziału człowieka.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>Zachowanie przy awariach</strong>
+			<span class="spis__opis">Tabela: awaria → reakcja systemu → działanie obsługi.</span></span></li>
+		<li><span class="spis__nr">6</span><span><strong>Schemat bazy i aktualizacje</strong>
+			<span class="spis__opis">Jak zmiany struktury docierają do bazy.</span></span></li>
+		<li><span class="spis__nr">7</span><span><strong>Konserwacja</strong>
+			<span class="spis__opis">Czynności okresowe i sygnały ostrzegawcze.</span></span></li>
+	</ol>
+</section>
+
+<div class="ciagly">
+
+<!-- ============ 1 ============ -->
+<h1 class="rozdzial">1. Cykl życia wtyczki</h1>
+
+<h2>Włączenie</h2>
+<p>Wykonywane raz, w podanej kolejności — kolejność ma znaczenie funkcjonalne:</p>
+<ol class="spis">
+	<li><span class="spis__nr">1</span><span><strong>Utworzenie tabeli</strong>
+		<span class="spis__opis">Kolejka materiałów; przez <code>dbDelta</code>.</span></span></li>
+	<li><span class="spis__nr">2</span><span><strong>Rejestracja taksonomii, potem typu treści</strong>
+		<span class="spis__opis">Odwrotna kolejność powoduje, że reguła załączników przesłania
+		adres kategorii.</span></span></li>
+	<li><span class="spis__nr">3</span><span><strong>Przeładowanie reguł adresów</strong>
+		<span class="spis__opis">Bez tego <code>/centrum-wiedzy/</code> zwraca 404 do czasu
+		ręcznego zapisania Bezpośrednich odnośników.</span></span></li>
+	<li><span class="spis__nr">4</span><span><strong>Zasianie kategorii</strong>
+		<span class="spis__opis">Siedem terminów z listy w Ustawieniach.</span></span></li>
+	<li><span class="spis__nr">5</span><span><strong>Sprawdzenie kolizji adresu</strong>
+		<span class="spis__opis">Gdy witryna ma już Stronę o adresie <code>centrum-wiedzy</code>,
+		zapisywany jest sygnał, a kokpit pokazuje ostrzeżenie.</span></span></li>
+	<li><span class="spis__nr">6</span><span><strong>Wstawienie artykułu powitalnego</strong>
+		<span class="spis__opis">Tylko przy pierwszym włączeniu.</span></span></li>
+	<li><span class="spis__nr">7</span><span><strong>Zaplanowanie zdarzenia cyklicznego</strong>
+		<span class="spis__opis">Na końcu — zdarzenie korzysta z tabeli, więc nie może
+		wystartować przed jej utworzeniem.</span></span></li>
+</ol>
+
+<h2>Wyłączenie</h2>
+<p>Odczepienie zdarzenia cyklicznego, wyrejestrowanie typu treści i taksonomii,
+   przeładowanie reguł adresów. <strong>Żadne dane nie są kasowane.</strong>
+   Ponowne włączenie przywraca portal w całości.</p>
+
+<h2>Usunięcie</h2>
+<p>Uruchamiany jest <code>uninstall.php</code>, który kasuje:</p>
+<table class="tech">
+	<tr><th>Co</th><th>Jak</th></tr>
+	<tr><td>Wpisy typu <code>ainp_article</code></td><td>trwale, razem z ich meta</td></tr>
+	<tr><td>Terminy taksonomii <code>ainp_topic</code></td>
+	    <td>powiązania zdejmowane osobno przed usunięciem terminu</td></tr>
+	<tr><td>Tabela kolejki</td><td><code>DROP TABLE</code></td></tr>
+	<tr><td>Opcje</td><td>jawna lista, potem zamiatanie po prefiksie <code>ainp_</code></td></tr>
+	<tr><td>Transienty</td><td>wzorce <code>_transient_ainp_</code> i <code>_transient_timeout_ainp_</code>
+	    — sam prefiks <code>ainp_</code> ich nie obejmuje</td></tr>
+	<tr><td>Zdarzenie cykliczne</td><td>odczepienie <code>ainp_tick</code></td></tr>
+</table>
+
+<div class="uwaga">
+	<p><strong>Operacja nieodwracalna.</strong> Nie ma trybu „usuń wtyczkę, zostaw artykuły”.
+	   Przed usunięciem należy wykonać eksport przez <strong>Narzędzia → Eksport</strong>.
+	   Ostrzeżenie w tej sprawie stoi w instrukcji klienta i w opisie wtyczki.</p>
+	<p><strong>Multisite nie jest obsługiwany</strong> — plik odinstalowania działa
+	   na pojedynczej witrynie.</p>
+</div>
+
+<!-- ============ 2 ============ -->
+<h1 class="rozdzial">2. Stany systemu</h1>
+<p class="rozdzial__wstep">Stan całego systemu, nie pojedynczej pozycji (te są opisane
+   w <strong>Schema, S2</strong>).</p>
+
+<table class="tech">
+	<tr><th>Stan</th><th>Po czym poznać</th><th>Co robić</th></tr>
+	<tr><td><strong>Nieskonfigurowany</strong></td>
+	    <td>Brak klucza API; przycisk „Opublikuj teraz” jest nieaktywny.</td>
+	    <td>Uzupełnić klucz w Ustawieniach.</td></tr>
+	<tr><td><strong>Gotowy, kolejka pusta</strong></td>
+	    <td>Klucz jest, lista pozycji pusta.</td>
+	    <td>Uruchomić „Pobierz teraz”, potem „Przygotuj treści”.</td></tr>
+	<tr><td><strong>Pracujący</strong></td>
+	    <td>Ramka „Ostatni automatyczny przebieg” pokazuje świeżą datę i niezerowe liczby.</td>
+	    <td>Nic.</td></tr>
+	<tr><td><strong>Wstrzymany na budżecie</strong></td>
+	    <td>Ramka przebiegu wspomina o przekroczonym czasie; pozycje zostają w stanie
+	        „nowy”, licznik prób nietknięty.</td>
+	    <td>Nic natychmiast — kolejny przebieg spróbuje ponownie. Przy powtarzalności
+	        patrz rozdział 7.</td></tr>
+	<tr><td><strong>Wstrzymany na przydziale</strong></td>
+	    <td>Powód „Wyczerpany sufit dobowy wywołań AI”.</td>
+	    <td>Poczekać do następnej doby albo obniżyć tempo (rozdział 7).</td></tr>
+	<tr><td><strong>Uśpiony</strong></td>
+	    <td>Ramka przebiegu pokazuje datę sprzed wielu godzin, mimo że wtyczka jest włączona.</td>
+	    <td>Sprawdzić ruch na witrynie i WP-Cron — rozdział 3.</td></tr>
+</table>
+
+<!-- ============ 3 ============ -->
+<h1 class="rozdzial">3. Reakcje na zdarzenia witryny</h1>
+
+<table class="tech">
+	<tr><th>Zdarzenie</th><th>Reakcja wtyczki</th></tr>
+	<tr><td>Start WordPressa (<code>init</code>)</td>
+	    <td>Rejestracja typu treści i taksonomii, dosianie brakujących kategorii,
+	        <strong>domknięcie harmonogramu</strong>, wczytanie tłumaczeń.</td></tr>
+	<tr><td>Nadejście pory zdarzenia <code>ainp_tick</code></td>
+	    <td>Przebieg trzech faz pod zamkiem.</td></tr>
+	<tr><td>Żądanie widoku portalu</td>
+	    <td>Wybór szablonu (motyw ma pierwszeństwo), zawężenie zapytania, wysłanie
+	        uzupełniających nagłówków bezpieczeństwa.</td></tr>
+	<tr><td>Żądanie adresu <code>/centrum-wiedzy/kategoria/</code> bez nazwy</td>
+	    <td>Przekierowanie stałe na archiwum.</td></tr>
+	<tr><td>Zapis Ustawień</td>
+	    <td>Zapis opcji i zaplanowanie <strong>jednorazowego</strong> przebiegu, żeby zmiana
+	        zadziałała bez czekania na pełną godzinę.</td></tr>
+	<tr><td>Wejście do kokpitu</td>
+	    <td>Dwie pozycje menu; ewentualne ostrzeżenia (pusta lista kanałów, kolizja adresu).</td></tr>
+</table>
+
+<h2>Czego wtyczka NIE robi samoczynnie</h2>
+<table class="tech">
+	<tr><th>Nie robi</th><th>Dlaczego</th></tr>
+	<tr><td>Nie dopisuje się do menu witryny</td>
+	    <td>Menu należy do właściciela. Odnośnik dodaje się ręcznie — instrukcja klienta,
+	        rozdział 7.</td></tr>
+	<tr><td>Nie tworzy zwykłej Strony WordPressa</td>
+	    <td>Archiwum typu treści powstaje samo i nie wymaga Strony; dodatkowa Strona
+	        kolidowałaby z jego adresem.</td></tr>
+	<tr><td>Nie czyta ani nie zmienia istniejących wpisów witryny</td>
+	    <td>Materiał wchodzi wyłącznie z kanałów RSS.</td></tr>
+	<tr><td>Nie pobiera zdjęć ze stron źródłowych</td>
+	    <td>Prawa autorskie. Karty korzystają ze zdjęć kategorii z paczki.</td></tr>
+	<tr><td>Nie kasuje artykułów przy wyłączeniu</td>
+	    <td>Kasuje wyłącznie odinstalowanie.</td></tr>
+	<tr><td>Nie aktualizuje sama schematu bazy po podmianie plików</td>
+	    <td>Patrz rozdział 6.</td></tr>
+</table>
+
+<!-- ============ 4 ============ -->
+<h1 class="rozdzial">4. Czynności samoczynne</h1>
+
+<table class="tech">
+	<tr><th>Czynność</th><th>Kiedy</th><th>Skutek uboczny</th></tr>
+	<tr><td>Pobranie z kanałów</td><td>faza 1 przebiegu</td><td>ruch wychodzący do serwerów kanałów</td></tr>
+	<tr><td>Doczytanie treści ze strony źródłowej</td>
+	    <td>faza 2, gdy treść z kanału krótsza niż <span class="nolam">1200</span> znaków</td>
+	    <td>ruch wychodzący do strony źródłowej</td></tr>
+	<tr><td>Wywołanie modelu i publikacja</td><td>faza 3</td>
+	    <td><strong>zużycie slotu z puli dobowej</strong></td></tr>
+	<tr><td>Usunięcie artykułu powitalnego</td><td>przy pierwszej publikacji ze statusem
+	    „opublikowany”</td><td>artykuł znika bezpowrotnie</td></tr>
+	<tr><td>Odzyskiwanie pozycji zawieszonych</td>
+	    <td>gdy stan „w trakcie” trwa dłużej niż <span class="nolam">900 s</span></td>
+	    <td>pozycja wraca do kolejki</td></tr>
+	<tr><td>Przejęcie zamka po trupie</td>
+	    <td>gdy zamek jest starszy niż <span class="nolam">120 s</span></td>
+	    <td>—</td></tr>
+	<tr><td>Domknięcie harmonogramu</td><td>przy każdym starcie WordPressa</td>
+	    <td>harmonogram nie ginie po aktualizacji wtyczki</td></tr>
+	<tr><td>Dosianie brakujących kategorii</td><td>przy starcie, po zmianie listy</td>
+	    <td>nowe terminy taksonomii</td></tr>
+	<tr><td>Zapis śladu przebiegu</td><td>na końcu przebiegu</td>
+	    <td>transient ważny <span class="nolam">24 h</span></td></tr>
+</table>
+
+<div class="uwaga">
+	<p><strong>Każde wejście na witrynę może uruchomić przebieg.</strong> WP-Cron startuje
+	   przy żądaniach HTTP, więc zwykłe odwiedzenie strony — także sprawdzenie czegoś
+	   narzędziem wiersza poleceń — potrafi zużyć slot z puli dobowej. Diagnozę stanu
+	   zaczynać od bazy i panelu, nie od odświeżania strony.</p>
+</div>
+
+<!-- ============ 5 ============ -->
+<h1 class="rozdzial">5. Zachowanie przy awariach</h1>
+
+<table class="tech">
+	<tr><th>Awaria</th><th>Reakcja systemu</th><th>Działanie obsługi</th></tr>
+
+	<tr><td>Kanał RSS niedostępny lub zwraca śmieci</td>
+	    <td>Kanał pomijany, pozostałe przetwarzane normalnie.</td>
+	    <td>Nic. Przy trwałej niedostępności usunąć adres z listy.</td></tr>
+
+	<tr><td>Strona źródłowa niedostępna</td>
+	    <td>Pozycja zostaje z treścią z kanału albo trafia do <code>failed</code>.</td>
+	    <td>Ewentualne „Wznów nieudane”.</td></tr>
+
+	<tr><td>Model odpowiada po czasie (przekroczony timeout)</td>
+	    <td>Pozycja <strong>czeka</strong> — status bez zmian, wraca następnym
+	        przebiegiem. <strong>Slot został zużyty.</strong></td>
+	    <td>Nic. Powód widać w podsumowaniu przebiegu.</td></tr>
+
+	<tr><td>Model zwraca HTTP 5xx (np. 503)</td>
+	    <td>Pozycja <strong>czeka</strong>, wraca następnym przebiegiem.
+	        To niedostępność, nie limit.</td>
+	    <td>Nic. Przy powtarzalności odczekać.</td></tr>
+
+	<tr><td>Model zwraca HTTP 4xx (np. 400)</td>
+	    <td>Pozycja <strong>czeka</strong>, wraca następnym przebiegiem. Przydział
+	        <strong>nie</strong> jest zużywany po stronie dostawcy.</td>
+	    <td>Sprawdzić nazwę modelu w Ustawieniach — zła nazwa daje 404 przy każdej
+	        pozycji i bez poprawki ręcznej się nie skończy. Przy powtarzalności
+	        zgłosić — to zwykle błąd w budowie żądania.</td></tr>
+
+	<tr><td>Odpowiedź przychodzi urwana albo pusta</td>
+	    <td>Jedno ponowienie w tym samym przebiegu; gdy druga próba też jest urwana
+	        lub pusta — pozycja <code>failed</code>, <strong>treść zostaje</strong>.
+	        Zużyte są dwa sloty.</td>
+	    <td>„Wznów nieudane” — przy innym losowaniu próbkowania zwykle przechodzi.</td></tr>
+
+	<tr><td>Odpowiedź łamie kontrakt (za krótka treść, kategoria spoza listy)</td>
+	    <td>Pozycja <code>failed</code>, <strong>artykuł nie powstaje</strong>.</td>
+	    <td>Sprawdzić, czy lista kategorii nie została okrojona zbyt mocno.</td></tr>
+
+	<tr><td>Wyczerpany dobowy sufit</td>
+	    <td>Wywołania nie są podejmowane; pozycje czekają.</td>
+	    <td>Nic — licznik zeruje się z nową dobą.</td></tr>
+
+	<tr><td>Przebieg przerwany w połowie (restart PHP, limit czasu serwera)</td>
+	    <td>Zamek wygasa po <span class="nolam">120 s</span>, pozycje „w trakcie” wracają
+	        do kolejki po <span class="nolam">900 s</span>.</td>
+	    <td>Nic. System nie zostaje trwale zablokowany.</td></tr>
+
+	<tr><td>Dwa przebiegi naraz</td>
+	    <td>Drugi kończy się bez pracy i bez błędu — zamek jest atomowy.</td>
+	    <td>Nic.</td></tr>
+
+	<tr><td>Adres <code>centrum-wiedzy</code> zajęty przez istniejącą Stronę</td>
+	    <td>Sygnał zapisany przy aktywacji, ostrzeżenie w kokpicie.</td>
+	    <td>Zmienić adres Strony albo ją usunąć.</td></tr>
+
+	<tr><td>Portal zwraca 404 po przenosinach witryny</td>
+	    <td>Reguły adresów nieaktualne.</td>
+	    <td>Zapisać Bezpośrednie odnośniki albo wyłączyć i włączyć wtyczkę.</td></tr>
+</table>
+
+<!-- ============ 6 ============ -->
+<h1 class="rozdzial">6. Schemat bazy i aktualizacje</h1>
+
+<p>Struktura tabeli jest uzgadniana funkcją <code>dbDelta</code>
+   <strong>przy włączeniu wtyczki</strong>. Wtyczka nie prowadzi numerowanych migracji
+   ani nie sprawdza wersji schematu przy starcie.</p>
+
+<div class="uwaga">
+	<p><strong>Podmiana plików nie uruchamia procedury włączenia.</strong>
+	   <code>register_activation_hook</code> nie odpala się przy aktualizacji wtyczki.
+	   Jeśli nowe wydanie zmienia strukturę tabeli, po aktualizacji należy
+	   <strong>wyłączyć i włączyć wtyczkę</strong> — wyłączenie nie kasuje danych,
+	   więc jest to operacja bezpieczna.</p>
+	<p>Harmonogram jest wyjątkiem: domyka się sam przy każdym starcie WordPressa,
+	   właśnie dlatego, że nie może liczyć na procedurę włączenia.</p>
+</div>
+
+<h2>Zgodność wstecz</h2>
+<table class="tech">
+	<tr><th>Element</th><th>Zachowanie przy aktualizacji</th></tr>
+	<tr><td>Zamek przebiegu</td>
+	    <td>Wartość w starszym formacie jest odczytywana poprawnie — bez migracji.</td></tr>
+	<tr><td>Warianty zdjęć kategorii</td>
+	    <td>Kategoria z jednym plikiem działa jak przed wprowadzeniem wariantów;
+	        brakujące numery są pomijane.</td></tr>
+	<tr><td>Lista kanałów</td>
+	    <td>Zapisana lista nie jest nadpisywana wartościami domyślnymi.</td></tr>
+</table>
+
+<!-- ============ 7 ============ -->
+<h1 class="rozdzial">7. Konserwacja</h1>
+
+<h2>Czynności okresowe</h2>
+<table class="tech">
+	<tr><th>Co</th><th>Jak często</th><th>Po co</th></tr>
+	<tr><td>Przejrzeć kilka ostatnich artykułów</td><td>raz na tydzień</td>
+	    <td>Kontrola jakości tekstów — model nie ma nadzoru merytorycznego.</td></tr>
+	<tr><td>Sprawdzić kolumnę „Powód” przy pozycjach pominiętych</td><td>raz na miesiąc</td>
+	    <td>Wyłapanie zbyt agresywnego filtru albo martwego kanału.</td></tr>
+	<tr><td>Zweryfikować listę kanałów</td><td>raz na kwartał</td>
+	    <td>Kanały bywają przenoszone albo zamykane.</td></tr>
+	<tr><td>Sprawdzić ważność klucza API</td><td>raz na kwartał</td>
+	    <td>Klucz może zostać unieważniony po stronie dostawcy.</td></tr>
+	<tr><td>Wykonać eksport artykułów</td><td>przed każdą większą zmianą witryny</td>
+	    <td>Jedyna droga odzyskania treści po odinstalowaniu.</td></tr>
+</table>
+
+<h2>Sygnały ostrzegawcze</h2>
+<table class="tech">
+	<tr><th>Sygnał</th><th>Prawdopodobna przyczyna</th><th>Co sprawdzić</th></tr>
+	<tr><td>Brak nowych artykułów przez kilka dni, mimo pozycji w kolejce</td>
+	    <td>Brak ruchu na witrynie — WP-Cron nie startuje.</td>
+	    <td>Ramka „Ostatni automatyczny przebieg”. Rozważyć zadanie cykliczne
+	        po stronie serwera.</td></tr>
+	<tr><td>Licznik wywołań rośnie szybciej niż liczba artykułów</td>
+	    <td>Żądania ucinane po czasie albo odpowiedzi łamiące kontrakt.</td>
+	    <td>Kolumna „Powód” przy pozycjach nieudanych.</td></tr>
+	<tr><td>Prawie wszystkie pozycje mają status „pominięty”</td>
+	    <td>Zbyt wąska lista słów wymaganych albo kanały spoza tematu.</td>
+	    <td>Ustawienia: słowa wymagane i lista kanałów.</td></tr>
+	<tr><td>Do portalu trafiają teksty spoza tematu</td>
+	    <td>Pusta lista słów wymaganych — bramka wyłączona.</td>
+	    <td>Ustawienia: pole „Słowa wymagane”.</td></tr>
+	<tr><td>Kolejka rośnie, ale nic nie jest przygotowywane</td>
+	    <td>Przebiegi kończą się na budżecie czasu.</td>
+	    <td>Obciążenie serwera; rozważyć częstsze uruchamianie zadania cyklicznego.</td></tr>
+	<tr><td>Ten sam artykuł pojawia się dwa razy</td>
+	    <td>Sytuacja niemożliwa przy nietkniętej strukturze tabeli.</td>
+	    <td>Obecność obu kluczy <code>UNIQUE</code> w tabeli kolejki.</td></tr>
+</table>
+
+<div class="uwaga">
+	<p><strong>Zgłaszając problem</strong>, warto podać: treść ramki „Ostatni automatyczny
+	   przebieg”, liczbę pozycji w poszczególnych statusach, zawartość kolumny „Powód”
+	   przy pozycjach nieudanych oraz wersję wtyczki ze stopki tego dokumentu.</p>
+</div>
+
+</div>
+
+</body>
+</html>

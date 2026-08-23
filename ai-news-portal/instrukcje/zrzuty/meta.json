@@ -1,0 +1,151 @@
+{
+  "01-centrum-wiedzy-archiwum": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\01-centrum-wiedzy-archiwum.jpg",
+    "cele": {}
+  },
+  "02-centrum-wiedzy-karty": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\02-centrum-wiedzy-karty.jpg",
+    "cele": {
+      "karta": {
+        "x": 400,
+        "y": 246,
+        "w": 126,
+        "h": 58
+      }
+    }
+  },
+  "20-artykul": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\20-artykul.jpg",
+    "cele": {}
+  },
+  "21-kategoria": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\21-kategoria.jpg",
+    "cele": {}
+  },
+  "22-wyszukiwanie": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\22-wyszukiwanie.jpg",
+    "cele": {}
+  },
+  "03-lista-artykulow": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\03-lista-artykulow.png",
+    "cele": {
+      "naglowek": {
+        "x": 364,
+        "y": 217,
+        "w": 167,
+        "h": 86
+      }
+    }
+  },
+  "04-menu-metabox": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\04-menu-metabox.png",
+    "cele": {
+      "metabox": {
+        "x": 366,
+        "y": 846,
+        "w": 558,
+        "h": 1198
+      },
+      "pozycja_archiwum": {
+        "x": 417,
+        "y": 1058,
+        "w": 455,
+        "h": 48
+      }
+    }
+  },
+  "10-wyslij-wtyczke": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\10-wyslij-wtyczke.png",
+    "cele": {
+      "pole_pliku": {
+        "x": 1194,
+        "y": 541,
+        "w": 574,
+        "h": 164
+      },
+      "przycisk_zainstaluj": {
+        "x": 1768,
+        "y": 583,
+        "w": 182,
+        "h": 80
+      }
+    }
+  },
+  "11-lista-wtyczek": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\11-lista-wtyczek.png",
+    "cele": {
+      "wiersz": {
+        "x": 366,
+        "y": 1249,
+        "w": 2472,
+        "h": 183
+      }
+    }
+  },
+  "12-panel-materialy": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\12-panel-materialy.png",
+    "cele": {
+      "naglowek": {
+        "x": 364,
+        "y": 217,
+        "w": 2476,
+        "h": 86
+      }
+    }
+  },
+  "13-ustawienia-klucz": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\13-ustawienia-klucz.png",
+    "cele": {
+      "pole": {
+        "x": 806,
+        "y": 1886,
+        "w": 700,
+        "h": 80
+      }
+    }
+  },
+  "14-ustawienia-zrodla": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\14-ustawienia-zrodla.png",
+    "cele": {
+      "pole": {
+        "x": 804,
+        "y": 347,
+        "w": 1996,
+        "h": 276
+      }
+    }
+  },
+  "15-ustawienia-kategorie": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\15-ustawienia-kategorie.png",
+    "cele": {
+      "pole": {
+        "x": 804,
+        "y": 741,
+        "w": 1996,
+        "h": 196
+      }
+    }
+  },
+  "16-ustawienia-slowa": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\16-ustawienia-slowa.png",
+    "cele": {
+      "pole": {
+        "x": 804,
+        "y": 1450,
+        "w": 1996,
+        "h": 276
+      }
+    }
+  },
+  "17-ustawienia-limit": {
+    "plik": "c:\\Users\\matot\\Desktop\\strona1\\faq-generator\\ai-faq-generator\\ai-news-portal\\instrukcje\\zrzuty\\17-ustawienia-limit.png",
+    "cele": {
+      "pole": {
+        "x": 806,
+        "y": 2970,
+        "w": 194,
+        "h": 80
+      }
+    }
+  }
+}

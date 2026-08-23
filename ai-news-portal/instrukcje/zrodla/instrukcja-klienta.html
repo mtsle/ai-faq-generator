@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Instrukcja dla klienta (wprowadzająca) — AI News Portal</title>
+<link rel="stylesheet" href="styl.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<div class="okladka__znak"></div>
+	<h1 class="okladka__tytul">AI News Portal</h1>
+	<p class="okladka__podtytul">Instrukcja dla klienta (wprowadzająca)<br>
+	   <span class="okladka__podtytul--male">Portal wiedzy, który zasila się sam — jak go uruchomić i jak nad nim panować</span></p>
+
+	<div class="okladka__ramka">
+		<p><strong>Dla kogo jest ta instrukcja?</strong></p>
+		<p>Dla osoby, która prowadzi stronę internetową i chce, żeby przybywało na niej
+		   artykułów — bez pisania ich ręcznie.</p>
+		<p><strong>Czy muszę znać się na komputerach?</strong></p>
+		<p>Nie. Wszystko jest opisane po kolei, z obrazkami. Każdy obrazek pokazuje
+		   dokładnie to, co zobaczysz na swoim ekranie. Czerwona ramka na obrazku
+		   wskazuje miejsce, w które masz kliknąć.</p>
+		<p><strong>Ile to zajmie?</strong></p>
+		<p>Uruchomienie — około 15 minut. Potem wtyczka pracuje sama, a Ty tylko
+		   zaglądasz, co przybyło.</p>
+	</div>
+
+	<p class="okladka__stopka">
+		Wersja wtyczki {{WERSJA}}<br>
+		Obrazki pochodzą ze strony przedszkola, na której wtyczka działa.<br>
+		Na swojej stronie zobaczysz własne treści — układ ekranów będzie taki sam.
+	</p>
+</section>
+
+<!-- ============ SPIS TREŚCI ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Co znajdziesz w tej instrukcji</h1>
+	<p class="rozdzial__wstep">Instrukcja dzieli się na dwie części. Pierwszą przechodzisz
+	   raz, przy uruchomieniu. Drugiej używasz na co dzień.</p>
+
+	<h2 class="czesc">Część A — uruchomienie (robisz raz)</h2>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>Zanim zaczniesz</strong>
+			<span class="spis__opis">Co musisz mieć przygotowane.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>Jak wgrać wtyczkę na stronę</strong>
+			<span class="spis__opis">Od pliku, który dostałeś, do działającej wtyczki.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>Klucz — jak go zdobyć i wpisać</strong>
+			<span class="spis__opis">Darmowy klucz Google. Bez niego wtyczka nie napisze artykułu.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>Skąd wtyczka bierze materiał</strong>
+			<span class="spis__opis">Cztery źródła jadą w paczce. Możesz je zmienić.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>Pierwsze artykuły</strong>
+			<span class="spis__opis">Trzy przyciski, zawsze w tej samej kolejności.</span></span></li>
+	</ol>
+
+	<h2 class="czesc">Część B — codzienna obsługa</h2>
+	<ol class="spis" start="6">
+		<li><span class="spis__nr">6</span><span><strong>Centrum Wiedzy — strona, która powstaje sama</strong>
+			<span class="spis__opis">Co odwiedzający zobaczy zaraz po włączeniu wtyczki.</span></span></li>
+		<li><span class="spis__nr">7</span><span><strong>Odnośnik w menu — jedyna rzecz do dodania ręcznie</strong>
+			<span class="spis__opis">Wtyczka celowo nie dotyka Twojego menu.</span></span></li>
+		<li><span class="spis__nr">8</span><span><strong>Wszystkie artykuły w jednym miejscu</strong>
+			<span class="spis__opis">Poprawianie, ukrywanie i kasowanie artykułów hurtem.</span></span></li>
+		<li><span class="spis__nr">9</span><span><strong>Panel wtyczki na co dzień</strong>
+			<span class="spis__opis">Co znaczą statusy i co robić, gdy przycisk nic nie zmienia.</span></span></li>
+		<li><span class="spis__nr">10</span><span><strong>Kategorie i słowa odrzucające</strong>
+			<span class="spis__opis">Jak pilnować, żeby portal trzymał się tematu.</span></span></li>
+		<li><span class="spis__nr">11</span><span><strong>Gdy coś nie działa</strong>
+			<span class="spis__opis">Najczęstsze kłopoty i co wtedy zrobić.</span></span></li>
+		<li><span class="spis__nr">12</span><span><strong>Wyłączenie i usunięcie wtyczki</strong>
+			<span class="spis__opis">Czym różni się „Wyłącz” od „Usuń” — i dlaczego to ważne.</span></span></li>
+	</ol>
+</section>
+
+<!-- ============ SŁOWNICZEK ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Kilka słów, które będą się powtarzać</h1>
+	<p class="rozdzial__wstep">Nie musisz uczyć się ich na pamięć — wracaj tutaj, gdy któreś
+	   pojawi się w tekście.</p>
+
+	<dl class="slownik">
+		<dt>Kokpit</dt>
+		<dd>Panel zarządzania Twoją stroną — to tam logujesz się, żeby dodać wpis albo zmienić
+		    zdjęcie. Adres zwykle kończy się na <code>/wp-admin</code>.</dd>
+
+		<dt>Wtyczka</dt>
+		<dd>Dodatek, który dokłada stronie nową umiejętność — tak jak aplikacja dokładana
+		    do telefonu.</dd>
+
+		<dt>Kanał RSS</dt>
+		<dd>Adres, pod którym inna strona wystawia listę swoich najnowszych tekstów w postaci
+		    czytelnej dla programów. Stąd wtyczka bierze materiał do przerobienia.</dd>
+
+		<dt>Klucz API</dt>
+		<dd>Hasło do sztucznej inteligencji Google. Dostajesz je za darmo, wklejasz raz
+		    i więcej do niego nie wracasz.</dd>
+
+		<dt>Model</dt>
+		<dd>Rodzaj sztucznej inteligencji, z której korzysta wtyczka. Zostaw ten zalecany.</dd>
+
+		<dt>Pozycja</dt>
+		<dd>Jeden tekst wypatrzony w kanale RSS, jeszcze przed przerobieniem. Pozycja może
+		    zostać artykułem, ale może też zostać odrzucona.</dd>
+
+		<dt>Artykuł</dt>
+		<dd>Gotowy tekst napisany przez model na podstawie pozycji i opublikowany
+		    w Centrum Wiedzy.</dd>
+
+		<dt>Centrum Wiedzy</dt>
+		<dd>Podstrona z listą wszystkich artykułów — serce portalu. Powstaje sama.</dd>
+
+		<dt>Wywołanie AI</dt>
+		<dd>Jedno pytanie zadane sztucznej inteligencji. Darmowy przydział Google to
+		    <strong>20 wywołań na dobę</strong> i wtyczka sama się na tej liczbie zatrzymuje.</dd>
+
+		<dt>Gość</dt>
+		<dd>Osoba odwiedzająca Twoją stronę, która nie jest zalogowana. Widzi mniej niż Ty.</dd>
+	</dl>
+
+	<div class="uwaga">
+		<p><strong>Trzy rzeczy, których wtyczka nie zrobi nigdy.</strong> Nie utworzy dwóch
+		   artykułów z tego samego źródła. Nie opublikuje odpowiedzi, która nie przeszła
+		   sprawdzenia. Nie zatrzyma się na dobre z powodu jednego błędu — spróbuje ponownie
+		   przy następnym przebiegu.</p>
+	</div>
+</section>
+
+<!-- ============ 1. ZANIM ZACZNIESZ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">1. Zanim zaczniesz</h1>
+	<p class="rozdzial__wstep">Trzy rzeczy. Jeśli masz je pod ręką, uruchomienie zajmie
+	   kwadrans.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Plik z wtyczką</p></div>
+		<div class="krok__tresc">
+			<p>W paczce, którą dostałeś, leży plik <strong>ai-news-portal.zip</strong>.
+			   Nie rozpakowuj go — WordPress zrobi to sam.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Dostęp do kokpitu swojej strony</p></div>
+		<div class="krok__tresc">
+			<p>Login i hasło administratora — czyli takie, przy których w menu po lewej
+			   widzisz pozycję <strong>Wtyczki</strong>. Jeśli jej nie widzisz, poproś osobę,
+			   która zakładała Ci stronę.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">3</span>
+			<p class="krok__tytul">Konto Google</p></div>
+		<div class="krok__tresc">
+			<p>Zwykłe konto Google — takie jak do poczty Gmail. Posłuży do wygenerowania
+			   darmowego klucza. <strong>Karta płatnicza nie jest potrzebna</strong> i nie
+			   będziesz o nią proszony.</p>
+		</div>
+	</div>
+
+	<h2>Czego wtyczka potrzebuje od strony</h2>
+	<p>Właściwie niczego. W odróżnieniu od zwykłych wtyczek treściowych nie czyta Twoich
+	   podstron ani wpisów — materiał bierze z zewnątrz, z kanałów RSS. Strona może być
+	   zupełnie nowa i pusta.</p>
+	<p>Potrzebuje natomiast <strong>ruchu</strong>: WordPress uruchamia zadania cykliczne
+	   tylko wtedy, gdy ktoś w danej chwili odwiedza witrynę. Wracamy do tego w rozdziale 11.</p>
+
+	<div class="uwaga">
+		<p><strong>Uwaga.</strong> Ta instrukcja opisuje obsługę wtyczki. Sprawy techniczne
+		   po stronie serwera — wersja PHP, zadania cykliczne, limity — opisuje osobna
+		   <strong>Instrukcja dla informatyka (Functional)</strong>.</p>
+		<p>W paczce są jeszcze trzy dokumenty techniczne: <strong>Wymagania niefunkcjonalne</strong>,
+		   <strong>Schema — format danych</strong> oraz <strong>Instrukcje systemowe</strong>.
+		   Jeśli oddajesz sprawę informatykowi, przekaż mu <strong>całą paczkę</strong>,
+		   a nie pojedynczy plik.</p>
+	</div>
+</section>
+
+<!-- ============ 2. JAK WGRAĆ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">2. Jak wgrać wtyczkę na stronę</h1>
+	<p class="rozdzial__wstep">Pięć kliknięć. Nic nie da się tu zepsuć — wtyczkę zawsze
+	   można wyłączyć i wgrać ponownie.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Wejdź w „Wtyczki → Dodaj nową wtyczkę”</p></div>
+		<div class="krok__tresc">
+			<p>Zaloguj się do kokpitu. W menu po lewej kliknij <strong>Wtyczki</strong>,
+			   a potem <strong>Dodaj nową wtyczkę</strong>. U góry ekranu znajdziesz przycisk
+			   <strong>„Wyślij wtyczkę na serwer”</strong> — kliknij go.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Wskaż plik i zainstaluj</p></div>
+		<div class="krok__tresc">
+			<p>Kliknij <strong>„Wybierz plik”</strong>, odszukaj <strong>ai-news-portal.zip</strong>
+			   i zatwierdź. Gdy nazwa pliku pojawi się obok przycisku, kliknij
+			   <strong>„Zainstaluj”</strong>.</p>
+			<figure>
+				<img src="../zrzuty/kadry/10-wyslij-wtyczke.png" alt="Formularz wysyłania wtyczki z polem wyboru pliku i przyciskiem Zainstaluj">
+				<figcaption>Pole wyboru pliku i przycisk instalacji. Instalacja trwa kilka sekund.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">3</span>
+			<p class="krok__tytul">Włącz wtyczkę</p></div>
+		<div class="krok__tresc">
+			<p>Po instalacji zobaczysz komunikat o powodzeniu i odnośnik
+			   <strong>„Włącz wtyczkę”</strong>. Kliknij go. W menu po lewej pojawi się
+			   pozycja <strong>AI News Portal</strong> — to znak, że wszystko się udało.</p>
+			<figure class="szeroka">
+				<img src="../zrzuty/kadry/11-lista-wtyczek.png" alt="Wiersz włączonej wtyczki AI News Portal na liście wtyczek">
+				<figcaption>Tak wygląda włączona wtyczka na liście: pod nazwą jest odnośnik „Wyłącz”.</figcaption>
+			</figure>
+		</div>
+	</div>
+</section>
+
+<section class="strona">
+	<h1 class="rozdzial">2. Jak wgrać wtyczkę <span style="font-weight:400">(ciąg dalszy)</span></h1>
+
+	<h2>Co stało się w tle w chwili włączenia</h2>
+	<p>Włączenie wtyczki nie jest samym „dodaniem pozycji do menu”. Od razu, bez żadnego
+	   klikania, dzieje się pięć rzeczy:</p>
+
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>Powstaje Centrum Wiedzy</strong>
+			<span class="spis__opis">Podstrona pod adresem <code>/centrum-wiedzy/</code> odpowiada natychmiast.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>Zakładanych jest siedem kategorii</strong>
+			<span class="spis__opis">Żywienie, Zdrowie, Zachowanie, Szkolenie, Pielęgnacja, Rasy, Życie z psem.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>Pojawia się artykuł powitalny</strong>
+			<span class="spis__opis">Żeby strona nie była pusta. Znika sam przy pierwszej prawdziwej publikacji.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>Rusza zegar</strong>
+			<span class="spis__opis">Wtyczka będzie zaglądać do kanałów mniej więcej raz na godzinę.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>Powstaje pusta kolejka materiałów</strong>
+			<span class="spis__opis">Miejsce, w którym gromadzą się pozycje przed przerobieniem.</span></span></li>
+	</ol>
+
+	<div class="uwaga">
+		<p><strong>Czego wtyczka NIE robi przy włączeniu.</strong> Nie tworzy zwykłej Strony
+		   WordPressa, nie dopisuje się do menu i nie dotyka Twoich istniejących wpisów.
+		   Odnośnik w menu dodajesz sam — rozdział 7.</p>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Gdy instalacja nie przechodzi.</strong> Komunikat o braku uprawnień albo
+		   o zbyt dużym pliku to ustawienie serwera, nie błąd wtyczki. Poproś wtedy informatyka
+		   — potrzebne wartości ma opisane w swojej instrukcji.</p>
+	</div>
+</section>
+
+<!-- ============ 3. KLUCZ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">3. Klucz — jak go zdobyć i wpisać</h1>
+	<p class="rozdzial__wstep">Klucz to hasło do sztucznej inteligencji Google. Jest darmowy,
+	   pobiera się go raz i wkleja w jedno pole.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Wejdź na stronę Google AI Studio</p></div>
+		<div class="krok__tresc">
+			<p>Adres: <code>aistudio.google.com/apikey</code>. Zaloguj się swoim kontem Google
+			   i kliknij przycisk tworzenia klucza. Dostaniesz długi ciąg znaków — skopiuj go
+			   w całości.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Wklej klucz w Ustawieniach wtyczki</p></div>
+		<div class="krok__tresc">
+			<p>W kokpicie: <strong>AI News Portal → Ustawienia</strong>, pole
+			   <strong>„Klucz API Gemini”</strong>. Wklej i zapisz.</p>
+			<figure class="szeroka">
+				<img src="../zrzuty/kadry/13-ustawienia-klucz.png" alt="Pole Klucz API Gemini w ustawieniach wtyczki">
+				<figcaption>Klucz jest zapisywany w bazie Twojej strony i nigdzie indziej nie wędruje.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">3</span>
+			<p class="krok__tytul">Sprawdź dobowy limit</p></div>
+		<div class="krok__tresc">
+			<p>Pole <strong>„Sufit wywołań AI na dobę”</strong> stoi domyślnie na
+			   <strong>20</strong> — dokładnie tyle, ile daje darmowy przydział Google.
+			   Wtyczka liczy wywołania sama i po osiągnięciu sufitu przestaje pytać model
+			   aż do następnej doby.</p>
+		</div>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Bez klucza przycisk „Opublikuj teraz” jest wyszarzony</strong> i nie da się
+		   go kliknąć. To nie usterka — wtyczka nie ma czym napisać artykułu. Pobieranie
+		   i przygotowanie materiału działają bez klucza, bo nie korzystają z modelu.</p>
+	</div>
+</section>
+
+<!-- ============ 4. ŹRÓDŁA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">4. Skąd wtyczka bierze materiał</h1>
+	<p class="rozdzial__wstep">Z kanałów RSS — czyli z list nowych tekstów, które inne strony
+	   wystawiają publicznie. Wtyczka ich nie kopiuje: czyta je i pisze własny artykuł.</p>
+
+	<h2>Cztery kanały jadą w paczce</h2>
+	<p>Na świeżej instalacji lista jest już wypełniona czterema sprawdzonymi adresami —
+	   nie musisz niczego szukać, żeby ruszyć. Zobaczysz je w
+	   <strong>AI News Portal → Ustawienia</strong>, w polu <strong>„Kanały RSS”</strong>.</p>
+
+	<figure class="szeroka">
+		<img src="../zrzuty/kadry/14-ustawienia-zrodla.png" alt="Pole Kanały RSS z listą adresów, jeden pod drugim">
+		<figcaption>Jeden adres w każdej linii. Kolejność nie ma znaczenia.</figcaption>
+	</figure>
+
+	<h2>Jak dodać własny kanał</h2>
+	<p>Dopisz adres w nowej linii i zapisz. Adres kanału zwykle kończy się na
+	   <code>/feed/</code> albo <code>/rss</code> — jeśli nie wiesz, sprawdź na stronie,
+	   którą chcesz śledzić, albo spytaj informatyka.</p>
+
+	<div class="alarm">
+		<p class="alarm__tytul">Puste pole „Kanały RSS” wyłącza pobieranie</p>
+		<p>Jeśli <strong>skasujesz wszystkie adresy i zapiszesz</strong>, wtyczka uzna to
+		   za Twoją świadomą decyzję i przestanie pobierać cokolwiek. Nie przywróci wtedy
+		   domyślnej czwórki — panel wypisze tylko ostrzeżenie, że lista jest pusta.</p>
+		<p>Chcesz wrócić do stanu wyjściowego? Wpisz adresy z powrotem ręcznie.</p>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Wtyczka nie pobiera cudzych zdjęć.</strong> Kartom artykułów przypisywane
+		   są zdjęcia kategorii, które jadą w paczce — dzięki temu portal nie narusza cudzych
+		   praw autorskich. Każda kategoria ma po kilka wariantów zdjęcia, więc sąsiadujące
+		   karty nie powtarzają się.</p>
+	</div>
+</section>
+
+<!-- ============ 5. PIERWSZE ARTYKUŁY ============ -->
+<section class="strona">
+	<h1 class="rozdzial">5. Pierwsze artykuły</h1>
+	<p class="rozdzial__wstep">Wtyczka zrobi to sama, ale przy pierwszym uruchomieniu warto
+	   przejść drogę ręcznie — zobaczysz wtedy, co się dzieje na każdym etapie.</p>
+
+	<p>Wejdź w <strong>AI News Portal → Materiały</strong>. Zobaczysz trzy przyciski
+	   jeden pod drugim. <strong>Klikaj je w tej kolejności, od góry.</strong></p>
+
+	<figure class="szeroka">
+		<img src="../zrzuty/kadry/12-panel-materialy.png" alt="Panel Materiały z trzema przyciskami i opisami pod nimi">
+		<figcaption>Pod każdym przyciskiem stoi zdanie mówiące, co dokładnie zrobi
+		   i ile wywołań AI zostało Ci na dziś.</figcaption>
+	</figure>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">„Pobierz teraz” — zebranie pozycji</p></div>
+		<div class="krok__tresc">
+			<p>Wtyczka odwiedza kanały z listy i zapisuje wypatrzone teksty jako
+			   <strong>pozycje</strong>. Nie powstają jeszcze żadne artykuły i nie zużywasz
+			   ani jednego wywołania AI. Powtórki tego samego adresu są odrzucane od razu.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">„Przygotuj treści” — odsianie i uzupełnienie</p></div>
+		<div class="krok__tresc">
+			<p>Wtyczka bierze porcję pozycji i robi z nimi trzy rzeczy: odrzuca te ze słowami
+			   wykluczającymi, dobiera pełną treść ze strony źródłowej, gdy kanał podał samą
+			   zapowiedź, i wyrzuca powtórki po treści. Nadal <strong>bez udziału AI</strong>
+			   — ten etap jest darmowy.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">3</span>
+			<p class="krok__tytul">„Opublikuj teraz” — napisanie artykułów</p></div>
+		<div class="krok__tresc">
+			<p>Dopiero tutaj do gry wchodzi model. Bierze przygotowane pozycje, pisze na ich
+			   podstawie własny tekst, nadaje mu kategorię i publikuje w Centrum Wiedzy.
+			   <strong>Każdy artykuł to jedno wywołanie AI</strong> z Twojego dobowego
+			   przydziału.</p>
+		</div>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Kliknąłeś „Opublikuj teraz” i nic się nie stało?</strong> To normalne
+		   na świeżej instalacji: publikacja bierze wyłącznie pozycje już <em>przygotowane</em>,
+		   a kolejka jest pusta, dopóki nie klikniesz dwóch pierwszych przycisków. Przejdź
+		   drogę od góry.</p>
+	</div>
+</section>
+
+<!-- ============ 6. CENTRUM WIEDZY ============ -->
+<section class="strona">
+	<h1 class="rozdzial">6. Centrum Wiedzy — strona, która powstaje sama</h1>
+	<p class="rozdzial__wstep">Nie musisz jej zakładać ani niczego klikać. W chwili,
+	   w której włączysz wtyczkę, strona już istnieje i już działa.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Adres, pod którym jej szukać</p></div>
+		<div class="krok__tresc">
+			<p>To Twój adres strony z dopiskiem <code>/centrum-wiedzy/</code> — na przykład
+			   <code>twojastrona.pl/centrum-wiedzy/</code>. Pojedynczy artykuł ma adres
+			   <code>/centrum-wiedzy/tytul-artykulu/</code>, a widok jednej kategorii —
+			   <code>/centrum-wiedzy/kategoria/zywienie/</code>.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Co na niej jest od pierwszej minuty</p></div>
+		<div class="krok__tresc">
+			<p>Wyszukiwarka, przyciski <strong>siedmiu kategorii</strong> i jeden
+			   <strong>artykuł powitalny</strong>, który wtyczka wstawia przy pierwszym
+			   włączeniu. Artykuł powitalny znika sam, gdy portal opublikuje pierwszy
+			   prawdziwy tekst — nie musisz go kasować. Kategorie pokazują się <strong>wszystkie</strong>,
+			   także te jeszcze puste, żeby odwiedzający od razu widział, o czym będzie portal.</p>
+		</div>
+	</div>
+
+	<figure>
+		<img src="../zrzuty/kadry/01-centrum-wiedzy-archiwum.jpg" alt="Strona Centrum Wiedzy z wyszukiwarką, przyciskami kategorii i kartami artykułów">
+		<figcaption>Centrum Wiedzy na działającej stronie. Wygląd — kolory, krój pisma, tło —
+		   bierze się z Twojego motywu, więc u Ciebie będzie pasować do reszty witryny.</figcaption>
+	</figure>
+
+	<div class="uwaga">
+		<p><strong>Strona bez odwiedzin nie pracuje.</strong> Wtyczka sięga po nowe
+		   materiały mniej więcej raz na godzinę, ale <em>tylko wtedy, gdy ktoś w tym czasie
+		   wszedł na stronę</em>. Tak działa WordPress i nie jest to usterka. Gdy
+		   witryna nie ma jeszcze ruchu, rozwiązanie opisuje <strong>Instrukcja dla
+		   informatyka (Functional)</strong>.</p>
+	</div>
+</section>
+
+<section class="strona">
+	<h1 class="rozdzial">6. Centrum Wiedzy <span style="font-weight:400">(ciąg dalszy)</span></h1>
+
+	<h2>Jak wygląda pojedynczy artykuł</h2>
+	<p>Tytuł, data, kategoria, tekst — i <strong>ramka źródła</strong> z odnośnikiem
+	   do materiału, na podstawie którego artykuł powstał. Ta ramka jest ważna: pokazuje
+	   odwiedzającemu, skąd wziął się temat, i jest wyrazem uczciwości wobec autora oryginału.</p>
+
+	<figure>
+		<img src="../zrzuty/kadry/20-artykul.jpg" alt="Widok pojedynczego artykułu z metryczką i treścią">
+		<figcaption>Artykuł oczami odwiedzającego. Na dole strony jest odnośnik powrotu
+		   do Centrum Wiedzy.</figcaption>
+	</figure>
+
+	<h2>Przyciski kategorii i wyszukiwarka</h2>
+	<p>Kliknięcie kategorii zawęża listę do jej artykułów. Wyszukiwarka szuka wyłącznie
+	   w Centrum Wiedzy i <strong>nie miesza się z wyszukiwarką całej witryny</strong> —
+	   gość szukający artykułu nie dostanie w wynikach Twojego cennika.</p>
+
+	<figure>
+		<img src="../zrzuty/kadry/22-wyszukiwanie.jpg" alt="Wyniki wyszukiwania w Centrum Wiedzy">
+		<figcaption>Wyniki wyszukiwania. Gdy nic nie pasuje, strona mówi to wprost
+		   i proponuje powrót do pełnej listy.</figcaption>
+	</figure>
+</section>
+
+<!-- ============ 7. ODNOŚNIK W MENU ============ -->
+<section class="strona">
+	<h1 class="rozdzial">7. Odnośnik w menu — jedyna rzecz do dodania ręcznie</h1>
+	<p class="rozdzial__wstep">Wtyczka <strong>nigdy</strong> nie dopisuje się do Twojego menu.
+	   To decyzja, nie przeoczenie: menu jest Twoje i nic nie powinno w nim majstrować bez
+	   Twojej wiedzy. Dodanie odnośnika zajmuje minutę.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Wejdź w „Wygląd → Menu” i znajdź panel „Artykuły”</p></div>
+		<div class="krok__tresc">
+			<p>Po lewej stronie ekranu jest kolumna <strong>„Dodaj element menu”</strong>
+			   z rozwijanymi panelami: Strony, Wpisy, <strong>Artykuły</strong>, Własne odnośniki.
+			   Nie widzisz panelu <strong>Artykuły</strong>? Kliknij <strong>„Opcje ekranu”</strong>
+			   w prawym górnym rogu i zaznacz go — WordPress domyślnie ukrywa część paneli.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Rozwiń „Artykuły” i przejdź na „Zobacz wszystko”</p></div>
+		<div class="krok__tresc">
+			<p>Pozycji, której szukasz, <strong>nie ma</strong> w zakładce „Najnowsze” —
+			   jest tylko w <strong>„Zobacz wszystko”</strong>, na samej górze listy.
+			   Nazywa się <strong>Centrum Wiedzy</strong>. To odnośnik do całego portalu,
+			   a nie do pojedynczego artykułu.</p>
+			<figure>
+				<img src="../zrzuty/kadry/04-menu-metabox.png" alt="Panel Artykuły w edytorze menu, zakładka Zobacz wszystko, zaznaczona pozycja Centrum Wiedzy">
+				<figcaption>Czerwona ramka wskazuje właściwą pozycję — stoi ona pierwsza, nad listą
+				   pojedynczych artykułów.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">3</span>
+			<p class="krok__tytul">Zaznacz, dodaj i zapisz</p></div>
+		<div class="krok__tresc">
+			<p>Zaznacz kwadracik przy <strong>Centrum Wiedzy</strong>, kliknij
+			   <strong>„Dodaj do menu”</strong>, a na koniec <strong>„Zapisz menu”</strong>.
+			   Pozycja pojawi się na dole struktury menu z opisem
+			   <strong>„Archiwum typu treści”</strong> — to normalne.</p>
+			<p>Chcesz krótszej nazwy? Rozwiń dodaną pozycję strzałką po prawej i wpisz własną
+			   w polu <strong>„Etykieta nawigacji”</strong> — na obrazkach jest to <strong>Wiedza</strong>.</p>
+		</div>
+	</div>
+</section>
+
+<!-- ============ 8. WSZYSTKIE ARTYKUŁY ============ -->
+<section class="strona">
+	<h1 class="rozdzial">8. Wszystkie artykuły w jednym miejscu</h1>
+	<p class="rozdzial__wstep">Wtyczka ma w kokpicie dokładnie dwie pozycje —
+	   <strong>Materiały</strong> i <strong>Ustawienia</strong> — i celowo nie dokłada
+	   trzeciej. Lista gotowych artykułów mieszka pod własnym adresem.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Adres listy artykułów</p></div>
+		<div class="krok__tresc">
+			<p>Wpisz w przeglądarce, będąc zalogowanym w kokpicie:</p>
+			<p><code>twojastrona.pl/wp-admin/edit.php?post_type=ainp_article</code></p>
+			<p>Warto dodać ten adres do zakładek — to jedyne miejsce, w którym poprawisz,
+			   ukryjesz albo skasujesz kilka artykułów naraz. Ten sam odnośnik znajdziesz
+			   na dole ekranu <strong>Materiały</strong>.</p>
+			<figure class="szeroka">
+				<img src="../zrzuty/kadry/03-lista-artykulow.png" alt="Lista artykułów w kokpicie WordPressa z kolumną Kategorie">
+				<figcaption>Zwykła lista WordPressa: zaznaczasz wiersze, wybierasz działanie
+				   z listy „Działania grupowe” i klikasz „Zastosuj”.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Co możesz z nimi zrobić</p></div>
+		<div class="krok__tresc">
+			<p>Artykuł jest zwykłym wpisem WordPressa — otworzysz go w tym samym edytorze,
+			   w którym piszesz resztę strony. Możesz poprawić tytuł, zmienić kategorię,
+			   przenieść do kosza albo cofnąć do szkicu, gdy nie chcesz go jeszcze pokazywać.</p>
+		</div>
+	</div>
+
+	<div class="alarm">
+		<p class="alarm__tytul">Zanim kiedykolwiek klikniesz „Usuń” przy tej wtyczce</p>
+		<p><strong>Odinstalowanie wtyczki kasuje wszystkie wygenerowane artykuły —
+		   bezpowrotnie.</strong> Razem z nimi znikają kategorie portalu i cała kolejka
+		   zebranych materiałów. Nie ma po tym „cofnij”.</p>
+		<p><strong>Samo wyłączenie wtyczki nie rusza niczego.</strong> Artykuły zostają
+		   w bazie i wrócą w komplecie, gdy wtyczkę włączysz z powrotem. Kasuje dopiero
+		   przycisk <strong>„Usuń”</strong> na liście wtyczek.</p>
+	</div>
+</section>
+
+<!-- ============ 9. PANEL NA CO DZIEŃ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">9. Panel wtyczki na co dzień</h1>
+	<p class="rozdzial__wstep">Na co dzień nie musisz tu zaglądać — portal pracuje sam.
+	   Zaglądasz, gdy chcesz sprawdzić, co się dzieje, albo gdy coś wygląda nie tak.</p>
+
+	<h2>Ramka „Ostatni automatyczny przebieg”</h2>
+	<p>U góry ekranu <strong>Materiały</strong> stoi podsumowanie ostatniej samoczynnej pracy:
+	   data, ile pozycji przybyło, ile treści przygotowano, ile artykułów opublikowano i ile
+	   wywołań AI to kosztowało. To pierwsze miejsce, do którego warto zajrzeć.</p>
+
+	<h2>Statusy pozycji — co znaczą</h2>
+	<table class="problemy">
+		<tr><th>Status</th><th>Co znaczy</th></tr>
+		<tr><td><strong>nowy</strong></td>
+		    <td>Pozycja zebrana z kanału, czeka na swoją kolej. Nic nie musisz robić.</td></tr>
+		<tr><td><strong>w trakcie</strong></td>
+		    <td>Pozycja jest właśnie przerabiana. Widok przejściowy, trwa sekundy.</td></tr>
+		<tr><td><strong>opublikowany</strong></td>
+		    <td>Powstał z niej artykuł. Znajdziesz go w Centrum Wiedzy.</td></tr>
+		<tr><td><strong>pominięty</strong></td>
+		    <td>Odrzucona świadomie — kolumna <strong>Powód</strong> mówi dlaczego.
+		        Najczęściej: słowo wykluczające albo brak słowa wymaganego.</td></tr>
+		<tr><td><strong>nieudany</strong></td>
+		    <td>Próba się nie powiodła. Treść <strong>zostaje w bazie</strong>, więc pozycję
+		        można wznowić bez pobierania jej od nowa.</td></tr>
+	</table>
+
+	<h2>Przycisk „Wznów nieudane”</h2>
+	<p>Dotyczy wyłącznie pozycji ze statusem <strong>nieudany</strong>, które padły dopiero
+	   przy modelu. Każda taka próba zajmie kolejne wywołanie z dobowego przydziału, więc
+	   klikaj po usunięciu przyczyny — na przykład po uzupełnieniu klucza.</p>
+
+	<div class="uwaga">
+		<p><strong>Dużo pozycji „pominiętych” to dobry znak.</strong> Oznacza, że filtr
+		   pracuje i nie przepuszcza tekstów spoza tematu. Wtyczka nie zużywa na nie
+		   ani jednego wywołania AI — odsiewa je, zanim zapyta model.</p>
+	</div>
+</section>
+
+<!-- ============ 10. KATEGORIE I SŁOWA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">10. Kategorie i słowa odrzucające</h1>
+	<p class="rozdzial__wstep">Trzy pola w Ustawieniach decydują o tym, o czym portal pisze,
+	   a o czym milczy. Wszystkie trzy działają, zanim wtyczka zapyta model — czyli za darmo.</p>
+
+	<h2>Kategorie</h2>
+	<p>Lista, z której model <strong>musi</strong> wybrać jedną pozycję dla każdego artykułu.
+	   Nie wymyśli własnej: odpowiedź z kategorią spoza listy zostaje odrzucona.</p>
+	<p>Pole <strong>„Kategorie”</strong> w Ustawieniach — jedna kategoria w każdej linii.
+	   Zmiana listy działa od następnego artykułu; już opublikowanych nie przenosi.</p>
+
+	<h2>Słowa wykluczające i słowa wymagane</h2>
+	<p>Dwie listy odpowiadające na dwa różne pytania:</p>
+	<table class="problemy">
+		<tr><th>Lista</th><th>Pytanie, na które odpowiada</th></tr>
+		<tr><td><strong>Słowa wykluczające</strong></td>
+		    <td>„Czy to jest o czymś, czego nie chcę?” Trafienie w tytule, zapowiedzi
+		        <em>lub treści</em> odrzuca pozycję. Domyślnie na liście są m.in. inne
+		        zwierzęta, ogłoszenia i treści drażliwe.</td></tr>
+		<tr><td><strong>Słowa wymagane</strong></td>
+		    <td>„Czy to w ogóle jest o moim temacie?” Pozycja musi mieć któreś z tych słów
+		        <em>w tytule albo zapowiedzi</em>, inaczej odpada.</td></tr>
+	</table>
+
+	<figure class="szeroka">
+		<img src="../zrzuty/kadry/16-ustawienia-slowa.png" alt="Pole Słowa wymagane z listą form słowa pies">
+		<figcaption>Formy odmienione trzeba wypisać osobno — wtyczka nie odmienia słów sama.
+		   Znaki diakrytyczne są przy porównaniu pomijane.</figcaption>
+	</figure>
+
+	<div class="alarm">
+		<p class="alarm__tytul">Puste pole „Słowa wymagane” wyłącza całą bramkę</p>
+		<p>Wtyczka przestanie wtedy sprawdzać, czy tekst jest w ogóle na temat — do portalu
+		   zaczną trafiać przypadkowe artykuły, każdy za jedno wywołanie AI z przydziału.</p>
+	</div>
+</section>
+
+<!-- ============ 11. GDY COŚ NIE DZIAŁA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">11. Gdy coś nie działa</h1>
+	<p class="rozdzial__wstep">Najczęstsze sytuacje i co z nimi zrobić. Zaczynaj zawsze
+	   od ramki „Ostatni automatyczny przebieg” na ekranie <strong>Materiały</strong>.</p>
+
+	<table class="problemy">
+		<tr><th>Objaw</th><th>Co zrobić</th></tr>
+
+		<tr><td><strong>Artykuły nie przybywają, choć wtyczka jest włączona</strong></td>
+		    <td>Najczęstsza przyczyna: <strong>strona nie ma ruchu</strong>. WordPress
+		        uruchamia zadania cykliczne tylko przy odwiedzinach. Wejdź kilka razy
+		        na stronę albo poproś informatyka o ustawienie zadania cyklicznego
+		        po stronie serwera.</td></tr>
+
+		<tr><td><strong>„Opublikuj teraz” klika się, ale nic nie powstaje</strong></td>
+		    <td>Kolejka nie ma przygotowanych pozycji. Kliknij najpierw
+		        <strong>„Pobierz teraz”</strong>, potem <strong>„Przygotuj treści”</strong>.</td></tr>
+
+		<tr><td><strong>„Opublikuj teraz” jest wyszarzony</strong></td>
+		    <td>Brakuje klucza API. Uzupełnij go w Ustawieniach — rozdział 3.</td></tr>
+
+		<tr><td><strong>W panelu: „Wyczerpany sufit dobowy wywołań AI”</strong></td>
+		    <td>Zużyłeś dzisiejszy przydział. Wtyczka wróci do pracy następnej doby.
+		        Nieudane i przerwane próby też liczą się do puli.</td></tr>
+
+		<tr><td><strong>W panelu: „Lista kanałów RSS jest pusta”</strong></td>
+		    <td>Ktoś wyczyścił pole <strong>Kanały RSS</strong>. Wpisz adresy z powrotem —
+		        rozdział 4.</td></tr>
+
+		<tr><td><strong>Komunikat o zajętym adresie „centrum-wiedzy”</strong></td>
+		    <td>Masz już zwykłą Stronę o takim adresie i oba twory biją się o to samo miejsce.
+		        Zmień adres swojej Strony albo skasuj ją, jeśli była zbędna.</td></tr>
+
+		<tr><td><strong>Pozycje „nieudane” ze wzmianką o przekroczonym czasie</strong></td>
+		    <td>Model nie zdążył odpowiedzieć w oknie czasu. Treść została w bazie —
+		        kliknij <strong>„Wznów nieudane”</strong>, zwykle udaje się za drugim razem.</td></tr>
+
+		<tr><td><strong>Artykuł nie na temat przeszedł do portalu</strong></td>
+		    <td>Dopisz brakujące słowo do <strong>słów wykluczających</strong>, a artykuł
+		        przenieś do kosza na liście artykułów. Filtr działa od następnego przebiegu.</td></tr>
+
+		<tr><td><strong>Centrum Wiedzy pokazuje „nie znaleziono”</strong></td>
+		    <td>Wejdź w <strong>Ustawienia → Bezpośrednie odnośniki</strong> i kliknij
+		        „Zapisz zmiany” bez żadnej zmiany. To odświeża adresy w WordPressie.</td></tr>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Gdy nic z powyższego nie pasuje</strong> — przekaż informatykowi
+		   <strong>Instrukcje systemowe</strong> z paczki. Opisują, co wtyczka robi
+		   samoczynnie, jak zachowuje się przy awariach i gdzie szukać śladów.</p>
+	</div>
+</section>
+
+<!-- ============ 12. WYŁĄCZENIE I USUNIĘCIE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">12. Wyłączenie i usunięcie wtyczki</h1>
+	<p class="rozdzial__wstep">To dwie zupełnie różne rzeczy i warto znać różnicę,
+	   zanim klikniesz.</p>
+
+	<table class="problemy">
+		<tr><th>Czynność</th><th>Co się dzieje</th></tr>
+		<tr><td><strong>Wyłącz</strong><br>(na liście wtyczek)</td>
+		    <td>Portal przestaje pracować: znika zegar, znika Centrum Wiedzy z widoku gościa,
+		        znikają pozycje w kokpicie. <strong>Nic nie jest kasowane.</strong>
+		        Po ponownym włączeniu wszystko wraca w komplecie.</td></tr>
+		<tr><td><strong>Usuń</strong><br>(pojawia się po wyłączeniu)</td>
+		    <td>Kasuje wtyczkę <strong>razem ze wszystkimi danymi</strong>: artykułami,
+		        kategoriami portalu, kolejką materiałów, kluczem API i ustawieniami.
+		        Operacja jest nieodwracalna.</td></tr>
+	</table>
+
+	<div class="alarm">
+		<p class="alarm__tytul">Odinstalowanie kasuje wszystkie wygenerowane artykuły</p>
+		<p><strong>Usunięcie wtyczki bezpowrotnie kasuje każdy artykuł, który portal
+		   napisał</strong> — także te, które sam poprawiałeś. Wtyczka nie zostawia po sobie
+		   ani jednego wiersza w bazie; to zamierzone, ale znaczy też, że nie ma czego
+		   przywracać.</p>
+		<p><strong>Dezaktywacja niczego nie rusza.</strong> Jeśli chcesz tylko zatrzymać
+		   portal — użyj <strong>„Wyłącz”</strong> i na tym poprzestań.</p>
+	</div>
+
+	<h2>Jak zachować artykuły przed usunięciem</h2>
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Zrób eksport</p></div>
+		<div class="krok__tresc">
+			<p><strong>Narzędzia → Eksport</strong>, wybierz typ treści <strong>Artykuły</strong>
+			   i pobierz plik. Zapisze się na Twoim komputerze.</p>
+		</div>
+	</div>
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Dopiero potem usuwaj</p></div>
+		<div class="krok__tresc">
+			<p>Plik eksportu wczytasz później przez <strong>Narzędzia → Import</strong> —
+			   na tej samej albo na innej stronie.</p>
+		</div>
+	</div>
+
+	<div class="koniec">
+		<p><strong>To wszystko.</strong></p>
+		<p>Portal od tej chwili pracuje sam. Zaglądaj do Centrum Wiedzy raz na jakiś czas
+		   i sprawdzaj, czy artykuły trzymają poziom.</p>
+		<p>Sprawy techniczne — <strong>Instrukcja dla informatyka (Functional)</strong>.</p>
+	</div>
+</section>
+
+</body>
+</html>

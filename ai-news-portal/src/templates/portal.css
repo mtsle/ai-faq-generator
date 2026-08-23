@@ -1,0 +1,463 @@
+/*!
+ * Centrum Wiedzy — arkusz stylow portalu. Etap 6.2.
+ *
+ * ZASADA NADRZEDNA, decyzja usera z etapu 6.0: ten plik NIE ustawia kroju
+ * pisma, koloru tekstu ani tla strony. Wszystko to nalezy do motywu klienta.
+ * Wtyczka wnosi uklad (siatka, karty, odstepy) i JEDEN kolor akcentu, ktory
+ * motyw moze podmienic jedna zmienna. Inaczej Centrum Wiedzy wygladaloby jak
+ * obce cialo na kazdej stronie, do ktorej trafi.
+ *
+ * Kolory pomocnicze sa liczone z `currentColor`, czyli z koloru tekstu
+ * motywu. Dzieki temu obramowania i tla dzialaja tak samo na motywie jasnym
+ * i ciemnym, bez zgadywania, ktory to przypadek, i bez `prefers-color-scheme`
+ * — bo motyw moze byc ciemny niezaleznie od ustawien systemu.
+ *
+ * Jeden breakpoint (etap 6.6). Zero JavaScriptu.
+ */
+
+.ainp-portal {
+	--ainp-accent: currentColor;
+	--ainp-radius: 10px;
+	--ainp-gap: 1.25rem;
+	--ainp-line: color-mix(in srgb, currentColor 16%, transparent);
+	--ainp-wash: color-mix(in srgb, currentColor 5%, transparent);
+	/*
+	 * OSIEMDZIESIAT PROCENT, NIE SZESCDZIESIAT OSIEM — etap 8.2 (RWA).
+	 *
+	 * Miks obniza kontrast tekstu wzgledem tla o staly czynnik, wiec zabiera
+	 * dostepnosc, ktora daje motyw. Zmierzone na dworku: kolor tekstu motywu
+	 * ma 7,83:1, a po miksie 68% zajawka karty, data, kategoria i metryczka
+	 * artykulu spadaly do 3,47:1 — ponizej progu 4,5:1 dla zwyklego tekstu.
+	 * Przy 80% ten sam pomiar daje 4,64:1.
+	 *
+	 * Liczba 4,64 opisuje TEN motyw i nie jest obietnica dla innych; przenosny
+	 * jest mechanizm: im wiekszy udzial `currentColor`, tym mniej kontrastu
+	 * odbieramy motywowi. Dlatego udzial ma byc mozliwie wysoki, a nie „ladny".
+	 */
+	--ainp-muted: color-mix(in srgb, currentColor 80%, transparent);
+
+	max-width: 68rem;
+	margin-inline: auto;
+	padding: 2rem 1rem 3rem;
+}
+
+/* --- Naglowek ---------------------------------------------------------- */
+
+.ainp-portal__head {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	margin-bottom: 1.75rem;
+}
+
+.ainp-portal__title {
+	margin: 0;
+	text-wrap: balance;
+}
+
+.ainp-portal__empty {
+	padding: 2rem 0;
+	color: var(--ainp-muted);
+}
+
+/* --- Wyszukiwarka ------------------------------------------------------ */
+
+.ainp-portal__search {
+	display: flex;
+	gap: 0.5rem;
+	max-width: 30rem;
+}
+
+.ainp-portal__search input[type="search"] {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 0.55rem 0.75rem;
+	border: 1px solid var(--ainp-line);
+	border-radius: 7px;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-size: 0.95rem;
+}
+
+.ainp-portal__search button {
+	padding: 0.55rem 1.1rem;
+	border: 1px solid var(--ainp-line);
+	border-radius: 7px;
+	background: var(--ainp-wash);
+	color: inherit;
+	font: inherit;
+	font-size: 0.95rem;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.ainp-portal__search button:hover {
+	background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+/*
+ * Etykieta pola dla czytnikow ekranu. Motywy zwykle maja wlasna
+ * `.screen-reader-text`, ale zwykle to nie zawsze — bez tej reguly etykieta
+ * wyladowalaby na widoku jako goly tekst nad polem.
+ */
+.ainp-portal .screen-reader-text {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* --- Przyciski kategorii ----------------------------------------------- */
+
+.ainp-portal__cats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.45rem;
+}
+
+.ainp-chip {
+	padding: 0.3rem 0.8rem;
+	border: 1px solid var(--ainp-line);
+	border-radius: 999px;
+	font-size: 0.87rem;
+	line-height: 1.5;
+	color: inherit;
+	text-decoration: none;
+}
+
+.ainp-chip:hover {
+	background: var(--ainp-wash);
+}
+
+.ainp-chip.is-current {
+	font-weight: 700;
+	border-color: currentColor;
+	background: var(--ainp-wash);
+}
+
+/* --- Lista kart -------------------------------------------------------- */
+
+.ainp-portal__list {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--ainp-gap);
+}
+
+.ainp-card {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--ainp-line);
+	border-radius: var(--ainp-radius);
+	overflow: hidden;
+	background: var(--ainp-wash);
+}
+
+/* --- Zdjecie kategorii albo kafelek zapasowy --------------------------- */
+
+.ainp-card__shot {
+	display: block;
+	aspect-ratio: 16 / 9;
+	border-bottom: 1px solid var(--ainp-line);
+	text-decoration: none;
+	color: inherit;
+}
+
+.ainp-card__shot img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	/*
+	 * `object-fit` jest tu konieczne, mimo ze pliki wtyczki sa dokladnie 16:9:
+	 * motyw moze narzucic obrazkom wlasna wysokosc, a wtedy bez tej reguly
+	 * zdjecie zostaje rozciagniete. Karta ma wygladac tak samo w kazdym motywie.
+	 */
+	object-fit: cover;
+}
+
+.ainp-card__tile {
+	display: grid;
+	place-items: center;
+	width: 100%;
+	height: 100%;
+	font-size: 2.5rem;
+	font-weight: 700;
+	line-height: 1;
+	color: var(--ainp-accent);
+	background: var(--ainp-wash);
+}
+
+/* --- Tresc karty ------------------------------------------------------- */
+
+.ainp-card__body {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	padding: 0.9rem 1rem 1.1rem;
+}
+
+/*
+ * CEL DOTYKOWY MA MIEC 24 px W PIONIE — etap 8.2 (RWA), WCAG 2.2 SC 2.5.8.
+ *
+ * Zmierzone przed poprawka: 20 px wysokosci przy odstepie 2,6 px do linku
+ * tytulu karty. Wyjatek odstepu z tego kryterium wymaga, zeby wokol celu
+ * miescilo sie kolo 24 px nienachodzace na inny cel — przy 2,6 px nie mial
+ * szans zadzialac. Wyjatek „Inline" tez nie: to nie jest link w zdaniu,
+ * tylko samodzielna etykieta nad tytulem.
+ *
+ * `min-height` zamiast dopelnienia, bo wysokosc ma byc niezalezna od metryk
+ * kroju pisma motywu; `inline-flex` trzyma tekst w pionowej osi srodka
+ * i nie rozciaga elementu na cala szerokosc karty.
+ */
+.ainp-card__kicker {
+	font-size: 0.75rem;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--ainp-accent);
+	text-decoration: none;
+	align-self: flex-start;
+	display: inline-flex;
+	align-items: center;
+	min-height: 24px;
+}
+
+.ainp-card__kicker:hover,
+.ainp-card__kicker:focus-visible {
+	text-decoration: underline;
+}
+
+.ainp-card__title {
+	margin: 0;
+	font-size: 1.05rem;
+	line-height: 1.35;
+	text-wrap: balance;
+}
+
+.ainp-card__title a {
+	color: inherit;
+	text-decoration: none;
+}
+
+.ainp-card__title a:hover,
+.ainp-card__title a:focus-visible {
+	text-decoration: underline;
+}
+
+.ainp-card__lead {
+	margin: 0;
+	font-size: 0.92rem;
+	color: var(--ainp-muted);
+	/*
+	 * Lead ucinany do DWOCH linii — decyzja z etapu 6.0. Karty w rzedzie maja
+	 * rowna wysokosc tekstu niezaleznie od tego, ile model napisal.
+	 */
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.ainp-card__date {
+	font-size: 0.8rem;
+	color: var(--ainp-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+/* --- Paginacja --------------------------------------------------------- */
+
+.ainp-portal__pager {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 0.35rem;
+	margin-top: 1.75rem;
+}
+
+.ainp-portal__pager .page-numbers {
+	min-width: 2.25rem;
+	padding: 0.35rem 0.7rem;
+	border: 1px solid var(--ainp-line);
+	border-radius: 7px;
+	text-align: center;
+	text-decoration: none;
+	color: inherit;
+	font-size: 0.9rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.ainp-portal__pager a.page-numbers:hover {
+	background: var(--ainp-wash);
+}
+
+.ainp-portal__pager .page-numbers.current {
+	font-weight: 700;
+	border-color: currentColor;
+	background: var(--ainp-wash);
+}
+
+.ainp-portal__pager .page-numbers.dots {
+	border-color: transparent;
+}
+
+/* --- Artykul ----------------------------------------------------------- */
+
+.ainp-portal--single {
+	/*
+	 * Wezsza kolumna niz archiwum. Tekst czyta sie linijkami po okolo 70
+	 * znakow — szerzej oko gubi poczatek nastepnej linii, i to jest jedyny
+	 * powod, dla ktorego ta wartosc jest inna niz przy siatce kart.
+	 */
+	max-width: 44rem;
+}
+
+.ainp-article {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.ainp-article__back {
+	align-self: flex-start;
+	font-size: 0.9rem;
+	color: inherit;
+	text-decoration: none;
+	opacity: 0.8;
+}
+
+.ainp-article__back:hover {
+	text-decoration: underline;
+	opacity: 1;
+}
+
+.ainp-article__title {
+	margin: 0;
+	text-wrap: balance;
+}
+
+.ainp-article__meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.75rem;
+	font-size: 0.85rem;
+	color: var(--ainp-muted);
+}
+
+/*
+ * Ten sam powod co przy `.ainp-card__kicker` — etap 8.2. Zmierzone 66x20 px.
+ * To element siatki metryczki, a nie link w zdaniu, wiec wyjatek „Inline"
+ * z SC 2.5.8 go nie obejmuje. Link zrodla w ramce ponizej JEST w zdaniu
+ * („Źródło: nazwa-serwisu") i dlatego zostaje bez zmian.
+ */
+.ainp-article__cat {
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	font-size: 0.75rem;
+	color: var(--ainp-accent);
+	text-decoration: none;
+	display: inline-flex;
+	align-items: center;
+	min-height: 24px;
+}
+
+.ainp-article__cat:hover {
+	text-decoration: underline;
+}
+
+.ainp-article__body > * + * {
+	margin-top: 1rem;
+}
+
+.ainp-article__body img {
+	max-width: 100%;
+	height: auto;
+}
+
+.ainp-article__source {
+	padding: 0.85rem 1rem;
+	border: 1px solid var(--ainp-line);
+	border-left: 3px solid currentColor;
+	border-radius: 7px;
+	background: var(--ainp-wash);
+	font-size: 0.88rem;
+}
+
+.ainp-article__source a {
+	color: inherit;
+	overflow-wrap: anywhere;
+}
+
+/* --- Klawiatura i dostepnosc ------------------------------------------- */
+
+/*
+ * Obrys focusu jest DWUKOLOROWY: cienka obwodka w kolorze tla pod grubszym
+ * obrysem w kolorze tekstu. Dzieki temu widac go i na jasnym, i na ciemnym
+ * motywie — pojedynczy obrys w `currentColor` znika, gdy element ma tlo
+ * zblizone do koloru tekstu (przycisk „Szukaj", zaznaczony przycisk strony).
+ */
+.ainp-portal :focus-visible {
+	outline: 2px solid currentColor;
+	outline-offset: 2px;
+	box-shadow: 0 0 0 4px Canvas;
+}
+
+/*
+ * Dlugie slowa w tytulach z modelu (nazwy preparatow, adresy) potrafia
+ * rozepchnac karte i wypchnac cala strone w poziome przewijanie. Lamiemy je,
+ * zamiast pozwolic im decydowac o szerokosci ukladu.
+ */
+.ainp-card__title,
+.ainp-article__title,
+.ainp-portal__title {
+	overflow-wrap: anywhere;
+}
+
+/* --- Jeden breakpoint -------------------------------------------------- */
+
+@media (max-width: 46rem) {
+
+	.ainp-portal {
+		padding: 1.5rem 0.9rem 2.5rem;
+	}
+
+	.ainp-portal__list {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	/*
+	 * Na telefonie pole i przycisk ida jedno pod drugim. W jednym rzedzie
+	 * przy szerokosci 360 px na pole zostaje kilkanascie znakow — wpisana
+	 * fraza chowa sie przed wpisujacym.
+	 */
+	.ainp-portal__search {
+		flex-wrap: wrap;
+	}
+
+	.ainp-portal__search input[type="search"] {
+		flex-basis: 100%;
+	}
+
+	/*
+	 * Cel dotyku co najmniej 44 px w pionie — tyle wynosi zalecenie WCAG
+	 * dla palca. Przy 0.3rem odstepu przyciski kategorii mialy 30 px i na
+	 * telefonie trafialo sie w sasiedni.
+	 */
+	.ainp-chip,
+	.ainp-portal__pager .page-numbers {
+		min-height: 44px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.ainp-portal--single {
+		max-width: none;
+	}
+}
