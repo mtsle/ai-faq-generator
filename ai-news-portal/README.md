@@ -408,6 +408,8 @@ klient dostaje je osobno, obok pliku ZIP.
 ## Testy
 
 Testy jednostkowe (`tests/`) to samodzielne skrypty PHP: zero WordPressa, zero sieci. Uruchamia je
-runner spoza repozytorium, pogrupowane w segmenty architektury. Zestaw jest zaliczony dopiero,
+runner spoza repozytorium, pogrupowane w segmenty architektury; repozytorium zawiera jego CI-ową
+kopię (`.github/ci/testy-wtyczka2.sh` w korzeniu repo) — woła ją workflow „Testy" na GitHubie
+i działa też lokalnie. Zestaw jest zaliczony dopiero,
 gdy kod wyjścia to 0, nie ma ani jednej linii `FAIL`, **liczba wykonanych asercji dokładnie równa
 się oczekiwanej** i zestaw wydrukował własne podsumowanie — samo „wyszło zielone" nie wystarcza.

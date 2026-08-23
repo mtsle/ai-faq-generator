@@ -146,7 +146,7 @@ src/Admin/     Menu + FaqToolPage + views/ (Dashboard, Generator, Narzędzie FAQ
           (K16) PostMetaBox · (K18) PageNotice · komunikaty: IndexNotice, MenuNotice,
           EditorNotice, FreshnessNotice (K23 e2 — sygnał „treść zmieniła się od indeksowania")
 src/Rest/ (Krok 7) 15 tras `aifaq/v1` — publiczne `/ask` + 14x `/admin/*`.
-          Rozbite w K23 etap 1 (RestController 1385 -> 427 linii, dziś 378): fasada RestController ·
+          Rozbite w K23 etap 1 (RestController 1385 -> 427 linii): fasada RestController ·
           RouteRegistrar (rejestracja tras) · AskService · AdminService · GeneratorService ·
           PublishService · GuestIdentity (ip_hash/proxy) · PairsInput (normalizacja par Q&A)
 src/PublicUi/ (Krok 8) GeneratorPage · (K17) Shortcode — `[aifaq_generator]` + automatyczna podstrona
