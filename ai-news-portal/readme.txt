@@ -2,7 +2,7 @@
 Requires at least: 6.5
 Tested up to: 7.0.2
 Requires PHP: 8.1
-Stable tag: 0.7.0
+Stable tag: 1.0.0
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -215,6 +215,13 @@ Tak, dwiema drogami: filtrem `ainp_security_headers` (pusta tablica) albo stał�
 == Changelog ==
 
 Skrót wydań. Pełna historia zmian znajduje się w repozytorium projektu.
+
+= 1.0.0 =
+* Wydanie końcowe po audycie całości: przegląd kodu według dziewięciu osi, niezależni krytycy, odbiór na żywym WordPressie.
+* Zapis Ustawień nie dubluje już harmonogramu automatu (sprawdzana jest cała tablica zaplanowanych zdarzeń, nie tylko najbliższe).
+* Pusta odpowiedź modelu jest ponawiana raz, a po drugiej pustej próbie pozycja schodzi na „nieudany" — nie blokuje kolejki i nie zużywa puli dzień po dniu.
+* Budżet przebiegu cyklicznego podniesiony z 20 do 25 sekund — poprawna odpowiedź modelu potrafiła zmieścić się dopiero w tym zapasie.
+* Dokumentacja (tabela awarii, pytania i odpowiedzi, uprawnienia ról) uzgodniona z rzeczywistym zachowaniem kodu.
 
 = 0.7.0 =
 * Uzupełniające nagłówki bezpieczeństwa na widokach frontu wtyczki, nigdy w kokpicie.
