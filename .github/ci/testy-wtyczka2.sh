@@ -31,7 +31,7 @@ segments=(
   "S11 Ustawienia i klucz API (Settings.php)|krok4-ustawienia-test.php:28"
   "S12 Front Centrum Wiedzy (Portal.php, szablony)|krok6-portal-test.php:37 krok6-karty-test.php:123 etap83-szablony-test.php:76"
   "S13 Naglowki bezpieczenstwa (Security.php)|krok7-naglowki-test.php:70"
-  "S14 Usuwanie bez sladu (uninstall.php)|krok1-uninstall-test.php:33 krok4-uninstall-test.php:30"
+  "S14 Usuwanie bez sladu (uninstall.php)|krok1-uninstall-test.php:45 krok4-uninstall-test.php:30"
   "S15 Zgodnosc dokumentacji z kodem (README.md + readme.txt)|etap85-readme-test.php:147"
 )
 

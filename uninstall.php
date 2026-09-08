@@ -143,7 +143,16 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 		//
 		// OGRANICZENIE: przy ZEWNĘTRZNYM trwałym object cache (Redis, Memcached)
 		// transienty NIE trafiają do `wp_options` i ta ścieżka ich nie obejmie.
-		// Wygasną same po TTL — najdłuższy to godzina (cooldown limitu dobowego).
+		// Wygasną same po TTL, a najdłuższy w tej wtyczce to DOBA (86 400 s), nie godzina:
+		//   • `aifaq_rl_<ip_hash>`        — 86 400 s, gdy właściciel wybrał okno limitu
+		//                                 `rag_rate_window = doba` (RagService: 86400 : 3600),
+		//   • `aifaq_no_thinking_<model>` — 43 200 s (GeminiProvider, 12 * 3600).
+		// Liczba nie jest przepisana z pamięci: znacznik niżej czyta
+		// tests/uninstall-guard-test.php, który SAM wylicza największy TTL ze
+		// wszystkich wywołań `set_transient()` w `src/` i porównuje go z tą wartością.
+		//
+		// GUARD-MAX-TTL: 86400
+		// (znacznik czytany przez tests/uninstall-guard-test.php — nie usuwać)
 		if ( isset( $wpdb ) && method_exists( $wpdb, 'esc_like' ) ) {
 			$aifaq_like_value   = $wpdb->esc_like( '_transient_aifaq_' ) . '%';
 			$aifaq_like_timeout = $wpdb->esc_like( '_transient_timeout_aifaq_' ) . '%';
@@ -191,24 +200,40 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 // --- Wywołanie: pojedyncza witryna albo cała sieć ---------------------------
 //
 // W multisite wtyczka trzyma osobny komplet tabel i opcji w KAŻDYM blogu, więc
-// sprzątanie tylko bieżącego zostawiałoby resztę sieci zaśmieconą. Limit `number`
-// jest jawny, bo `get_sites()` bez niego zwraca domyślnie 100 witryn (cicha strata),
-// a bez żadnego limitu duża sieć wywróciłaby pamięć.
+// sprzątanie tylko bieżącego zostawiałoby resztę sieci zaśmieconą.
+//
+// Witryny bierzemy STRONICUJĄC. Jedno wywołanie z `number` — jakąkolwiek liczbą —
+// odtwarza dokładnie tę cichą stratę, przed którą broniło jawne ustawienie limitu:
+// sieć większa niż limit zostaje w części nieposprzątana i nikt się o tym nie dowiaduje.
+// Pętla kończy się na pierwszej stronie krótszej niż pełna, a `fields => ids` trzyma
+// w pamięci same liczby, więc strona może być mała bez kosztu.
 if ( function_exists( 'is_multisite' ) && is_multisite()
 	&& function_exists( 'get_sites' ) && function_exists( 'switch_to_blog' ) && function_exists( 'restore_current_blog' ) ) {
 
-	$aifaq_site_ids = get_sites(
-		array(
-			'number' => 10000,
-			'fields' => 'ids',
-		)
-	);
+	$aifaq_strona     = 500;   // Rozmiar strony wyników.
+	$aifaq_przesuniecie = 0;
 
-	foreach ( (array) $aifaq_site_ids as $aifaq_site_id ) {
-		switch_to_blog( (int) $aifaq_site_id );
-		aifaq_uninstall_cleanup_site();
-		restore_current_blog();
-	}
+	do {
+		$aifaq_site_ids = (array) get_sites(
+			array(
+				'number' => $aifaq_strona,
+				'offset' => $aifaq_przesuniecie,
+				'fields' => 'ids',
+			)
+		);
+
+		foreach ( $aifaq_site_ids as $aifaq_site_id ) {
+			switch_to_blog( (int) $aifaq_site_id );
+			aifaq_uninstall_cleanup_site();
+			restore_current_blog();
+		}
+
+		$aifaq_pobrano       = count( $aifaq_site_ids );
+		$aifaq_przesuniecie += $aifaq_pobrano;
+
+		// Warunek zejścia: strona krótsza niż pełna. Pusta strona też go spełnia,
+		// więc `get_sites()` oddające `false` albo pustkę kończy pętlę, a nie kręci nią.
+	} while ( $aifaq_pobrano >= $aifaq_strona );
 } else {
 	aifaq_uninstall_cleanup_site();
 }

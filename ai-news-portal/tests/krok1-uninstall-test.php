@@ -398,6 +398,150 @@ u1_check(
 u1_check( in_array( '_aifaq_indexed', $pozostale_meta, true ), 'osierocona meta WTYCZKI 1 nietknieta' );
 u1_check( in_array( '_ainp_source_url', $pozostale_meta, true ), 'meta przypieta do ISTNIEJACEGO wpisu nietknieta — klauzula WHERE jest respektowana' );
 
+
+// ---------------------------------------------------------------------------
+// F9 / RAU-R15-001 — SPRZATANIE OBEJMUJE CALA SIEC, NIE TYLKO BIEZACA WITRYNE
+// ---------------------------------------------------------------------------
+//
+// Do przebiegu 2 ten plik nie mial ANI JEDNEJ galezi dla multisite: sprzatal
+// witryne, w ktorej akurat biegl, i zostawial na pozostalych tabele materialow,
+// wpisy ainp_article, terminy ainp_topic oraz opcje ainp_. Wtyczka 1 z tej samej
+// paczki obsluguje siec w pelni, wiec byla to takze asymetria miedzy wtyczkami.
+//
+// METODA (przejeta z zestawu wtyczki 1, gdzie mutacja obalila wersje prostsza):
+// liczymy REALNE WYWOLANIA na tokenach, nie wystapienia napisu. Nazwa funkcji
+// zostaje w pliku wewnatrz `function_exists( '...' )` jako LITERAL, wiec
+// `strpos()` przechodzilby takze po wycieciu samego przelaczania blogow.
+
+$un2_src = (string) file_get_contents( $root . '/uninstall.php' );
+u1_check( '' !== $un2_src, 'siec: uninstall.php wtyczki 2 czytelny' );
+
+$un2_tokens = array_values(
+	array_filter(
+		token_get_all( $un2_src ),
+		static function ( $t ) {
+			return ! is_array( $t ) || ! in_array( $t[0], array( T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ), true );
+		}
+	)
+);
+
+/**
+ * Tekst tokenu.
+ *
+ * @param array|string $t Token.
+ *
+ * @return string
+ */
+function u1_tt( $t ) {
+	return is_array( $t ) ? $t[1] : $t;
+}
+
+$un2_calls = array();
+for ( $i = 0, $n = count( $un2_tokens ); $i < $n; $i++ ) {
+	$t = $un2_tokens[ $i ];
+	if ( ! is_array( $t ) || T_STRING !== $t[0] ) {
+		continue;
+	}
+	if ( ! isset( $un2_tokens[ $i + 1 ] ) || '(' !== u1_tt( $un2_tokens[ $i + 1 ] ) ) {
+		continue;
+	}
+	$prev = $i > 0 ? u1_tt( $un2_tokens[ $i - 1 ] ) : '';
+	if ( in_array( $prev, array( '->', '::', 'function' ), true ) ) {
+		continue;   // Definicja albo metoda, nie wywolanie funkcji.
+	}
+	$un2_calls[ $t[1] ] = ( $un2_calls[ $t[1] ] ?? 0 ) + 1;
+}
+
+u1_check(
+	isset( $un2_calls['is_multisite'], $un2_calls['get_sites'], $un2_calls['switch_to_blog'], $un2_calls['restore_current_blog'], $un2_calls['ainp_uninstall_cleanup_site'] ),
+	'siec: REALNE wywolania is_multisite/get_sites/switch/restore + sprzatanie (nie same nazwy w function_exists)'
+);
+
+// Symetria: kazdy `switch_to_blog()` musi miec swoj `restore_current_blog()`,
+// inaczej odinstalowanie konczy sie na przelaczonym blogu i psuje kontekst
+// kolejnym wtyczkom sprzatanym po nas.
+u1_check(
+	( $un2_calls['switch_to_blog'] ?? 0 ) === ( $un2_calls['restore_current_blog'] ?? 0 )
+		&& ( $un2_calls['switch_to_blog'] ?? 0 ) >= 1,
+	'siec: symetria switch_to_blog / restore_current_blog (switch: ' . ( $un2_calls['switch_to_blog'] ?? 0 ) . ', restore: ' . ( $un2_calls['restore_current_blog'] ?? 0 ) . ')'
+);
+
+// Sprzatanie musi byc W FUNKCJI — inaczej nie da sie go powtorzyc dla kazdego bloga.
+u1_check(
+	1 === preg_match( '/function\s+ainp_uninstall_cleanup_site/', $un2_src )
+		&& false !== strpos( $un2_src, "function_exists( 'ainp_uninstall_cleanup_site' )" ),
+	'siec: sprzatanie w jednej funkcji z prefiksem ainp_, chronionej function_exists()'
+);
+
+// Nazwa tabeli MUSI powstawac wewnatrz funkcji: `switch_to_blog()` podmienia
+// `$wpdb->prefix`, wiec nazwa wyliczona raz na starcie pliku wskazywalaby przez
+// cala petle tabele PIERWSZEJ witryny — a DROP TABLE poszedlby na nia N razy.
+u1_check(
+	1 === preg_match( '/function\s+ainp_uninstall_cleanup_site.*?\$wpdb->prefix\s*\.\s*.ainp_items./s', $un2_src ),
+	'siec: nazwa tabeli wyliczana WEWNATRZ funkcji (przezywa switch_to_blog)'
+);
+
+// Poza funkcja nie wolno zostawic zadnego zapytania — takie sprzatanie
+// wykonaloby sie raz, na biezacej witrynie, obok petli.
+$un2_poza = preg_replace( '/if \( ! function_exists\( .ainp_uninstall_cleanup_site.*?\n\}\n/s', '', $un2_src );
+u1_check(
+	false === strpos( (string) $un2_poza, '$wpdb->query(' ) && false === strpos( (string) $un2_poza, 'delete_option(' ),
+	'siec: poza funkcja nie ma juz zapytan ani kasowania opcji'
+);
+
+// Stronicowanie — ten sam wzorzec co we wtyczce 1 (RAU-R15-003). Jedno wywolanie
+// z `number` zostawia w wiekszej sieci czesc witryn nieposprzatanych po cichu.
+$un2_sites_args = array();
+for ( $i = 0, $n = count( $un2_tokens ); $i < $n; $i++ ) {
+	$t = $un2_tokens[ $i ];
+	if ( ! is_array( $t ) || T_STRING !== $t[0] || 'get_sites' !== $t[1] ) {
+		continue;
+	}
+	if ( ! isset( $un2_tokens[ $i + 1 ] ) || '(' !== u1_tt( $un2_tokens[ $i + 1 ] ) ) {
+		continue;
+	}
+	$glebokosc = 0;
+	$wyr       = '';
+	for ( $j = $i + 1; $j < $n; $j++ ) {
+		$txt = u1_tt( $un2_tokens[ $j ] );
+		if ( in_array( $txt, array( '(', '[' ), true ) ) {
+			$glebokosc++;
+		} elseif ( in_array( $txt, array( ')', ']' ), true ) ) {
+			$glebokosc--;
+			if ( 0 === $glebokosc ) {
+				break;
+			}
+		}
+		$wyr .= $txt;
+	}
+	$un2_sites_args[] = $wyr;
+}
+u1_check( 1 === count( $un2_sites_args ), 'siec: dokladnie jedno wywolanie get_sites() (jest: ' . count( $un2_sites_args ) . ')' );
+u1_check(
+	false !== strpos( $un2_sites_args[0] ?? '', "'offset'" ) && false !== strpos( $un2_sites_args[0] ?? '', "'fields'" ),
+	'siec: get_sites() dostaje offset i fields => ids'
+);
+u1_check(
+	1 === preg_match( '/do\s*\{.*?get_sites.*?\}\s*while\s*\(/s', $un2_src ),
+	'siec: get_sites() stoi w petli do/while, nie w jednym strzale'
+);
+u1_check(
+	1 === preg_match( '/while\s*\(\s*\$ainp_pobrano\s*>=\s*\$ainp_strona\s*\)/', $un2_src ),
+	'siec: warunek zejscia to „strona krotsza niz pelna" — pusta strona konczy petle'
+);
+
+// Galaz jednowitrynowa musi zostac: bez niej zwykla instalacja nie posprzatalaby nic.
+u1_check(
+	1 === preg_match( '/\}\s*else\s*\{\s*ainp_uninstall_cleanup_site\(\s*\);\s*\}/s', $un2_src ),
+	'siec: instalacja jednowitrynowa dalej sprzatana galezia else'
+);
+
+// Rozlacznosc wtyczek przezywa refaktor: petla sieciowa nie moze siegac po `aifaq_`.
+u1_check(
+	false === strpos( $un2_src, 'aifaq_' ),
+	'siec: uninstall.php wtyczki 2 nadal nie zna prefiksu wtyczki 1'
+);
+
 // ---------------------------------------------------------------------------
 echo "\n===================================================================\n";
 echo 'Asercji: ' . $ran . ' | Niezaliczonych: ' . $fail . "\n";
