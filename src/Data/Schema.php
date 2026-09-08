@@ -1,6 +1,6 @@
 <?php
 /**
- * Definicja schematu bazy (5 tabel) — schema v4.
+ * Definicja schematu bazy (5 tabel) — schema v6.
  *
  * Tworzy/aktualizuje tabele przez dbDelta():
  *  - wp_aifaq_knowledge   — fragmenty treści strony + ich embeddingi (RAG),

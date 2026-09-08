@@ -116,7 +116,11 @@ namespace AIFAQ\Data {
 		public static function install(): void {}
 	}
 	class Migrator {
-		public static function run(): void {}
+		/** Sterowanie wynikiem migracji: `false` udaje nieudane przeniesienie danych. */
+		public static $wynik = true;
+		public static function run(): bool {
+			return self::$wynik;
+		}
 	}
 }
 namespace AIFAQ\PublicUi {
@@ -198,6 +202,29 @@ check(
 	'(A) activate() nadal zapisuje aifaq_db_version PO dodaniu kroku 7 (kolejność nie zepsuta)'
 );
 
+// A5. STRAŻNIK (audyt przebieg-2, RAU-R05-002 + RAU-R07-002). Krok 8 zapisuje wersję
+//     TYLKO wtedy, gdy krok 2 rzeczywiście przeniósł dane. Wersja zapisana po nieudanej
+//     migracji zamyka drogę powrotną na trwałe: przy następnym wejściu
+//     `Plugin::maybe_upgrade_db()` uzna schemat za aktualny i nie spróbuje ponownie.
+//     To jest kontrola NEGATYWNA — asercja wyżej sprawdza wyłącznie ścieżkę udaną.
+$GLOBALS['__opt'] = array();
+\AIFAQ\Data\Migrator::$wynik = false;
+Activator::activate();
+
+check(
+	! isset( $GLOBALS['__opt']['aifaq_db_version'] ),
+	'(A5) nieudana migracja → activate() NIE zapisuje aifaq_db_version'
+);
+
+\AIFAQ\Data\Migrator::$wynik = true;
+$GLOBALS['__opt'] = array();
+Activator::activate();
+
+check(
+	AIFAQ_DB_VERSION === ( $GLOBALS['__opt']['aifaq_db_version'] ?? null ),
+	'(A5) udana migracja → wersja zapisana (kontrola pozytywna tej samej ścieżki)'
+);
+
 // A5. Odporność: brak klasy CrawlQueue nie może wywalić aktywacji (guard
 //     `class_exists`) — dowód przez lekturę źródła (nie da się bezpiecznie
 //     "odładować" klasy w PHP, więc weryfikujemy strukturalnie).
@@ -264,8 +291,10 @@ check(
 // Podłoga pokrycia.
 // ---------------------------------------------------------------------------
 echo "\n=== Z. Podłoga pokrycia ===\n";
-// Asercja ilościowa dokładna (reguła projektu) — przed inkrementacją check(): $ran = 14.
-check( 14 === $ran, 'wykonano dokładnie 14 asercji (jest: ' . $ran . ')' );
+// Asercja ilościowa dokładna (reguła projektu) — przed inkrementacją check(): $ran = 16.
+// 14 → 16: audyt przebieg-2 (RAU-R05-002) dolożył kontrolę negatywną A5 wraz z jej
+// kontrolą pozytywną — zapis wersji bazy za bramką wyniku migracji.
+check( 16 === $ran, 'wykonano dokładnie 16 asercji (jest: ' . $ran . ')' );
 
 echo "\n";
 if ( 0 === $fail ) {
