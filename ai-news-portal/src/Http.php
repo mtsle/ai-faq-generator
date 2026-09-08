@@ -78,6 +78,35 @@ final class Http {
 	 */
 	public const MIN_SECONDS = 3;
 
+	/**
+	 * Najmniejszy odstep miedzy dwoma zadaniami do TEGO SAMEGO hosta: 3 s.
+	 *
+	 * WLASNA stala, nie `MIN_SECONDS`. Do wersji 1.0.0 trzy kotwice dokumentu
+	 * (ZACH-W2-13, REG-W2-18, DZIED-11) wskazywaly `MIN_SECONDS` jako miejsce,
+	 * w ktorym ta regula zyje — a `MIN_SECONDS` opisuje CO INNEGO: dolny prog
+	 * pozostalego budzetu w `timeout_for()`. Obie liczby to 3, wiec rozjazd byl
+	 * niewidoczny, a odstepu nie bylo w produkcie w ogole (zero trafien na
+	 * `sleep`/`usleep` w calym `ai-news-portal/src`).
+	 *
+	 * Odstep jest EGZEKWOWANY POMINIECIEM, nie uspieniem. Blokujace `sleep()`
+	 * zjadaloby budzet ticku, ktory na malym hostingu jest i tak za krotki
+	 * (RAU-R13-003) — pozycja odlozona wraca w nastepnym ticku nietknieta,
+	 * bez podbitego licznika prob.
+	 */
+	public const MIN_HOST_GAP = 3;
+
+	/**
+	 * Kiedy ostatnio wyszlo zadanie do danego hosta — znacznik w PAMIECI.
+	 *
+	 * Nie transient i nie opcja: odstep ma sens w obrebie JEDNEGO przebiegu,
+	 * bo miedzy tickami mija godzina. Zapis do bazy przy kazdym zadaniu bylby
+	 * kosztem bez zysku. Klucz to `schemat://host:port`, wartosc to wynik
+	 * `microtime( true )` po zakonczeniu zadania.
+	 *
+	 * @var array<string,float>
+	 */
+	private static $ostatni_kontakt = array();
+
 	/** Sufit odpowiedzi dla `robots.txt`: 64 KB. */
 	public const ROBOTS_LIMIT = 65536;
 
@@ -202,6 +231,24 @@ final class Http {
 			return self::result( false, 0, '', 'Za mało czasu w tym przebiegu na pobranie adresu', 'budget' );
 		}
 
+		/*
+		 * GRZECZNOSC WOBEC ZRODLA (ZACH-W2-13, REG-W2-18, DZIED-11). Bramka stoi
+		 * PRZED zadaniem — inaczej odstep bylby liczony, ale nie egzekwowany.
+		 * Pozycja nie jest bledem: wraca w nastepnym ticku nietknieta.
+		 */
+		$klucz_hosta = self::host_key( $url );
+		$do_odczekania = self::host_gap_remaining( $klucz_hosta );
+
+		if ( $do_odczekania > 0.0 ) {
+			return self::result(
+				false,
+				0,
+				'',
+				'Odstęp między żądaniami do tego samego serwisu — pozycja wróci w kolejnym przebiegu',
+				'host_gap'
+			);
+		}
+
 		$response = wp_safe_remote_get(
 			$url,
 			array(
@@ -217,6 +264,13 @@ final class Http {
 				),
 			)
 		);
+
+		/*
+		 * Znacznik ustawiany PO zadaniu i takze przy bledzie: zadanie WYSZLO,
+		 * wiec serwer je zobaczyl. Liczenie odstepu od zakonczenia, nie od
+		 * rozpoczecia, jest ostrzejsze — i o to w grzecznosci chodzi.
+		 */
+		self::mark_host( $klucz_hosta );
 
 		if ( is_wp_error( $response ) ) {
 			return self::result( false, 0, '', $response->get_error_message(), 'transport' );
@@ -348,10 +402,81 @@ final class Http {
 	 * @return string
 	 */
 	/**
+	 * Klucz hosta dla znacznika odstepu: `schemat://host:port`.
+	 *
+	 * Port jest czescia klucza, bo `example.org` i `example.org:8080` to z
+	 * punktu widzenia obciazenia dwie rozne uslugi. Adres nie do rozlozenia
+	 * daje pusty klucz — takie zadanie i tak odpadnie na `is_http_url()`.
+	 *
+	 * @param string $url Adres.
+	 *
+	 * @return string
+	 */
+	public static function host_key( string $url ): string {
+		$parts = wp_parse_url( trim( $url ) );
+
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) || empty( $parts['scheme'] ) ) {
+			return '';
+		}
+
+		return strtolower( (string) $parts['scheme'] ) . '://'
+			. strtolower( (string) $parts['host'] )
+			. ( empty( $parts['port'] ) ? '' : ':' . (int) $parts['port'] );
+	}
+
+	/**
+	 * Ile sekund brakuje do konca odstepu dla tego hosta.
+	 *
+	 * @param string $klucz Klucz z `host_key()`.
+	 *
+	 * @return float Zero, gdy wolno pytac od razu.
+	 */
+	public static function host_gap_remaining( string $klucz ): float {
+		if ( '' === $klucz || ! isset( self::$ostatni_kontakt[ $klucz ] ) ) {
+			return 0.0;
+		}
+
+		$minelo = microtime( true ) - self::$ostatni_kontakt[ $klucz ];
+
+		return ( $minelo >= self::MIN_HOST_GAP ) ? 0.0 : ( self::MIN_HOST_GAP - $minelo );
+	}
+
+	/**
+	 * Odnotowuje, ze wlasnie wyszlo zadanie do tego hosta.
+	 *
+	 * @param string $klucz Klucz z `host_key()`.
+	 *
+	 * @return void
+	 */
+	private static function mark_host( string $klucz ): void {
+		if ( '' !== $klucz ) {
+			self::$ostatni_kontakt[ $klucz ] = microtime( true );
+		}
+	}
+
+	/**
+	 * Czysci znaczniki odstepu — WYLACZNIE dla testow.
+	 *
+	 * Znaczniki zyja w pamieci procesu, wiec w produkcie kazdy tick zaczyna
+	 * z pusta tablica i ta metoda nie ma tam wywolania. W tescie pozwala
+	 * sprawdzic dwa scenariusze w jednym procesie.
+	 *
+	 * @return void
+	 */
+	public static function reset_host_gaps(): void {
+		self::$ostatni_kontakt = array();
+	}
+
+	/**
 	 * Timeout zadania przyciety do pozostalego budzetu przebiegu.
 	 *
 	 * `null` znaczy „bez budzetu" — tak wola panel, gdzie na koncu czeka
 	 * czlowiek. Zwrocone `0` znaczy „nie zaczynaj".
+	 *
+	 * UWAGA: `MIN_SECONDS` uzyte nizej to prog POZOSTALEGO BUDZETU, a NIE
+	 * odstep miedzy zadaniami do hosta — ten mieszka w `MIN_HOST_GAP`.
+	 * Obie liczby to 3 i do wersji 1.0.0 trzy kotwice dokumentu myllily je
+	 * ze soba.
 	 *
 	 * @param int        $domyslny  Timeout wlasciwy dla rodzaju zadania.
 	 * @param float|null $remaining Pozostaly budzet w sekundach.
@@ -436,6 +561,15 @@ final class Http {
 			return false;
 		}
 
+		/*
+		 * `robots.txt` NIE podlega odstepowi z `MIN_HOST_GAP` i sam go nie
+		 * ustawia. To nie jest drugie odwiedziny serwisu, tylko sprawdzenie
+		 * zasad TUZ PRZED jednym zadaniem o tresc — i dzieje sie raz na 12 h
+		 * (`ROBOTS_TTL`). Objecie go odstepem odkladaloby kazdy pierwszy
+		 * artykul z hosta o caly tick, a pominiecie samego sprawdzenia
+		 * oznaczaloby pobieranie bez znajomosci zasad. Odstep chroni przed
+		 * seryjnym zasysaniem TRESCI i tam jest egzekwowany — w `get()`.
+		 */
 		$response = wp_safe_remote_get(
 			$scheme . '://' . $authority . '/robots.txt',
 			array(
@@ -447,17 +581,30 @@ final class Http {
 			)
 		);
 
-		$verdict = true;
-
-		if ( ! is_wp_error( $response ) ) {
-			$code = (int) wp_remote_retrieve_response_code( $response );
-
-			// Kazda odpowiedz inna niz 200 (najczesciej 404) znaczy „brak zasad".
-			if ( 200 === $code ) {
-				$verdict = self::robots_allows_all( (string) wp_remote_retrieve_body( $response ) );
-			}
+		/*
+		 * BLAD TRANSPORTU NIE TRAFIA DO CACHE'U. Zwracane `true` zostaje —
+		 * „brak zakazu to nie zakaz" jest udokumentowane i obronne. Wada byla
+		 * w tym, ze werdykt z NIEUDANEGO pobrania szedl do transientu na 12 h:
+		 * jeden timeout albo blad DNS przy pierwszym w oknie pobraniu
+		 * `robots.txt` hosta z `Disallow: /` wylaczal ochrone az do wygasniecia
+		 * wpisu, czyli przez zdarzenie, przed ktorym mial chronic.
+		 *
+		 * Wzorzec poprawnego zachowania stoi 25 linii wyzej, w galezi braku
+		 * budzetu: tam werdykt tez nie idzie do cache'u.
+		 */
+		if ( is_wp_error( $response ) ) {
+			return true;
 		}
 
+		$code    = (int) wp_remote_retrieve_response_code( $response );
+		$verdict = true;
+
+		// Kazda odpowiedz inna niz 200 (najczesciej 404) znaczy „brak zasad".
+		if ( 200 === $code ) {
+			$verdict = self::robots_allows_all( (string) wp_remote_retrieve_body( $response ) );
+		}
+
+		// Jedyny `set_transient` w tym pliku — osiagalny WYLACZNIE po udanym pobraniu.
 		set_transient( $key, $verdict ? '1' : '0', self::ROBOTS_TTL );
 
 		return $verdict;

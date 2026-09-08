@@ -805,6 +805,9 @@ k5_check( $czas_domkniecia === $zdarzenia[0]['time'], 'i nie przesuwa istniejace
 echo "\n=== 6. Tick — pobierz, przygotuj, opublikuj ===\n";
 
 $GLOBALS['__slad']      = array();
+// Nowy slad faz = nowy tick, a w produkcie nowy tick to nowy proces:
+// znaczniki odstepu miedzy zadaniami do hosta (ZACH-W2-13) startuja puste.
+\AINP\Http::reset_host_gaps();
 $GLOBALS['__transient'] = array();
 
 $wynik = Runner::tick();
@@ -943,6 +946,9 @@ $GLOBALS['__lock'] = null;
 echo "\n=== 7. Zamek panelu wstrzymuje tick ===\n";
 
 $GLOBALS['__slad'] = array();
+// Nowy slad faz = nowy tick, a w produkcie nowy tick to nowy proces:
+// znaczniki odstepu miedzy zadaniami do hosta (ZACH-W2-13) startuja puste.
+\AINP\Http::reset_host_gaps();
 $GLOBALS['__lock'] = (string) time();   // ktos inny wlasnie pracuje
 
 $wynik = Runner::tick();
@@ -965,6 +971,9 @@ $GLOBALS['__lock'] = null;
 echo "\n=== 8. Wyjatek w fazie: reszta przebiegu idzie dalej ===\n";
 
 $GLOBALS['__slad']           = array();
+// Nowy slad faz = nowy tick, a w produkcie nowy tick to nowy proces:
+// znaczniki odstepu miedzy zadaniami do hosta (ZACH-W2-13) startuja puste.
+\AINP\Http::reset_host_gaps();
 $GLOBALS['__wysadz_prepare'] = true;
 
 $wynik = Runner::tick();
@@ -1147,10 +1156,91 @@ $wynik = Runner::tick( 20.0 );
  */
 k5_check( 1 === count( $GLOBALS['__zadania'] ), 'dzialka przepuszcza jeden kanal, drugiego juz nie (zadan: ' . count( $GLOBALS['__zadania'] ) . ')' );
 k5_check( true === ( $wynik['collect']['budget_hit'] ?? false ), 'faza zbierania zglasza wyczerpanie dzialki' );
+
+// --- UZUP-07: odstep miedzy zadaniami do TEGO SAMEGO hosta w zywym ticku ---
+/*
+ * Sprzezenie z F3 rozstrzygniete POMIAREM: odstep jest egzekwowany
+ * POMINIECIEM, nie uspieniem, wiec NIE zabiera czasu fazie zbierania i dzialka
+ * faz z RAU-R13-003 zostaje bez zmian. Gdyby wdrozyc go blokujacym `sleep()`,
+ * trzy kanaly z jednego hosta zjadlyby 6 s z pieciosekundowej dzialki i faza
+ * publikacji nie ruszylaby wcale.
+ */
+$GLOBALS['__slad']       = array();
+\AINP\Http::reset_host_gaps();
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__transient']  = array();
+$GLOBALS['__http_sleep'] = 0.0;
+
+// TRZY kanaly, wszystkie na JEDNYM hoscie.
+update_option(
+	Settings::OPTION_SOURCES,
+	array( 'https://jeden.test/feed/a/', 'https://jeden.test/feed/b/', 'https://jeden.test/feed/c/' )
+);
+
+$start_gap = microtime( true );
+$wynik     = Runner::tick( 20.0 );
+$czas_gap  = microtime( true ) - $start_gap;
+
+k5_check(
+	1 === count( $GLOBALS['__zadania'] ),
+	'jeden host, trzy kanaly: wychodzi DOKLADNIE JEDNO zadanie (jest: ' . count( $GLOBALS['__zadania'] ) . ')'
+);
+k5_check(
+	$czas_gap < ( 2 * Http::MIN_HOST_GAP ),
+	'odlozenie NIE kosztuje czasu — tick trwal ' . round( $czas_gap, 2 ) . ' s, nie ' . ( 2 * Http::MIN_HOST_GAP ) . ' s uspienia'
+);
+/*
+ * Na liscie bledow ma stac WYLACZNIE kanal, ktory NAPRAWDE zostal zapytany
+ * (atrapa oddaje pusta tresc, wiec parser slusznie zglasza pusty kanal).
+ * Dwa kanaly ODLOZONE przez odstep nie moga sie tam pojawic: nie zostaly
+ * zapytane, wiec nie sa awaria serwisu i klient nie ma ich widziec na ekranie.
+ */
+$bledy_gap = array_keys( $wynik['collect']['errors'] ?? array() );
+k5_check(
+	1 === count( $bledy_gap ),
+	'na liscie bledow stoi tylko kanal ZAPYTANY (jest wpisow: ' . count( $bledy_gap ) . ')'
+);
+k5_check(
+	! in_array( 'https://jeden.test/feed/b/', $bledy_gap, true )
+		&& ! in_array( 'https://jeden.test/feed/c/', $bledy_gap, true ),
+	'kanaly ODLOZONE nie trafiaja na liste bledow — nie sa awaria serwisu'
+);
+k5_check(
+	true !== ( $wynik['collect']['budget_hit'] ?? false ),
+	'odlozenie NIE konczy fazy zbierania — inne hosty maja isc dalej'
+);
+
+// Kontrola negatywna: trzy kanaly na TRZECH hostach — wszystkie zapytane.
+$GLOBALS['__slad']      = array();
+\AINP\Http::reset_host_gaps();
+$GLOBALS['__zadania']   = array();
+$GLOBALS['__transient'] = array();
+
+update_option(
+	Settings::OPTION_SOURCES,
+	array( 'https://x.test/feed/', 'https://y.test/feed/', 'https://z.test/feed/' )
+);
+
+$wynik = Runner::tick( 20.0 );
+
+k5_check(
+	3 === count( $GLOBALS['__zadania'] ),
+	'trzy rozne hosty: wychodza WSZYSTKIE trzy zadania (jest: ' . count( $GLOBALS['__zadania'] ) . ')'
+);
+
+// Przywrocenie zrodel dla dalszych scenariuszy.
+update_option(
+	Settings::OPTION_SOURCES,
+	array( 'https://a.test/feed/', 'https://b.test/feed/', 'https://c.test/feed/' )
+);
+\AINP\Http::reset_host_gaps();
 k5_check( 20.0 === $wynik['budget'], 'tick zapamietal budzet, z ktorym pracowal' );
 
 // --- Faza, na ktora nie starczylo czasu, NIE jest odpalana -----------------
 $GLOBALS['__slad']       = array();
+// Nowy slad faz = nowy tick, a w produkcie nowy tick to nowy proces:
+// znaczniki odstepu miedzy zadaniami do hosta (ZACH-W2-13) startuja puste.
+\AINP\Http::reset_host_gaps();
 $GLOBALS['__zadania']    = array();
 $GLOBALS['__transient']  = array();
 $GLOBALS['__http_sleep'] = 0.0;
@@ -1197,7 +1287,38 @@ echo "\n=== 10. A2: Http::timeout_for — przyciecie, nie samo zerowanie ===\n";
  * to jest tylko skrajny przypadek. Polega na tym, ze zadanie DOSTAJE tyle
  * czasu, ile go zostalo. Ta roznica przechodzila caly runner niezauwazona.
  */
-k5_check( 3 === Http::MIN_SECONDS, 'prog „nie zaczynaj zadania" to 3 s, nie tyle co dzialka fazy' );
+/*
+ * RAU-R10-003. Ta asercja pilnuje PROGU POZOSTALEGO BUDZETU w `timeout_for()`
+ * i nic wiecej. Do wersji 1.0.0 byla JEDYNA asercja na kotwicy `MIN_SECONDS`,
+ * a trzy kotwice dokumentu (ZACH-W2-13, REG-W2-18, DZIED-11) wskazywaly te sama
+ * stala jako miejsce, w ktorym zyje ODSTEP miedzy zadaniami do hosta. Obie
+ * liczby to 3, wiec teza o odstepie wygladala na pokryta, a nie byla — mechanizm
+ * nie istnial w kodzie w ogole. Odstep ma dzis wlasna stala `MIN_HOST_GAP`
+ * i wlasny POMIAR (krok2-http-test.php), a opis ponizej mowi wprost, czego
+ * ta asercja NIE dotyczy.
+ */
+k5_check( 3 === Http::MIN_SECONDS, 'prog „nie zaczynaj zadania" to 3 s — to prog BUDZETU, nie odstep miedzy zadaniami' );
+/*
+ * Straznik rozjazdu kotwic: `MIN_SECONDS` ma byc uzyta DOKLADNIE RAZ i tylko
+ * wewnatrz `timeout_for()`. Gdyby ktos w przyszlosci wsparl nia odstep miedzy
+ * zadaniami, rozjazd wrocilby dokladnie w tej postaci, w jakiej znalazl go audyt.
+ */
+$zrodlo_http = (string) file_get_contents( dirname( __DIR__ ) . '/src/Http.php' );
+$od_tf       = strpos( $zrodlo_http, 'public static function timeout_for(' );
+$cialo_tf    = substr( $zrodlo_http, $od_tf );
+
+k5_check(
+	1 === substr_count( $zrodlo_http, 'self::MIN_SECONDS' ),
+	'MIN_SECONDS uzyta DOKLADNIE RAZ w Http.php (jest ' . substr_count( $zrodlo_http, 'self::MIN_SECONDS' ) . ')'
+);
+k5_check(
+	false !== $od_tf && 1 === substr_count( $cialo_tf, 'self::MIN_SECONDS' ),
+	'jedyne uzycie MIN_SECONDS siedzi w timeout_for(), czyli tam, gdzie mowi jej opis'
+);
+k5_check(
+	3 === Http::MIN_HOST_GAP,
+	'odstep miedzy zadaniami ma WLASNA kotwice MIN_HOST_GAP = 3 s'
+);
 k5_check( 10 === Http::timeout_for( 10, null ), 'bez budzetu obowiazuje timeout wlasciwy dla rodzaju zadania' );
 k5_check( 0 === Http::timeout_for( 10, 2.9 ), 'ponizej progu zadanie nie startuje wcale (zwrot 0)' );
 k5_check( 3 === Http::timeout_for( 10, 3.0 ), 'dokladnie na progu jeszcze startuje — prog jest granica dolna, nie wykluczajaca' );

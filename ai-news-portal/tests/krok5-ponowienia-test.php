@@ -657,6 +657,57 @@ namespace {
 	k5r_check( ( $budzety[0] ?? 0 ) <= 10.0, 'i zadna pozycja nie dostaje wiecej, niz wynosi budzet calej partii' );
 
 	// -----------------------------------------------------------------------
+	echo "\n=== 5b. UZUP-07 — odstep do hosta to ODLOZENIE, nie porazka pozycji ===\n";
+	// -----------------------------------------------------------------------
+	/*
+	 * ZACH-W2-13. Pozycja, ktorej strony nie pobrano, bo do tego hosta wlasnie
+	 * poszlo inne zadanie, jest w dokladnie tej samej sytuacji co pozycja bez
+	 * budzetu: NIE ZOSTALA ZAPYTANA. Wiersz ma zostac nietkniety — bez statusu
+	 * koncowego, bez podbitego licznika prob i bez notatki, ktora klamalaby
+	 * o przyczynie.
+	 *
+	 * ROZNICA WOBEC BUDZETU jest jedna i istotna: odlozenie NIE konczy
+	 * przebiegu, bo nastepna pozycja moze stac na innym hoscie. Dlatego
+	 * w partii sa DWIE pozycje na roznych hostach i druga ma dojsc do konca.
+	 */
+	$wpdb = k5r_reset();
+
+	k5r_wiersz( $wpdb, 1, 'https://psy.pl/odlozona/', '' );
+	k5r_wiersz( $wpdb, 2, 'https://koty.example/druga/', '' );
+
+	$GLOBALS['__strony']['https://psy.pl/odlozona/'] = array(
+		'ok'        => false,
+		'code'      => 0,
+		'body'      => '',
+		'error'     => 'Odstęp między żądaniami do tego samego serwisu — pozycja wróci w kolejnym przebiegu',
+		'reason'    => 'host_gap',
+		'truncated' => false,
+	);
+	$GLOBALS['__strony']['https://koty.example/druga/'] = array(
+		'ok'        => true,
+		'code'      => 200,
+		'body'      => '<html><body><article><p>' . str_repeat( 'Treść o kotach z innego hosta. ', 60 ) . '</p></article></body></html>',
+		'error'     => '',
+		'reason'    => '',
+		'truncated' => false,
+	);
+
+	$odlozenie = Runner::prepare_batch( 10 );
+
+	k5r_check( 1 === (int) ( $odlozenie['deferred'] ?? -1 ), 'partia liczy pozycje ODLOZONA osobno (jest: ' . (int) ( $odlozenie['deferred'] ?? -1 ) . ')' );
+	k5r_check( 0 === (int) $odlozenie['failed'], 'odlozenie NIE jest porazka (jest: ' . (int) $odlozenie['failed'] . ')' );
+	k5r_check( 0 === (int) $odlozenie['retry'], 'ani ponowieniem — licznik prob ma zostac nietkniety' );
+	k5r_check( 'new' === $wpdb->tabela[1]->status, 'wiersz odlozony zostaje `new`' );
+	k5r_check( 0 === (int) $wpdb->tabela[1]->attempts, 'licznik prob NIETKNIETY (jest: ' . (int) $wpdb->tabela[1]->attempts . ')' );
+	k5r_check( '' === (string) $wpdb->tabela[1]->note, 'zadna notatka nie klamie o przyczynie' );
+
+	// I najwazniejsze: przebieg NIE zostal przerwany.
+	k5r_check( true !== ( $odlozenie['budget_hit'] ?? false ), 'odlozenie NIE konczy przebiegu' );
+	k5r_check( 2 === (int) $odlozenie['taken'], 'partia wzięła OBIE pozycje (jest: ' . (int) $odlozenie['taken'] . ')' );
+	k5r_check( 1 === (int) $odlozenie['ready'], 'pozycja z INNEGO hosta doszla do konca (jest: ' . (int) $odlozenie['ready'] . ')' );
+	k5r_check( 'new' === $wpdb->tabela[2]->status, 'i czeka na model jako `new`' );
+
+	// -----------------------------------------------------------------------
 	echo "\n=== 6. Atrapa rozumiala kazde wyslane zapytanie ===\n";
 	// -----------------------------------------------------------------------
 	$nieznane = $GLOBALS['__nierozpoznane'];

@@ -791,6 +791,18 @@ final class Runner {
 				return $wynik;
 			}
 
+			/*
+			 * Ta sama zasada dla odstepu miedzy zadaniami do hosta: kanal nie
+			 * zostal zapytany, wiec to nie jest jego awaria i nie ma prawa
+			 * trafic na ekran jako blad zrodla. W odroznieniu od budzetu NIE
+			 * przerywa zbierania — pozostale kanaly stoja na innych hostach.
+			 */
+			if ( 'host_gap' === (string) ( $odpowiedz['reason'] ?? '' ) ) {
+				$wynik['deferred'] = true;
+
+				return $wynik;
+			}
+
 			$wynik['error'] = $odpowiedz['error'];
 			return $wynik;
 		}
@@ -1712,6 +1724,18 @@ final class Runner {
 			return 'budget';
 		}
 
+		/*
+		 * Odstep miedzy zadaniami do tego samego hosta (ZACH-W2-13) tez nie jest
+		 * wina pozycji ani serwisu — zadanie w ogole nie wyszlo. Wiersz zostaje
+		 * nietkniety, dokladnie jak przy budzecie: bez statusu koncowego, bez
+		 * podbitego licznika prob i bez notatki. Roznica wobec `budget` jest
+		 * jedna i istotna: to NIE konczy przebiegu, bo pozostale pozycje moga
+		 * pochodzic z innych hostow.
+		 */
+		if ( 'host_gap' === (string) ( $pobrane['reason'] ?? '' ) ) {
+			return 'deferred';
+		}
+
 		$id    = (int) $row->id;
 		$proby = isset( $row->attempts ) ? (int) $row->attempts : 0;
 		$blad  = (string) $pobrane['error'];
@@ -1890,6 +1914,9 @@ final class Runner {
 			'skipped'    => 0,
 			'retry'      => 0,
 			'failed'     => 0,
+			// Pozycje odlozone przez odstep miedzy zadaniami do hosta (ZACH-W2-13).
+			// Nie sa porazka: wracaja w nastepnym ticku nietkniete.
+			'deferred'   => 0,
 			'error'      => 0,
 			'errors'     => array(),
 			'budget_hit' => false,
@@ -2022,6 +2049,8 @@ final class Runner {
 	private static function source_summary(): array {
 		return array(
 			'budget'     => false,
+			// Kanal odlozony przez odstep miedzy zadaniami do hosta (ZACH-W2-13).
+			'deferred'   => false,
 			'added'      => 0,
 			'skipped'    => 0,
 			'duplicates' => 0,

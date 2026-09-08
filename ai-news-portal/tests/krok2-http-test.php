@@ -127,6 +127,15 @@ function k2_reset() {
 	$GLOBALS['__resp_any']  = null;
 	$GLOBALS['__transient'] = array();
 	$GLOBALS['__ttl']       = array();
+
+	/*
+	 * Znaczniki odstepu miedzy zadaniami do hosta (ZACH-W2-13) zyja w pamieci
+	 * procesu, a caly ten zestaw chodzi w JEDNYM procesie i pyta wielokrotnie
+	 * ten sam host. Bez czyszczenia drugi scenariusz dostawalby `host_gap`
+	 * zamiast odpowiedzi z atrapy. W produkcie kazdy tick zaczyna z pusta
+	 * tablica, wiec odpowiednika tego wywolania tam nie ma.
+	 */
+	\AINP\Http::reset_host_gaps();
 }
 
 /**
@@ -417,6 +426,192 @@ k2_check( true === Http::allowed( 'https://psy.pl/a/' ), 'robots.txt 404: pobier
 k2_reset();
 $GLOBALS['__resp_any'] = new WP_Error( 'http_request_failed', 'DNS' );
 k2_check( true === Http::allowed( 'https://psy.pl/a/' ), 'robots.txt nieosiagalny: pobieranie dozwolone' );
+
+// ---------------------------------------------------------------------------
+echo "\n-- RAU-R05-001 + UZUP-05: werdykt z NIEUDANEGO robots.txt nie idzie do cache --\n";
+// ---------------------------------------------------------------------------
+/*
+ * Do wersji 1.0.0 `set_transient()` wykonywalo sie bezwarunkowo, takze po
+ * bledzie transportu. Skutek: JEDEN timeout albo blad DNS przy pierwszym
+ * w oknie 12 h pobraniu `robots.txt` hosta z `Disallow: /` zapisywal zgode
+ * na pobieranie na pol doby — czyli ochrone wylaczalo zdarzenie, przed ktorym
+ * miala chronic. Samo zwracane `true` zostaje: brak zakazu to nie zakaz.
+ */
+k2_reset();
+$GLOBALS['__resp_any'] = new WP_Error( 'http_request_failed', 'DNS padl' );
+$werdykt               = Http::allowed( 'https://psy.pl/a/' );
+
+k2_check( true === $werdykt, 'blad transportu: werdykt `true` (brak zakazu to nie zakaz)' );
+k2_check(
+	0 === count( $GLOBALS['__transient'] ),
+	'blad transportu: transient PUSTY — werdykt nie jest zapamietywany (jest '
+		. count( $GLOBALS['__transient'] ) . ' wpisow)'
+);
+
+// Drugie wywolanie po bledzie MUSI zapytac serwer jeszcze raz, nie czytac cache.
+$GLOBALS['__req'] = array();
+Http::allowed( 'https://psy.pl/a/' );
+k2_check(
+	1 === count( $GLOBALS['__req'] ),
+	'blad transportu: kolejne wywolanie pyta serwer od nowa, nie ufa cache'
+);
+
+// Kontrola pozytywna: UDANE pobranie nadal zapisuje werdykt na ROBOTS_TTL.
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 200, "User-agent: *\nDisallow: /" );
+k2_check( false === Http::allowed( 'https://psy.pl/a/' ), 'udane pobranie: zakaz odczytany' );
+k2_check( 1 === count( $GLOBALS['__transient'] ), 'udane pobranie: werdykt ZAPISANY do cache' );
+$klucz_r = array_keys( $GLOBALS['__transient'] )[0];
+k2_check( '0' === $GLOBALS['__transient'][ $klucz_r ], 'udane pobranie: zapisana wartosc to „0"' );
+k2_check(
+	Http::ROBOTS_TTL === $GLOBALS['__ttl'][ $klucz_r ],
+	'udane pobranie: TTL to ROBOTS_TTL (' . Http::ROBOTS_TTL . ' s)'
+);
+
+// Kod inny niz 200 to „brak zasad", ale to nadal UDANE pobranie — zapisujemy.
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 404, 'Not Found' );
+k2_check( true === Http::allowed( 'https://psy.pl/a/' ), 'kod 404: pobieranie dozwolone' );
+k2_check( 1 === count( $GLOBALS['__transient'] ), 'kod 404: to udane pobranie — werdykt zapisany' );
+
+/*
+ * Straznik strukturalny: `set_transient` w tym pliku ma byc DOKLADNIE JEDEN
+ * i stac ZA sprawdzeniem `is_wp_error`. Sam pomiar zachowania nie wychwycilby
+ * drugiego zapisu dolozonego kiedys w galezi bledu.
+ */
+$zrodlo_h = (string) file_get_contents( $root . '/src/Http.php' );
+k2_check(
+	1 === substr_count( $zrodlo_h, 'set_transient(' ),
+	'Http.php ma DOKLADNIE JEDEN set_transient (jest ' . substr_count( $zrodlo_h, 'set_transient(' ) . ')'
+);
+$poz_err = strpos( $zrodlo_h, 'if ( is_wp_error( $response ) ) {' . "\n" . "\t\t\treturn true;" );
+$poz_set = strpos( $zrodlo_h, 'set_transient(' );
+k2_check(
+	false !== $poz_err && false !== $poz_set && $poz_set > $poz_err,
+	'set_transient stoi ZA galezia bledu transportu w allowed()'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n-- UZUP-07 + RAU-R10-003: odstep 3 s miedzy zadaniami do tego samego hosta --\n";
+// ---------------------------------------------------------------------------
+/*
+ * ZACH-W2-13 / REG-W2-18 / DZIED-11. Do wersji 1.0.0 tego mechanizmu NIE BYLO
+ * W PRODUKCIE W OGOLE: `grep -rE 'sleep\(|usleep\('` po `ai-news-portal/src`
+ * dawal zero trafien, a wskazana kotwica `Http::MIN_SECONDS` opisuje co innego
+ * — dolny prog pozostalego budzetu w `timeout_for()`. Obie liczby to 3, wiec
+ * rozjazd byl niewidoczny.
+ *
+ * Odstep jest egzekwowany POMINIECIEM, nie uspieniem: blokujace `sleep()`
+ * zjadaloby budzet ticku (sprzezenie z RAU-R13-003 z fazy F3).
+ */
+k2_check( 3 === Http::MIN_HOST_GAP, 'odstep ma WLASNA kotwice MIN_HOST_GAP = 3 s' );
+k2_check(
+	'https://psy.pl' === Http::host_key( 'https://psy.pl/artykul/x/' ),
+	'klucz hosta to schemat + host (' . Http::host_key( 'https://psy.pl/artykul/x/' ) . ')'
+);
+k2_check(
+	Http::host_key( 'https://psy.pl/a/' ) !== Http::host_key( 'http://psy.pl/a/' ),
+	'http i https tego samego hosta to OSOBNE klucze odstepu'
+);
+k2_check(
+	Http::host_key( 'https://psy.pl/a/' ) !== Http::host_key( 'https://psy.pl:8080/a/' ),
+	'port jest czescia klucza — inna usluga to inne obciazenie'
+);
+
+// Dwa zadania do TEGO SAMEGO hosta w jednym przebiegu: drugie odlozone.
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 200, '<rss></rss>' );
+$pierwsze              = Http::get_feed( 'https://psy.pl/feed/' );
+$drugie                = Http::get_feed( 'https://psy.pl/inny-feed/' );
+
+k2_check( true === $pierwsze['ok'], 'ten sam host: PIERWSZE zadanie przechodzi' );
+k2_check( false === $drugie['ok'], 'ten sam host: DRUGIE zadanie odlozone' );
+k2_check( 'host_gap' === $drugie['reason'], 'ten sam host: powod maszynowy `host_gap`' );
+k2_check(
+	1 === count( $GLOBALS['__req'] ),
+	'ten sam host: drugie zadanie NIE wyszlo do sieci (zadan: ' . count( $GLOBALS['__req'] ) . ')'
+);
+k2_check( '' !== $drugie['error'], 'ten sam host: odlozenie ma czytelny powod dla czlowieka' );
+
+// Dwa zadania do ROZNYCH hostow: oba przechodza.
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 200, '<rss></rss>' );
+$a = Http::get_feed( 'https://psy.pl/feed/' );
+$b = Http::get_feed( 'https://koty.example/feed/' );
+
+k2_check( true === $a['ok'] && true === $b['ok'], 'rozne hosty: OBA zadania przechodza' );
+k2_check(
+	2 === count( $GLOBALS['__req'] ),
+	'rozne hosty: dwa zadania wyszly (jest ' . count( $GLOBALS['__req'] ) . ')'
+);
+
+/*
+ * POMIAR ODSTEPU, nie porownanie stalej — to jest wlasnie naprawa RAU-R10-003.
+ * Dotad jedyna asercja na kotwicy porownywala liczbe 3 z liczba 3, wiec zmiana
+ * mechanizmu nie przewracala niczego.
+ */
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 200, 'x' );
+Http::get_feed( 'https://psy.pl/feed/' );
+$pozostalo = Http::host_gap_remaining( Http::host_key( 'https://psy.pl/feed/' ) );
+
+k2_check(
+	$pozostalo > 0.0 && $pozostalo <= Http::MIN_HOST_GAP,
+	'POMIAR: zaraz po zadaniu do konca odstepu zostaje ' . round( $pozostalo, 3 ) . ' s z ' . Http::MIN_HOST_GAP
+);
+k2_check(
+	$pozostalo > ( Http::MIN_HOST_GAP - 1 ),
+	'POMIAR: odstep liczony od ZAKONCZENIA zadania, wiec zostaje prawie cale okno'
+);
+k2_check(
+	0.0 === Http::host_gap_remaining( Http::host_key( 'https://koty.example/feed/' ) ),
+	'POMIAR: host, do ktorego nic nie szlo, ma zerowy odstep'
+);
+
+// Znacznik stawia takze zadanie ZAKONCZONE BLEDEM — serwer je zobaczyl.
+k2_reset();
+$GLOBALS['__resp_any'] = new WP_Error( 'http_request_failed', 'timeout' );
+$bledne                = Http::get_feed( 'https://psy.pl/feed/' );
+k2_check( 'transport' === $bledne['reason'], 'zadanie zakonczone bledem: powod `transport`' );
+k2_check(
+	Http::host_gap_remaining( Http::host_key( 'https://psy.pl/feed/' ) ) > 0.0,
+	'zadanie zakonczone bledem TEZ stawia znacznik — wyszlo do serwera'
+);
+
+/*
+ * `robots.txt` jest poza odstepem SWIADOMIE: to sprawdzenie zasad tuz przed
+ * jednym zadaniem o tresc, nie drugie odwiedziny serwisu. Objecie go odstepem
+ * odkladaloby kazdy pierwszy artykul z hosta o caly tick.
+ */
+k2_reset();
+$GLOBALS['__resp_any'] = k2_resp( 200, 'x' );
+$art = Http::get_article( 'https://psy.pl/artykul/' );
+k2_check( true === $art['ok'], 'robots.txt + artykul: artykul przechodzi mimo odstepu' );
+k2_check(
+	2 === count( $GLOBALS['__req'] ),
+	'robots.txt + artykul: oba zadania wyszly (jest ' . count( $GLOBALS['__req'] ) . ')'
+);
+
+/*
+ * Straznik strukturalny: odstep NIE jest uspieniem. Liczone PO TOKENACH,
+ * nie po tekscie — docblock `MIN_HOST_GAP` sam wyjasnia, czemu `sleep()`
+ * tu nie ma, wiec skan tekstowy trafialby we wlasny komentarz.
+ */
+$tokeny_h = token_get_all( $zrodlo_h );
+$nazwy_h  = array();
+foreach ( $tokeny_h as $t ) {
+	if ( is_array( $t ) && T_STRING === $t[0] ) {
+		$nazwy_h[ $t[1] ] = true;
+	}
+}
+k2_check( ! isset( $nazwy_h['sleep'] ), 'odstep egzekwowany pominieciem: zero wywolan `sleep` w kodzie' );
+k2_check( ! isset( $nazwy_h['usleep'] ), 'odstep egzekwowany pominieciem: zero wywolan `usleep` w kodzie' );
+k2_check( isset( $nazwy_h['MIN_HOST_GAP'] ), 'stala MIN_HOST_GAP jest UZYWANA, nie tylko zadeklarowana' );
+
+// Kotwica MIN_SECONDS nadal opisuje SWOJ mechanizm — prog pozostalego budzetu.
+k2_check( 3 === Http::MIN_SECONDS, 'MIN_SECONDS dalej wynosi 3 s' );
+k2_check( 0 === Http::timeout_for( 10, 2.0 ), 'MIN_SECONDS: budzet 2 s ponizej progu = nie zaczynaj' );
+k2_check( 3 === Http::timeout_for( 10, 3.0 ), 'MIN_SECONDS: budzet dokladnie 3 s jeszcze przechodzi' );
 
 k2_reset();
 $GLOBALS['__resp_any'] = k2_resp( 200, '' );
