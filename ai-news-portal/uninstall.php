@@ -123,6 +123,8 @@ $ainp_opcje = array(
 	'ainp_key',
 	'ainp_usage',
 	'ainp_slug_collision',
+	'ainp_topics_seeded',
+	'ainp_db_version',
 );
 
 foreach ( $ainp_opcje as $ainp_opcja ) {

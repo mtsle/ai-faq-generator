@@ -110,6 +110,19 @@ class AINP_Fake_WPDB {
 	 * bledem krytycznym — atrapa musi znac kazde zapytanie, ktore ekran wysyla.
 	 */
 	public function get_var( $sql ) {
+		/*
+		 * `SHOW TABLES LIKE` — jedyny uczciwy dowod, ze `dbDelta()` naprawde
+		 * zalozylo tabele (RAU-R06-002). Atrapa oddaje nazwe tabeli, czyli
+		 * sukces; `$GLOBALS['__psuj_tabela']` pozwala odegrac NIEUDANA
+		 * przebudowe, bez ktorej kontrola negatywna nie istnieje.
+		 *
+		 * `prepare()` w tej atrapie nie podstawia argumentow, wiec rozpoznajemy
+		 * zapytanie po samym poczatku, nie po nazwie tabeli w tresci.
+		 */
+		if ( false !== strpos( (string) $sql, 'SHOW TABLES LIKE' ) ) {
+			return empty( $GLOBALS['__psuj_tabela'] ) ? $this->prefix . 'ainp_items' : null;
+		}
+
 		return '0';
 	}
 
@@ -220,6 +233,22 @@ function term_exists( $term, $taxonomy = '', $parent = null ) {
 	return null;
 }
 function wp_insert_term( $term, $taxonomy, $args = array() ) {
+	/*
+	 * Sterowana porazka wstawienia (RAU-R06-001). W zyciu daje ja kolizja
+	 * slugu, filtr `pre_insert_term` innej wtyczki albo blad zapisu — atrapa
+	 * bez tej galezi nie umiala odegrac scenariusza, w ktorym wynik jest
+	 * `WP_Error`, wiec cala sciezka byla niesprawdzalna.
+	 *
+	 * `__psuj_term` psuje kazde wstawienie; `__psuj_term_od` psuje dopiero od
+	 * N-tego, co daje powodzenie CZESCIOWE.
+	 */
+	$numer = count( $GLOBALS['__terms'] ) + 1;
+
+	if ( ! empty( $GLOBALS['__psuj_term'] )
+		|| ( ! empty( $GLOBALS['__psuj_term_od'] ) && $numer >= (int) $GLOBALS['__psuj_term_od'] ) ) {
+		return new WP_Error( 'term_exists', 'Nie udało się założyć terminu' );
+	}
+
 	$id                        = count( $GLOBALS['__terms'] ) + 1;
 	$GLOBALS['__terms'][ $id ] = array(
 		'name'     => $term,
@@ -428,7 +457,19 @@ k1_check( true === Settings::get( Settings::KEY_DEMO_DONE, false ), 'znacznik ai
 Plugin::activate();
 
 k1_check( 1 === count( $GLOBALS['__posts'] ), 'TEST 16: po DRUGIEJ aktywacji nadal 1 artykul demo, nie 2 (jest: ' . count( $GLOBALS['__posts'] ) . ')' );
-k1_check( 2 === count( $GLOBALS['__ainp_dbdelta'] ), 'dbDelta wolane przy kazdej aktywacji (idempotentne)' );
+/*
+ * ZMIENIONA przy naprawie RAU-R06-002. Do wersji 1.0.0 asercja zadala, zeby
+ * `dbDelta()` szlo przy KAZDEJ aktywacji — i utrwalala tym samym brak, ktory
+ * naprawiamy: wtyczka nie miala opcji wersji struktury w ogole, wiec jedynym
+ * sposobem na przeliczenie tabeli bylo powtarzanie tego bezwarunkowo przy
+ * aktywacji, ktora przy podmianie plikow NIE ODPALA SIE WCALE.
+ *
+ * Dzis przebudowa jest sterowana wersja: druga aktywacja wychodzi na
+ * porownaniu `ainp_db_version` i tabeli nie dotyka. Idempotencja zostaje —
+ * tylko dowodzi jej teraz LICZBA WYWOLAN ROWNA JEDEN, a nie dwa.
+ */
+k1_check( 1 === count( $GLOBALS['__ainp_dbdelta'] ), 'druga aktywacja NIE przelicza tabeli — wersja schematu sie zgadza (jest: ' . count( $GLOBALS['__ainp_dbdelta'] ) . ')' );
+k1_check( Plugin::DB_VERSION === get_option( Plugin::OPTION_DB_VERSION ), 'aktywacja zapisala wersje struktury' );
 
 // ---------------------------------------------------------------------------
 // 5. Demo: nieudany zapis NIE pali znacznika.
@@ -613,6 +654,122 @@ $GLOBALS['__terms'] = array();
 Settings::update( array( 'categories' => array() ) );
 Plugin::ensure_topics();
 k1_check( array() === $GLOBALS['__terms'], 'pusta lista kategorii nie zaklada zadnego terminu' );
+
+// ---------------------------------------------------------------------------
+echo "\n=== RAU-R06-001: nieudane zalozenie terminu NIE jest stanem terminalnym ===\n";
+// ---------------------------------------------------------------------------
+/*
+ * Do wersji 1.0.0 `ensure_topics()` odrzucalo wynik `wp_insert_term()` i tak
+ * czy inaczej zapisywalo odcisk listy. Gdy wstawienie konczylo sie `WP_Error`
+ * (kolizja slugu, filtr `pre_insert_term` innej wtyczki, blad zapisu),
+ * kategoria nie powstawala NIGDY: kolejne przebiegi wychodzily na porownaniu
+ * odcisku, a jedyna droga powrotna byla zmiana listy w Ustawieniach, dajaca
+ * inny skrot md5. Ten sam plik sprawdzal wynik wstawienia terminu 400 linii
+ * nizej, w `maybe_insert_demo()`.
+ */
+$GLOBALS['__terms'] = array();
+$GLOBALS['__opt']   = array();
+Settings::update( array( 'categories' => array( 'Żywienie', 'Zdrowie' ) ) );
+
+$GLOBALS['__psuj_term'] = true;
+Plugin::ensure_topics();
+
+k1_check( array() === $GLOBALS['__terms'], 'przy bledzie wstawienia nie powstaje zaden termin' );
+k1_check(
+	false === get_option( Plugin::OPTION_TOPICS_SEEDED ),
+	'odcisk NIE zapisany — inaczej proba nigdy by sie nie powtorzyla'
+);
+
+// Przyczyna znika: NASTEPNE wywolanie ma sprobowac jeszcze raz i dojsc do konca.
+$GLOBALS['__psuj_term'] = false;
+Plugin::ensure_topics();
+
+k1_check( 2 === count( $GLOBALS['__terms'] ), 'po ustaniu przyczyny terminy powstaja (jest: ' . count( $GLOBALS['__terms'] ) . ')' );
+k1_check(
+	false !== get_option( Plugin::OPTION_TOPICS_SEEDED ),
+	'i DOPIERO TERAZ zapisany jest odcisk listy'
+);
+
+// Kontrola czesciowa: jeden termin sie udaje, drugi nie — odcisk NIE idzie.
+$GLOBALS['__terms'] = array();
+$GLOBALS['__opt']   = array();
+Settings::update( array( 'categories' => array( 'Pierwsza', 'Druga' ) ) );
+$GLOBALS['__psuj_term_od'] = 2;
+Plugin::ensure_topics();
+$GLOBALS['__psuj_term_od'] = 0;
+
+k1_check( 1 === count( $GLOBALS['__terms'] ), 'czesciowe powodzenie: powstal tylko pierwszy termin' );
+k1_check(
+	false === get_option( Plugin::OPTION_TOPICS_SEEDED ),
+	'czesciowe powodzenie NIE zamyka sprawy — odcisk nadal niezapisany'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n=== RAU-R06-002: wersja struktury tabeli i sciezka aktualizacji ===\n";
+// ---------------------------------------------------------------------------
+/*
+ * Wtyczka nie miala opcji wersji schematu W OGOLE (`grep db_version` po calym
+ * drzewie: zero trafien), a `create_table()` mialo jednego wywolujacego —
+ * aktywacje. `register_activation_hook` nie odpala sie przy podmianie plikow,
+ * wiec przy pierwszej zmianie definicji tabeli miedzy wydaniami struktura
+ * zostawalaby stara i zaden warunek nie mogl tego wykryc.
+ */
+$GLOBALS['__opt']           = array();
+$GLOBALS['__ainp_dbdelta']  = array();
+
+Plugin::ensure_schema();
+k1_check( 1 === count( $GLOBALS['__ainp_dbdelta'] ), 'brak wersji: struktura przeliczona (jest: ' . count( $GLOBALS['__ainp_dbdelta'] ) . ')' );
+k1_check( Plugin::DB_VERSION === get_option( Plugin::OPTION_DB_VERSION ), 'i wersja zapisana' );
+
+Plugin::ensure_schema();
+k1_check( 1 === count( $GLOBALS['__ainp_dbdelta'] ), 'ta sama wersja: dbDelta NIE wolane drugi raz' );
+
+// Podniesienie wersji przez wydanie = przeliczenie struktury bez aktywacji.
+update_option( Plugin::OPTION_DB_VERSION, 'stara-wersja' );
+Plugin::ensure_schema();
+k1_check( 2 === count( $GLOBALS['__ainp_dbdelta'] ), 'inna wersja: struktura przeliczona ponownie (jest: ' . count( $GLOBALS['__ainp_dbdelta'] ) . ')' );
+k1_check( Plugin::DB_VERSION === get_option( Plugin::OPTION_DB_VERSION ), 'i wersja podniesiona do biezacej' );
+
+/*
+ * NIEUDANA PRZEBUDOWA NIE PODNOSI WERSJI — ta sama zasada, ktora naprawialismy
+ * we wtyczce 1 w fazie F2. Zapis wersji przed sprawdzeniem wyniku zamienilby
+ * jedna nieudana przebudowe w stan terminalny: kolejne zadania wychodzilyby
+ * na porownaniu i nigdy nie sprobowaly ponownie.
+ */
+$GLOBALS['__opt']          = array();
+$GLOBALS['__ainp_dbdelta'] = array();
+$GLOBALS['__psuj_tabela']  = true;
+
+Plugin::ensure_schema();
+
+k1_check( 1 === count( $GLOBALS['__ainp_dbdelta'] ), 'nieudana przebudowa: proba byla' );
+k1_check(
+	false === get_option( Plugin::OPTION_DB_VERSION ),
+	'nieudana przebudowa NIE podnosi wersji — inaczej nigdy by sie nie powtorzyla'
+);
+
+$GLOBALS['__psuj_tabela'] = false;
+Plugin::ensure_schema();
+k1_check( 2 === count( $GLOBALS['__ainp_dbdelta'] ), 'po ustaniu przyczyny przebudowa jest ponawiana' );
+k1_check( Plugin::DB_VERSION === get_option( Plugin::OPTION_DB_VERSION ), 'i dopiero teraz wersja rosnie' );
+
+// Wersja jest LANCUCHEM — porownanie `===` z liczba byloby zawsze falszem.
+k1_check( is_string( Plugin::DB_VERSION ), 'DB_VERSION jest lancuchem, nie liczba' );
+
+/*
+ * Straznik strukturalny: `ensure_schema` musi byc wpiete w `init`, nie tylko
+ * w aktywacje — to jest cala tresc naprawy. Priorytet nizszy niz `ensure_topics`
+ * (20), bo kategorie i tick pisza do tabeli.
+ */
+$zrodlo_p = (string) file_get_contents( dirname( __DIR__ ) . '/src/Plugin.php' );
+k1_check(
+	false !== strpos( $zrodlo_p, "add_action( 'init', array( self::class, 'ensure_schema' ), 5 )" ),
+	'ensure_schema wpiete w init z priorytetem 5'
+);
+k1_check(
+	1 === substr_count( $zrodlo_p, 'self::create_table()' ),
+	'create_table ma DOKLADNIE JEDNEGO wywolujacego — ensure_schema (jest: ' . substr_count( $zrodlo_p, 'self::create_table()' ) . ')'
+);
 
 echo "\n===================================================================\n";
 echo 'Asercji: ' . $ran . ' | Niezaliczonych: ' . $fail . "\n";

@@ -55,8 +55,18 @@ final class Plugin {
 	/** Meta wpisu: znacznik artykulu demo. */
 	public const META_DEMO = '_ainp_demo';
 
-	/** Opcja-sygnal: przy aktywacji istniala Strona o slugu `centrum-wiedzy`. */
+	/**
+	 * Opcja-sygnal kolizji adresow.
+	 *
+	 * Dwa przypadki w jednym sygnale: `page_id` — przy aktywacji istniala
+	 * Strona o slugu `centrum-wiedzy`; `articles` — artykul dostal adres
+	 * z przyrostkiem, bo adres z tytulu byl zajety (RAU-R07-006). Stara,
+	 * gola liczba jest nadal rozumiana — patrz `collision_shape()`.
+	 */
 	public const OPTION_SLUG_COLLISION = 'ainp_slug_collision';
+
+	/** Ile ostatnich kolizji slugu artykulu trzyma sygnal. */
+	private const SLUG_COLLISION_KEEP = 10;
 
 	/**
 	 * Opcja-odcisk: dla jakiej listy kategorii zalozono juz terminy.
@@ -67,6 +77,31 @@ final class Plugin {
 	 * (wzorzec `ainp_%`).
 	 */
 	public const OPTION_TOPICS_SEEDED = 'ainp_topics_seeded';
+
+	/**
+	 * Opcja-wersja struktury tabeli `ainp_items`.
+	 *
+	 * Do wersji 1.0.0 wtyczka NIE MIALA jej wcale — `grep db_version` po calym
+	 * drzewie dawal zero trafien — a `create_table()` mialo dokladnie jednego
+	 * wywolujacego: aktywacje. `register_activation_hook` nie odpala sie przy
+	 * podmianie plikow dzialajacej wtyczki, wiec przy pierwszej zmianie
+	 * definicji tabeli miedzy wydaniami struktura zostawalaby stara i ZADEN
+	 * warunek nie mogl tego wykryc. Ten sam plik kompensowal juz ten sam brak
+	 * dwa razy — dla harmonogramu i dla kategorii.
+	 *
+	 * Uninstall kasuje ja jawna lista ORAZ wzorcem `ainp_%`.
+	 */
+	public const OPTION_DB_VERSION = 'ainp_db_version';
+
+	/**
+	 * Numer struktury tabeli — podnoszony przy KAZDEJ zmianie definicji.
+	 *
+	 * Lancuch, nie liczba: `get_option()` oddaje lancuch, a porownanie `===`
+	 * z liczba bylo by wtedy zawsze falszem i przebudowa chodzilaby co zadanie.
+	 *
+	 * `'1'` to struktura z Kroku 2, niezmieniona do wydania 1.0.0.
+	 */
+	public const DB_VERSION = '1';
 
 	/**
 	 * Pelna nazwa tabeli z prefiksem witryny.
@@ -151,6 +186,17 @@ final class Plugin {
 		 */
 		add_action( 'init', array( self::class, 'ensure_schedule' ) );
 
+		/*
+		 * DOMKNIECIE STRUKTURY TABELI POZA AKTYWACJA (RAU-R06-002). Trzecia
+		 * rzecz w tym pliku domykana na `init` z tego samego powodu, co
+		 * harmonogram i kategorie: podmiana plikow nie odpala aktywacji.
+		 *
+		 * PRIORYTET 5, czyli PRZED `ensure_topics` (20) i przed sluchaczem
+		 * ticku: kategorie i tick pisza do tabeli, wiec struktura musi byc
+		 * gotowa wczesniej.
+		 */
+		add_action( 'init', array( self::class, 'ensure_schema' ), 5 );
+
 		// Akcje formularzy panelu (`admin_post_ainp_*`) — etap 2.5.
 		Admin::register_actions();
 
@@ -218,6 +264,8 @@ final class Plugin {
 			return;
 		}
 
+		$wszystkie_powstaly = true;
+
 		foreach ( $kategorie as $nazwa ) {
 			$nazwa = trim( (string) $nazwa );
 
@@ -225,7 +273,30 @@ final class Plugin {
 				continue;
 			}
 
-			wp_insert_term( $nazwa, self::TAX );
+			$wynik = wp_insert_term( $nazwa, self::TAX );
+
+			/*
+			 * Wynik SPRAWDZANY — ten sam plik sprawdza go 400 linii nizej,
+			 * w `maybe_insert_demo()`. Kolizja slugu, filtr `pre_insert_term`
+			 * innej wtyczki albo blad zapisu daja `WP_Error`, a bez tej galezi
+			 * odcisk i tak szedl do opcji: kategoria nie powstawala NIGDY,
+			 * a jedyna droga powrotna byla zmiana listy w Ustawieniach,
+			 * dajaca inny skrot md5.
+			 */
+			if ( is_wp_error( $wynik ) ) {
+				$wszystkie_powstaly = false;
+			}
+		}
+
+		/*
+		 * ODCISK ZAPISYWANY TYLKO WTEDY, GDY POWSTALY WSZYSTKIE. Inaczej jedna
+		 * nieudana proba zamienialaby sie w stan terminalny bez automatycznego
+		 * wyjscia. Przy niepowodzeniu nastepny `init` sprobuje jeszcze raz —
+		 * i kosztuje to tyle samo co dzis, bo `term_exists()` odsiewa te
+		 * kategorie, ktore juz sa.
+		 */
+		if ( ! $wszystkie_powstaly ) {
+			return;
 		}
 
 		update_option( self::OPTION_TOPICS_SEEDED, $odcisk );
@@ -354,7 +425,10 @@ final class Plugin {
 	 * @return void
 	 */
 	public static function activate(): void {
-		self::create_table();
+		// `ensure_schema()`, nie samo `create_table()` — aktywacja ma ZAPISAC
+		// wersje struktury, inaczej pierwszy `init` przebudowywalby tabele
+		// jeszcze raz, tuz po jej zalozeniu.
+		self::ensure_schema();
 
 		self::register_content_types();
 		flush_rewrite_rules();
@@ -491,7 +565,7 @@ final class Plugin {
 	 *
 	 * @return void
 	 */
-	private static function create_table(): void {
+	private static function create_table(): bool {
 		global $wpdb;
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -520,6 +594,47 @@ final class Plugin {
 		) ENGINE=InnoDB {$collate};";
 
 		dbDelta( $sql );
+
+		/*
+		 * `dbDelta()` nie zwraca powodzenia — oddaje liste wykonanych zmian
+		 * i milczy o bledach. Jedyny uczciwy dowod, ze struktura istnieje, to
+		 * zapytanie o nia bazy. Bez tego `ensure_schema()` podnosiloby wersje
+		 * po nieudanej przebudowie i wiecej by jej nie ponowilo — dokladnie ta
+		 * wada, ktora naprawialismy we wtyczce 1 (RAU-R05-002, faza F2).
+		 */
+		$istnieje = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ); // phpcs:ignore WordPress.DB
+
+		return ( (string) $istnieje === (string) $table );
+	}
+
+	/**
+	 * Domkniecie struktury tabeli POZA aktywacja — ustalenie audytowe A1.
+	 *
+	 * Ten sam powod, co przy harmonogramie i kategoriach:
+	 * `register_activation_hook` NIE odpala sie przy podmianie plikow, a tak
+	 * wyglada kazda aktualizacja u klienta. Bez tej sciezki zmiana definicji
+	 * tabeli miedzy wydaniami nigdy nie dotarlaby do dzialajacej instalacji.
+	 *
+	 * Koszt przy zgodnej wersji to odczyt JEDNEJ autoladowanej opcji — tabela
+	 * nie jest dotykana.
+	 *
+	 * WERSJA ROSNIE DOPIERO PO UDANEJ PRZEBUDOWIE. Zapis wersji przed
+	 * sprawdzeniem wyniku zamienilby jedna nieudana przebudowe w stan
+	 * terminalny: kolejne zadania wychodzilyby na porownaniu wersji i nigdy
+	 * nie sprobowaly ponownie.
+	 *
+	 * @return void
+	 */
+	public static function ensure_schema(): void {
+		if ( get_option( self::OPTION_DB_VERSION ) === self::DB_VERSION ) {
+			return;
+		}
+
+		if ( ! self::create_table() ) {
+			return;
+		}
+
+		update_option( self::OPTION_DB_VERSION, self::DB_VERSION );
 	}
 
 	/**
@@ -540,6 +655,86 @@ final class Plugin {
 	}
 
 	/**
+	 * Slad po artykule, ktory dostal adres z przyrostkiem (RAU-R07-006).
+	 *
+	 * Rdzen WordPressa rozstrzyga kolizje sam, przez `wp_unique_post_slug()` —
+	 * zakaz AWA-W2-23 („nie wolno utworzyc drugiego wpisu o tym samym slugu")
+	 * jest wiec dotrzymany i wpis publikuje sie poprawnie. Brakowalo wylacznie
+	 * SLADU: wlasciciel nie dostawal zadnego sygnalu, ze artykul mieszka pod
+	 * adresem `tytul-2`, a nie `tytul`.
+	 *
+	 * Kolizje poznajemy po tym, ze zapisany `post_name` jest DLUZSZY od slugu
+	 * wyliczonego z tytulu i zaczyna sie od niego. Sam brak zgodnosci nie
+	 * wystarcza: tytul z samych znakow specjalnych daje pusty slug, a rdzen
+	 * podstawia wtedy identyfikator wpisu — i to nie jest kolizja.
+	 *
+	 * @param int    $post_id Identyfikator wpisu.
+	 * @param string $tytul   Tytul, z ktorego powstal slug.
+	 *
+	 * @return bool Czy odnotowano kolizje.
+	 */
+	public static function note_article_slug_collision( int $post_id, string $tytul ): bool {
+		$oczekiwany = sanitize_title( $tytul );
+
+		if ( '' === $oczekiwany ) {
+			return false;
+		}
+
+		$faktyczny = (string) get_post_field( 'post_name', $post_id );
+
+		if ( '' === $faktyczny || $faktyczny === $oczekiwany ) {
+			return false;
+		}
+
+		if ( 0 !== strpos( $faktyczny, $oczekiwany . '-' ) ) {
+			return false;
+		}
+
+		$sygnal = get_option( self::OPTION_SLUG_COLLISION );
+		$sygnal = self::collision_shape( $sygnal );
+
+		$sygnal['articles'][] = array(
+			'post_id' => $post_id,
+			'slug'    => $faktyczny,
+		);
+
+		// Sygnal diagnostyczny, nie dziennik: trzymamy kilka ostatnich kolizji,
+		// zeby opcja nie rosla bez konca na witrynie z setkami artykulow.
+		$sygnal['articles'] = array_slice( $sygnal['articles'], -self::SLUG_COLLISION_KEEP );
+
+		update_option( self::OPTION_SLUG_COLLISION, $sygnal );
+
+		return true;
+	}
+
+	/**
+	 * Sprowadza sygnal kolizji do jednego ksztaltu.
+	 *
+	 * Do wersji 1.0.0 opcja trzymala GOLA LICZBE — identyfikator kolidujacej
+	 * Strony. Instalacje, ktore ja tam maja, musza dalej dzialac, wiec stara
+	 * wartosc jest tlumaczona, a nie odrzucana.
+	 *
+	 * @param mixed $sygnal Wartosc z opcji.
+	 *
+	 * @return array{page_id:int,articles:array<int,array{post_id:int,slug:string}>}
+	 */
+	private static function collision_shape( $sygnal ): array {
+		if ( is_array( $sygnal ) ) {
+			return array(
+				'page_id'  => isset( $sygnal['page_id'] ) ? (int) $sygnal['page_id'] : 0,
+				'articles' => isset( $sygnal['articles'] ) && is_array( $sygnal['articles'] )
+					? array_values( $sygnal['articles'] )
+					: array(),
+			);
+		}
+
+		return array(
+			'page_id'  => (int) $sygnal,
+			'articles' => array(),
+		);
+	}
+
+	/**
 	 * Komunikaty w kokpicie.
 	 *
 	 * Jednorazowy: po pokazaniu sygnal jest kasowany. Miejsce docelowe to
@@ -548,9 +743,11 @@ final class Plugin {
 	 * @return void
 	 */
 	public static function render_admin_notices(): void {
-		$page_id = (int) get_option( self::OPTION_SLUG_COLLISION, 0 );
+		$sygnal   = self::collision_shape( get_option( self::OPTION_SLUG_COLLISION, 0 ) );
+		$page_id  = $sygnal['page_id'];
+		$artykuly = $sygnal['articles'];
 
-		if ( $page_id <= 0 ) {
+		if ( $page_id <= 0 && array() === $artykuly ) {
 			return;
 		}
 
@@ -559,6 +756,42 @@ final class Plugin {
 		}
 
 		delete_option( self::OPTION_SLUG_COLLISION );
+
+		/*
+		 * Kolizja slugu ARTYKULU (RAU-R07-006) — osobny komunikat, bo to inna
+		 * sytuacja niz kolizja archiwum: wpis powstal i publikuje sie poprawnie,
+		 * tylko pod adresem z przyrostkiem. Do wersji 1.0.0 wlasciciel nie
+		 * dostawal o tym zadnego sygnalu.
+		 */
+		if ( array() !== $artykuly ) {
+			$lista = array();
+
+			foreach ( $artykuly as $wpis ) {
+				$lista[] = sprintf(
+					'<li><a href="%s">%s</a></li>',
+					esc_url( (string) get_edit_post_link( (int) ( $wpis['post_id'] ?? 0 ) ) ),
+					esc_html( (string) ( $wpis['slug'] ?? '' ) )
+				);
+			}
+
+			printf(
+				'<div class="notice notice-warning"><p><strong>%s</strong> %s</p><ul>%s</ul></div>',
+				esc_html__( 'AI News Portal:', 'ai-news-portal' ),
+				esc_html(
+					_n(
+						'jeden artykuł dostał adres z przyrostkiem, bo adres wynikający z tytułu był już zajęty:',
+						'artykuły poniżej dostały adresy z przyrostkiem, bo adresy wynikające z ich tytułów były już zajęte:',
+						count( $artykuly ),
+						'ai-news-portal'
+					)
+				),
+				wp_kses_post( implode( '', $lista ) )
+			);
+		}
+
+		if ( $page_id <= 0 ) {
+			return;
+		}
 
 		printf(
 			'<div class="notice notice-warning"><p><strong>%s</strong> %s</p><p>%s</p></div>',

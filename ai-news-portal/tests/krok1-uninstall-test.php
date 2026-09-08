@@ -331,10 +331,25 @@ echo "\n=== 4. Zamiatanie po prefiksie ===\n";
  * asercji usuniecie jawnej listy przechodzilo niezauwazone (test mutacyjny
  * z audytu Kroku 1).
  */
-$oczekiwane_kasowania = array( 'ainp_settings', 'ainp_sources', 'ainp_key', 'ainp_usage', 'ainp_slug_collision' );
+/*
+ * Lista rozszerzona przy naprawie RAU-R06-002 o `ainp_db_version` (wersja
+ * struktury tabeli, ktorej wtyczka do wersji 1.0.0 nie miala wcale) oraz
+ * o `ainp_topics_seeded`, ktora byla zakladana od Kroku 1, a stala wylacznie
+ * pod zamiataniem po prefiksie. Kazda opcja, ktora wtyczka SWIADOMIE zaklada,
+ * ma stac na jawnej liscie — zamiatanie jest siecia asekuracyjna, nie planem.
+ */
+$oczekiwane_kasowania = array(
+	'ainp_settings',
+	'ainp_sources',
+	'ainp_key',
+	'ainp_usage',
+	'ainp_slug_collision',
+	'ainp_topics_seeded',
+	'ainp_db_version',
+);
 u1_check(
 	$oczekiwane_kasowania === $GLOBALS['__deleted_opts'],
-	'delete_option wolane DOKLADNIE dla piatki z jawnej listy (jest: ' . count( $GLOBALS['__deleted_opts'] ) . ' — ' . implode( ', ', $GLOBALS['__deleted_opts'] ) . ')'
+	'delete_option wolane DOKLADNIE dla siodemki z jawnej listy (jest: ' . count( $GLOBALS['__deleted_opts'] ) . ' — ' . implode( ', ', $GLOBALS['__deleted_opts'] ) . ')'
 );
 u1_check(
 	false !== strpos( $kod, "wp_clear_scheduled_hook( 'ainp_tick' )" ),
