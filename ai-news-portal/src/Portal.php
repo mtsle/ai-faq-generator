@@ -595,11 +595,31 @@ final class Portal {
 
 		$wzgledna = 'assets/kategorie/' . $slug . ( 1 === $wariant ? '' : '-' . $wariant ) . '.jpg';
 
-		if ( ! file_exists( AINP_PLUGIN_DIR . $wzgledna ) ) {
-			return '';
+		/*
+		 * RAU-R13-004 — PAMIEC WYNIKU W OBREBIE ZADANIA.
+		 *
+		 * Kazda karta listy pytala dysk CZTERY razy: trzy razy z petli rotacji
+		 * wariantow w `category_variant()` plus raz z samego szablonu. Wynik nie
+		 * byl pamietany ani miedzy kartami, ani miedzy zadaniami, wiec liczba
+		 * wywolan `file_exists()` rosla LINIOWO z liczba kart na stronie — praca
+		 * wejscia-wyjscia w petli renderowania frontu, sprzeczna z TECH-71.
+		 *
+		 * Pamiec jest per ZADANIE, nie transient: plik moze zniknac miedzy
+		 * zadaniami (zmiana paczki, wymiana zdjec), a w obrebie jednego
+		 * renderowania listy jego stan sie nie zmienia. Klucz obejmuje wariant,
+		 * bo `<slug>.jpg` i `<slug>-2.jpg` to dwa rozne pliki.
+		 */
+		static $pamiec = array();
+
+		$klucz = $slug . '|' . $wariant;
+
+		if ( ! array_key_exists( $klucz, $pamiec ) ) {
+			$pamiec[ $klucz ] = file_exists( AINP_PLUGIN_DIR . $wzgledna )
+				? AINP_PLUGIN_URL . $wzgledna
+				: '';
 		}
 
-		return AINP_PLUGIN_URL . $wzgledna;
+		return $pamiec[ $klucz ];
 	}
 
 	/**
@@ -628,15 +648,25 @@ final class Portal {
 	 * @return int Numer wariantu; 1, gdy kategoria nie ma ani jednego zdjecia.
 	 */
 	public static function category_variant( string $slug ): int {
-		static $licznik = array();
+		static $licznik  = array();
+		static $warianty = array();
 
-		$dostepne = array();
+		// RAU-R13-004: lista dostepnych wariantow zalezy WYLACZNIE od slugu, wiec
+		// dla drugiej i kazdej kolejnej karty tej samej kategorii jest ta sama.
+		// Bez tej pamieci petla nizej biegla od nowa przy KAZDEJ karcie.
+		if ( ! array_key_exists( $slug, $warianty ) ) {
+			$dostepne = array();
 
-		for ( $n = 1; $n <= self::IMAGE_VARIANTS; $n++ ) {
-			if ( '' !== self::category_image_url( $slug, $n ) ) {
-				$dostepne[] = $n;
+			for ( $n = 1; $n <= self::IMAGE_VARIANTS; $n++ ) {
+				if ( '' !== self::category_image_url( $slug, $n ) ) {
+					$dostepne[] = $n;
+				}
 			}
+
+			$warianty[ $slug ] = $dostepne;
 		}
+
+		$dostepne = $warianty[ $slug ];
 
 		if ( ! $dostepne ) {
 			return 1;

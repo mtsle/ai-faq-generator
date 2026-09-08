@@ -254,6 +254,23 @@ namespace {
 }
 
 namespace AINP {
+	/**
+	 * Przechwycenie `file_exists()` W PRZESTRZENI `AINP` — licznik odczytow dysku.
+	 *
+	 * `Portal.php` siedzi w tej samej przestrzeni i wola `file_exists()` BEZ
+	 * ukosnika, wiec PHP szuka najpierw tej funkcji, a dopiero potem globalnej.
+	 * Sama praca jest oddawana globalnej — mierzymy, nie udajemy.
+	 *
+	 * @param string $sciezka Sprawdzana sciezka.
+	 *
+	 * @return bool
+	 */
+	function file_exists( $sciezka ) {
+		$GLOBALS['__odczyty_dysku'] = ( $GLOBALS['__odczyty_dysku'] ?? 0 ) + 1;
+
+		return \file_exists( $sciezka );
+	}
+
 	/** Atrapa `Plugin` — same stale. */
 	final class Plugin {
 		public const CPT          = 'ainp_article';
@@ -289,6 +306,171 @@ namespace {
 	k6k_check( '' === Portal::category_image_url( 'Zywienie' ), 'wielka litera odrzucona (nazwy plikow sa male)' );
 	k6k_check( '' === Portal::category_image_url( 'żywienie' ), 'ogonek w slugu odrzucony' );
 	k6k_check( '' === Portal::category_image_url( 'zywienie.jpg' ), 'kropka w slugu odrzucona' );
+
+
+	// ---------------------------------------------------------------------
+	echo "\n-- Praca frontu: sprawdzenia dysku na karte (RAU-R13-004) --\n";
+
+	/*
+	 * Do przebiegu 2 KAZDA karta listy pytala dysk CZTERY razy: trzy razy
+	 * z petli rotacji wariantow w `category_variant()` plus raz z samego
+	 * szablonu. Wynik nie byl pamietany ani miedzy kartami, ani miedzy
+	 * zadaniami, wiec liczba wywolan `file_exists()` rosla LINIOWO z liczba
+	 * kart — praca wejscia-wyjscia w petli renderowania frontu, sprzeczna
+	 * z TECH-71 („front nie wykonuje zadnej pracy poza zapytaniem do bazy",
+	 * stan REALIZOWANE).
+	 *
+	 * MIERZYMY LICZBE ODCZYTOW DYSKU, NIE CZAS. Czas na Windows jest zbyt
+	 * ziarnisty, zeby cokolwiek dowiesc, a liczba wywolan jest dokladnie tym,
+	 * co zglosil audyt. Licznik dziala, bo `Portal.php` siedzi w przestrzeni
+	 * `AINP` i wola `file_exists()` BEZ ukosnika: PHP szuka wtedy najpierw
+	 * `AINP\file_exists`, a dopiero potem globalnej.
+	 *
+	 * Slug jest NOWY i nieuzywany wyzej — pamiec zadania jest statyczna, wiec
+	 * dla kategorii dotknietej wczesniejszymi asercjami licznik zaczynalby
+	 * od zera bez zaslugi naprawy.
+	 */
+	$k6k_slug_pomiar = 'pomiar-kart';
+	file_put_contents( $tmp . 'assets/kategorie/' . $k6k_slug_pomiar . '.jpg', 'udaje-jpeg' );
+	file_put_contents( $tmp . 'assets/kategorie/' . $k6k_slug_pomiar . '-2.jpg', 'udaje-jpeg' );
+	file_put_contents( $tmp . 'assets/kategorie/' . $k6k_slug_pomiar . '-3.jpg', 'udaje-jpeg' );
+
+	$GLOBALS['__odczyty_dysku'] = 0;
+
+	// Kontrola samego licznika: bez niej „zero odczytow" znaczyloby tylko tyle,
+	// ze przechwycenie nie dziala, i cala sekcja bylaby pusta.
+	$k6k_przed = $GLOBALS['__odczyty_dysku'];
+	Portal::category_image_url( 'nieistniejaca-kategoria-kontrolna', 1 );
+	k6k_check(
+		$GLOBALS['__odczyty_dysku'] > $k6k_przed,
+		'licznik odczytow dysku dziala (przechwycenie AINP\\file_exists jest aktywne)'
+	);
+
+	// Jedna karta: rotacja wariantow plus zapytanie szablonu.
+	$GLOBALS['__odczyty_dysku'] = 0;
+	$k6k_wariant = Portal::category_variant( $k6k_slug_pomiar );
+	Portal::category_image_url( $k6k_slug_pomiar, $k6k_wariant );
+	$k6k_pierwsza = $GLOBALS['__odczyty_dysku'];
+
+	k6k_check(
+		$k6k_pierwsza <= Portal::IMAGE_VARIANTS,
+		'pierwsza karta pyta dysk najwyzej raz na wariant (jest: ' . $k6k_pierwsza . ', wariantow: ' . Portal::IMAGE_VARIANTS . ')'
+	);
+
+	// Dziewiec kolejnych kart TEJ SAMEJ kategorii — tak wyglada strona archiwum.
+	$GLOBALS['__odczyty_dysku'] = 0;
+	for ( $k6k_i = 0; $k6k_i < 9; $k6k_i++ ) {
+		$k6k_w = Portal::category_variant( $k6k_slug_pomiar );
+		Portal::category_image_url( $k6k_slug_pomiar, $k6k_w );
+	}
+	$k6k_kolejne = $GLOBALS['__odczyty_dysku'];
+
+	k6k_check(
+		0 === $k6k_kolejne,
+		'DZIEWIEC kolejnych kart tej samej kategorii NIE pyta dysku ani razu (jest: ' . $k6k_kolejne . ')'
+	);
+
+	// SEDNO: koszt ma NIE rosnac liniowo z liczba kart. Bez naprawy bylo
+	// 4 odczyty na karte, czyli 36 na te dziewiec.
+	k6k_check(
+		$k6k_kolejne < 9,
+		'koszt dyskowy NIE rosnie liniowo z liczba kart (przed naprawa: 4 na karte)'
+	);
+
+	/*
+	 * OBRONA W GLAB — i jej cena przy dowodzie mutacyjnym.
+	 *
+	 * Pamiec jest w DWOCH miejscach: w `category_image_url()` (na pare
+	 * slug+wariant) i w `category_variant()` (na liste dostepnych wariantow).
+	 * Wystarczy PIERWSZA, zeby odczyty dysku spadly do zera — sprawdzone
+	 * mutacja: wyciecie samej drugiej nie zmienia zachowania, bo petla trafia
+	 * w pamiec pierwszej. Druga oszczedza juz tylko wywolania metody.
+	 *
+	 * Asercja behawioralna wyzej nie moze wiec pilnowac drugiej pamieci.
+	 * Pilnuje jej ta, STRUKTURALNA — inaczej cofniecie tamtej warstwy przeszloby
+	 * przez komplet testow niezauwazone.
+	 */
+	$k6k_portal = (string) file_get_contents( dirname( __DIR__ ) . '/src/Portal.php' );
+	k6k_check(
+		1 === preg_match( '/static\s+\$pamiec\s*=\s*array\(\s*\);/', $k6k_portal ),
+		'pamiec pary slug+wariant istnieje w category_image_url() (warstwa nosna)'
+	);
+	k6k_check(
+		1 === preg_match( '/static\s+\$warianty\s*=\s*array\(\s*\);/', $k6k_portal )
+			&& 1 === preg_match( '/array_key_exists\(\s*\$slug,\s*\$warianty\s*\)/', $k6k_portal ),
+		'pamiec listy wariantow istnieje w category_variant() (warstwa druga, nie do zmierzenia behawioralnie)'
+	);
+
+	// Rotacja wariantow MUSI dzialac dalej — pamiec nie moze jej zamrozic
+	// na jednym zdjeciu, bo po to powstala (etap 8.8).
+	$k6k_widziane = array();
+	for ( $k6k_i = 0; $k6k_i < Portal::IMAGE_VARIANTS; $k6k_i++ ) {
+		$k6k_widziane[] = Portal::category_variant( $k6k_slug_pomiar );
+	}
+	k6k_check(
+		count( array_unique( $k6k_widziane ) ) === Portal::IMAGE_VARIANTS,
+		'rotacja nadal daje KAZDY wariant po kolei, pamiec jej nie zamrozila (widziane: ' . implode( ',', $k6k_widziane ) . ')'
+	);
+
+	// Nowa kategoria musi zostac policzona od nowa — pamiec jest per SLUG,
+	// nie globalna, inaczej druga kategoria dostawalaby cudzy wynik.
+	file_put_contents( $tmp . 'assets/kategorie/pomiar-druga.jpg', 'udaje-jpeg' );
+	$GLOBALS['__odczyty_dysku'] = 0;
+	Portal::category_variant( 'pomiar-druga' );
+	k6k_check(
+		$GLOBALS['__odczyty_dysku'] > 0,
+		'INNA kategoria jest liczona od nowa — pamiec jest per slug, nie globalna (jest: ' . $GLOBALS['__odczyty_dysku'] . ')'
+	);
+
+	// Szablon nie moze juz twierdzic, ze niczego nie liczy.
+	$k6k_card = (string) file_get_contents( dirname( __DIR__ ) . '/src/templates/card.php' );
+	// Docblock łamie się na wiersze z prefiksem ` * `, więc badane zdanie NIGDY
+	// nie stoi w pliku jednym ciągiem. Pytanie o surowy tekst przechodziłoby
+	// zawsze — czyli z niewłaściwego powodu. Normalizujemy białe znaki i gwiazdki.
+	$k6k_card_plaski = trim( preg_replace( '/[\s*]+/', ' ', $k6k_card ) );
+	k6k_check(
+		false === strpos( $k6k_card_plaski, 'Nic nie zapytuje i nic nie liczy' ),
+		'docblock card.php nie twierdzi juz, ze nic nie zapytuje i nic nie liczy'
+	);
+	k6k_check(
+		false !== strpos( $k6k_card_plaski, 'Portal::category_image_url' )
+			&& false !== strpos( $k6k_card_plaski, 'pamietane w obrebie zadania' ),
+		'docblock card.php nazywa to, co szablon naprawde robi, i wskazuje pamiec zadania'
+	);
+
+	// TECH-71 ma opisywac stan faktyczny, nie zyczenie.
+	$k6k_tech = dirname( dirname( dirname( dirname( __DIR__ ) ) ) ) . '/projektAUDYT/dokumentacja/DOKUMENTACJA-TECHNICZNA.txt';
+	$k6k_doc  = is_readable( $k6k_tech ) ? (string) file_get_contents( $k6k_tech ) : '';
+	if ( '' !== $k6k_doc ) {
+		// Ta sama pułapka co wyżej: w dokumencie zdanie jest złamane na dwa
+		// wiersze z wcięciem kolumnowym, więc pytanie o surowy tekst nigdy nie
+		// trafiało i asercja świeciła na zielono niezależnie od treści reguły.
+		$k6k_doc_plaski = preg_replace( '/\s+/', ' ', $k6k_doc );
+		k6k_check(
+			false === strpos( $k6k_doc_plaski, 'front nie wykonuje żadnej pracy poza zapytaniem do bazy' ),
+			'TECH-71: znikla teza, ze front nie wykonuje ZADNEJ pracy poza zapytaniem do bazy'
+		);
+		// Pytanie musi trafić w LINIĘ KOTWICY, nie w prozę reguły: `category_image_url`
+		// pada też w opisie realizacji, więc szukanie po całym dokumencie było
+		// spełnione niezależnie od tego, co stoi w polu „Kotwica".
+		$k6k_kotwica = '';
+		if ( preg_match( '/ID: TECH-71.*?Kotwica\s*:(.*?)Stan\s*:/s', $k6k_doc, $k6k_m ) ) {
+			$k6k_kotwica = preg_replace( '/\s+/', ' ', $k6k_m[1] );
+		}
+		k6k_check( '' !== $k6k_kotwica, 'TECH-71: pole Kotwica daje sie wyciac z dokumentu' );
+		k6k_check(
+			false !== strpos( $k6k_kotwica, 'category_image_url' )
+				&& false !== strpos( $k6k_kotwica, 'card.php' ),
+			'TECH-71: kotwica wskazuje miejsce, w ktorym praca frontu naprawde zachodzi (jest: ' . trim( $k6k_kotwica ) . ')'
+		);
+	} else {
+		k6k_check( false, 'TECH-71: dokumentacja techniczna nieczytelna z testu (' . $k6k_tech . ')' );
+	}
+
+	@unlink( $tmp . 'assets/kategorie/' . $k6k_slug_pomiar . '.jpg' );
+	@unlink( $tmp . 'assets/kategorie/' . $k6k_slug_pomiar . '-2.jpg' );
+	@unlink( $tmp . 'assets/kategorie/' . $k6k_slug_pomiar . '-3.jpg' );
+	@unlink( $tmp . 'assets/kategorie/pomiar-druga.jpg' );
 
 	// ---------------------------------------------------------------------
 	echo "\n-- Warianty zdjecia kategorii (8.8) --\n";

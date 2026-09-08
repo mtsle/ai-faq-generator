@@ -2,9 +2,16 @@
 /**
  * Karta artykulu na liscie Centrum Wiedzy — etap 6.2.
  *
- * Wolana z `archive.php` w petli, dla ustawionego wpisu. Nic nie zapytuje
- * i nic nie liczy: wszystkie decyzje (zdjecie kategorii albo kafelek, adres
- * kategorii) zapadaja w `Portal`, tutaj zostaje samo rysowanie.
+ * Wolana z `archive.php` w petli, dla ustawionego wpisu. Wszystkie DECYZJE
+ * (zdjecie kategorii albo kafelek, adres kategorii) zapadaja w `Portal`, tutaj
+ * zostaje samo rysowanie.
+ *
+ * CO TEN SZABLON JEDNAK ROBI (RAU-R13-004): wola `Portal::primary_term()`,
+ * `Portal::term_link()`, `Portal::category_variant()` i `Portal::category_image_url()`.
+ * Dawny opis „nic nie zapytuje i nic nie liczy" byl nieprawda: ostatnie dwa
+ * wywolania pytaly DYSK, i to po cztery razy na KAZDA karte listy.
+ * Dzis odczyty dysku sa pamietane w obrebie zadania (pamiec w `Portal`), wiec
+ * koszt nie rosnie z liczba kart — ale nie jest zerowy i szablon ma to mowic.
  *
  * Motyw moze podmienic ten plik, kladac wlasny w `ai-news-portal/card.php`
  * — patrz `Portal::part()`.
