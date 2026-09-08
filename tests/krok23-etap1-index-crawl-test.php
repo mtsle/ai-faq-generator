@@ -287,6 +287,153 @@ check(
 	'(B) WpContentSource.php: catch(Throwable) w is_indexable() ustawia $result = false (stary fail-open usunięty)'
 );
 
+
+// ---------------------------------------------------------------------------
+// F10 / RAU-R09-001 — ZAMEK REINDEKSU DOSTAJE PIERWSZE POKRYCIE
+// ---------------------------------------------------------------------------
+//
+// Do przebiegu 2 `IndexController::acquire_lock()` nie miał ANI JEDNEJ asercji
+// w obu katalogach testów: grep `LOCK_TTL` po tests/ dawał pięć trafień i żadne
+// nie dotyczyło tej klasy, a napis „409" stał w tym pliku wyłącznie w komentarzu
+// nagłówka. Zamek pilnuje rzeczy kosztownej wprost: drugi równoczesny reindeks
+// to drugi, PŁATNY przebieg embeddingów — i przeplecenie się z czyszczeniem bazy.
+//
+// Test wchodzi przez podklasę, bo `acquire_lock()` jest `protected`. Sama metoda
+// jest tu prawdziwa — atrapowane są wyłącznie `add_option` / `get_option` /
+// `delete_option`, i to tymi samymi shimami, których używa reszta pliku.
+echo "\n=== L. Zamek reindeksu (RAU-R09-001) ===\n";
+
+require_once $root . '/src/Admin/IndexController.php';
+
+/**
+ * Podklasa odsłaniająca chroniony zamek — nic więcej.
+ */
+class K23_ZamekProbny extends \AIFAQ\Admin\IndexController {
+	/**
+	 * Próbuje zdobyć zamek.
+	 *
+	 * @return bool
+	 */
+	public function zdobadz(): bool {
+		return $this->acquire_lock();
+	}
+}
+
+$GLOBALS['__opt'] = array();
+$zamek = new K23_ZamekProbny();
+
+// Kotwice liczbowe tezy ZACH-W1-11.
+check( 'aifaq_indexing_lock' === \AIFAQ\Admin\IndexController::LOCK, 'zamek: nazwa opcji to aifaq_indexing_lock' );
+check( 900 === \AIFAQ\Admin\IndexController::LOCK_TTL, 'zamek: waznosc to 15 minut (900 s)' );
+
+// SEDNO: drugie żądanie NIE dostaje zamka.
+check( true === $zamek->zdobadz(), 'zamek: pierwsze zadanie zdobywa zamek' );
+check( array_key_exists( \AIFAQ\Admin\IndexController::LOCK, $GLOBALS['__opt'] ), 'zamek: i zostawia po sobie slad w opcjach' );
+check( false === $zamek->zdobadz(), 'zamek: DRUGIE, rownoczesne zadanie odchodzi z niczym (sciezka 409)' );
+
+// Zwolnienie oddaje zamek następnemu.
+$zamek->release_lock();
+check( ! array_key_exists( \AIFAQ\Admin\IndexController::LOCK, $GLOBALS['__opt'] ), 'zamek: release_lock() kasuje opcje' );
+check( true === $zamek->zdobadz(), 'zamek: po zwolnieniu kolejne zadanie przechodzi' );
+
+// Zamek ŚWIEŻY blokuje, PRZETERMINOWANY jest przejmowany. Bez drugiej połowy
+// padnięty proces blokowałby reindeks do końca świata.
+$GLOBALS['__opt'][ \AIFAQ\Admin\IndexController::LOCK ] = (string) ( time() - 10 );
+check( false === $zamek->zdobadz(), 'zamek: swiezy zamek cudzego procesu blokuje' );
+
+$GLOBALS['__opt'][ \AIFAQ\Admin\IndexController::LOCK ] = (string) ( time() - ( \AIFAQ\Admin\IndexController::LOCK_TTL + 1 ) );
+check( true === $zamek->zdobadz(), 'zamek: zamek starszy niz LOCK_TTL jest przejmowany' );
+check(
+	(int) $GLOBALS['__opt'][ \AIFAQ\Admin\IndexController::LOCK ] >= time() - 5,
+	'zamek: przejety zamek dostaje SWIEZY znacznik czasu, nie stary'
+);
+
+// Granica TTL liczona co do sekundy — inaczej „15 minut" jest ozdobą.
+$GLOBALS['__opt'] = array();
+$GLOBALS['__opt'][ \AIFAQ\Admin\IndexController::LOCK ] = (string) ( time() - ( \AIFAQ\Admin\IndexController::LOCK_TTL - 1 ) );
+check( false === $zamek->zdobadz(), 'zamek: sekunde PRZED wygasnieciem jeszcze blokuje' );
+
+// Obie ścieżki wchodzące biorą TEN SAM zamek — `run_clear()` czyści bazę,
+// więc przeplecenie jej z reindeksem daje połowiczny indeks za realne pieniądze.
+$ic_src = (string) file_get_contents( $root . '/src/Admin/IndexController.php' );
+
+/**
+ * Zwraca SAM KOD pliku — bez komentarzy i docbloków.
+ *
+ * DRUGA UWAGA METODYCZNA, też wykryta mutacją: asercję „run_clear() bierze TEN
+ * SAM zamek" spełniał KOMENTARZ w tej metodzie („patrz komentarz przy
+ * `acquire_lock()`"). Po wycięciu prawdziwego wywołania zestaw dalej świecił
+ * na zielono. Asercja o kodzie musi patrzeć na kod.
+ *
+ * @param string $src Źródło pliku.
+ *
+ * @return string
+ */
+function k23_kod( $src ) {
+	$out = '';
+	foreach ( token_get_all( $src ) as $t ) {
+		if ( is_array( $t ) ) {
+			if ( in_array( $t[0], array( T_COMMENT, T_DOC_COMMENT ), true ) ) {
+				$out .= "\n";   // Zachowujemy podział linii, żeby wycinanie metod działało.
+				continue;
+			}
+			$out .= $t[1];
+			continue;
+		}
+		$out .= $t;
+	}
+	return $out;
+}
+
+/**
+ * Wycina ciało JEDNEJ metody — od jej nagłówka do nagłówka następnej.
+ *
+ * PIERWSZA UWAGA METODYCZNA (również z mutacji): wycinek `run_clear()` szedł
+ * do KOŃCA PLIKU, więc obejmował definicję `acquire_lock()` stojącą niżej —
+ * i asercja przechodziła, spełniona cudzą linią. Wycinek musi się domykać.
+ *
+ * @param string $src   Kod pliku (już bez komentarzy).
+ * @param string $nazwa Nazwa metody.
+ *
+ * @return string Ciało metody albo pusty string.
+ */
+function k23_metoda( $src, $nazwa ) {
+	$od = strpos( $src, 'function ' . $nazwa );
+	if ( false === $od ) {
+		return '';
+	}
+	$kawalek = substr( $src, $od + strlen( 'function ' . $nazwa ) );
+	$koniec  = strpos( $kawalek, ' function ' );   // Nagłówek następnej metody.
+
+	return ( false === $koniec ) ? $kawalek : substr( $kawalek, 0, $koniec );
+}
+
+$ic_kod     = k23_kod( $ic_src );
+$ic_reindex = k23_metoda( $ic_kod, 'run_reindex' );
+$ic_clear   = k23_metoda( $ic_kod, 'run_clear' );
+
+check( '' !== $ic_reindex && '' !== $ic_clear, 'zamek: obie sciezki wejscia daja sie wyciac ze zrodla' );
+// Kontrola domkniecia: wycinek NIE moze siegac definicji samego zamka nizej.
+check( false === strpos( $ic_reindex, 'add_option( self::LOCK' ), 'zamek: wycinek run_reindex() domyka sie przed definicja acquire_lock()' );
+check( false === strpos( $ic_clear, 'add_option( self::LOCK' ), 'zamek: wycinek run_clear() domyka sie przed definicja acquire_lock()' );
+check( false === strpos( $ic_clear, 'patrz komentarz' ), 'zamek: wycinek run_clear() jest KODEM, nie proza — komentarz nie zalicza wywolania' );
+check( false !== strpos( $ic_reindex, 'acquire_lock()' ), 'zamek: run_reindex() bierze zamek' );
+check( false !== strpos( $ic_clear, 'acquire_lock()' ), 'zamek: run_clear() bierze TEN SAM zamek' );
+check(
+	1 === preg_match( '/!\s*\$this->acquire_lock\(\s*\)\s*\)\s*\{.*?.status.\s*=>\s*409/s', $ic_reindex ),
+	'zamek: odmowa zamka w run_reindex() odpowiada kodem 409'
+);
+check(
+	1 === preg_match( '/!\s*\$this->acquire_lock\(\s*\)\s*\)\s*\{.*?.status.\s*=>\s*409/s', $ic_clear ),
+	'zamek: odmowa zamka w run_clear() tez odpowiada kodem 409'
+);
+check(
+	false !== strpos( $ic_src, 'register_shutdown_function( array( $this, ' . chr( 39 ) . 'release_lock' . chr( 39 ) . ' ) )' ),
+	'zamek: zwalniany takze przy fatalu w trakcie przebiegu (exit pomija finally)'
+);
+
+$GLOBALS['__opt'] = array();
+
 // ---------------------------------------------------------------------------
 // Podłoga pokrycia.
 // ---------------------------------------------------------------------------
@@ -294,7 +441,10 @@ echo "\n=== Z. Podłoga pokrycia ===\n";
 // Asercja ilościowa dokładna (reguła projektu) — przed inkrementacją check(): $ran = 16.
 // 14 → 16: audyt przebieg-2 (RAU-R05-002) dolożył kontrolę negatywną A5 wraz z jej
 // kontrolą pozytywną — zapis wersji bazy za bramką wyniku migracji.
-check( 16 === $ran, 'wykonano dokładnie 16 asercji (jest: ' . $ran . ')' );
+// 16 → 36: F10 (RAU-R09-001) dolożyło pierwsze pokrycie zamka reindeksu —
+// sekcja L. Asercja ZMIENIONA, nie usunięta; ta podloga jest DOKŁADNA z zasady
+// projektu, więc każda nowa asercja w tym pliku wymaga podniesienia liczby.
+check( 36 === $ran, 'wykonano dokładnie 36 asercji (jest: ' . $ran . ')' );
 
 echo "\n";
 if ( 0 === $fail ) {

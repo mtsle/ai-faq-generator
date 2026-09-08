@@ -535,6 +535,38 @@ if ( $has_idx && class_exists( 'K19_Batcher' ) && class_exists( 'K19_Source' ) &
 	$rep  = k19_indexer( $src27, $b27, $k27 )->run();
 	check( 3 === $b27->calls, 'NOWE — C27: aifaq_index_budget=0 → WSZYSTKIE 3 fale przetworzone (1100 fragmentów / WAVE 500; jest: ' . $b27->calls . ' przy ' . (int) ( $rep['chunks'] ?? 0 ) . ' fragmentach)' );
 
+	// C27b (RAU-R09-002) — DOMYŚLNY budżet przebiegu ma asercję.
+	//
+	// Do tej pory każdy test budżetu PODMIENIAŁ go filtrem, więc zmiana stałej
+	// `Indexer::BUDGET_SECONDS` przechodziła cały komplet na zielono, choć
+	// dokumentowane zachowanie 45 s przestawało obowiązywać (teza ZACH-W1-09,
+	// drugi człon — „fale po 500" — był pokryty asercją `=== 3` wyżej).
+	//
+	// Metoda: filtr nie podmienia wartości, tylko ją PODGLĄDA. `apply_filters()`
+	// dostaje jako pierwszy argument dokładnie to, od czego kod zaczyna, więc
+	// zapisanie tego argumentu jest odczytem domyślnej wartości NA ŚCIEŻCE
+	// WYKONANIA — nie odczytem stałej obok niej.
+	k19_reset_env();
+	$widziany_budzet = null;
+	$GLOBALS['__filters']['aifaq_index_budget'] = static function ( $b ) use ( &$widziany_budzet ) {
+		$widziany_budzet = $b;
+		return 0;   // Po podejrzeniu wyłączamy, żeby przebieg się domknął.
+	};
+	$GLOBALS['__filters']['aifaq_index_pace'] = static function () { return 0; };
+	$src27b        = new K19_Source();
+	$src27b->docs  = k19_corpus( 10 );
+	k19_indexer( $src27b, new K19_Batcher(), new K19_Knowledge() )->run();
+
+	check( 45 === \AIFAQ\Index\Indexer::BUDGET_SECONDS, 'NOWE — C27b: \AIFAQ\Index\Indexer::BUDGET_SECONDS wynosi 45 s (ZACH-W1-09)' );
+	check(
+		45 === $widziany_budzet,
+		'NOWE — C27b: przebieg BEZ podmiany startuje od tej właśnie liczby (jest: ' . var_export( $widziany_budzet, true ) . ')'
+	);
+	check(
+		\AIFAQ\Index\Indexer::BUDGET_SECONDS === $widziany_budzet,
+		'NOWE — C27b: wartość na ścieżce wykonania to TA SAMA stała, nie jej kopia'
+	);
+
 	// C31b — kształt raportu.
 	check( 14 === count( $rep ), 'NOWE — C31b: raport ma DOKŁADNIE 14 kluczy (10 istniejących + 4 nowe; jest: ' . count( $rep ) . ' → ' . implode( ',', array_keys( $rep ) ) . ')' );
 	foreach ( array( 'incomplete', 'budget_hit', 'skipped_no_vector', 'chunks_missing_vector' ) as $key ) {

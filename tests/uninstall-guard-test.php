@@ -639,6 +639,182 @@ foreach ( array( 'aifaq_rl_', 'aifaq_cooldown_generate_', 'aifaq_cooldown_embed_
 }
 
 
+
+// ---------------------------------------------------------------------------
+// F10. RAU-R09-005 — ODINSTALOWANIE W1 NIE MOŻE TKNĄĆ DANYCH WTYCZKI 2
+// ---------------------------------------------------------------------------
+//
+// Teza ZACH-AUD-03 była pokryta tylko w JEDNĄ stronę: zestawy wtyczki 2
+// sprawdzają, że jej odinstalowanie nie rusza danych wtyczki 1, a w całym
+// katalogu tests/ wtyczki 1 nie było ani jednej asercji w kierunku odwrotnym
+// (grep -rn ainp po tests/ dawał zero trafień).
+//
+// To najcięższa klasa regresji tego produktu: klient dostaje JEDNĄ paczkę
+// z dwiema wtyczkami, więc zbyt szeroki wzorzec `LIKE` przy usuwaniu wtyczki 1
+// kasowałby artykuły portalu — i cały komplet zestawów W1 świeciłby na zielono.
+//
+// Strażnik nie pyta „czy w pliku jest napis ainp". Bierze KAŻDY wzorzec `LIKE`
+// i KAŻDY literał z uninstall.php W1 i sprawdza je wobec prawdziwych kluczy
+// wtyczki 2. Sam napis nie musiałby się pojawić, żeby dane zniknęły — wystarczy
+// wzorzec `%_settings` albo `_transient_%`.
+
+/**
+ * Czy wzorzec SQL `LIKE` pasuje do nazwy.
+ *
+ * `%` = dowolny ciąg, `_` = DOKŁADNIE JEDEN znak (o tym się zapomina),
+ * a `\` wprowadzony przez `esc_like()` odbiera obu specjalne znaczenie.
+ *
+ * @param string $wzorzec Wzorzec z zapytania.
+ * @param string $nazwa   Sprawdzana nazwa klucza.
+ *
+ * @return bool
+ */
+function aifaq_like_pasuje( $wzorzec, $nazwa ) {
+	$re  = '';
+	$n   = strlen( $wzorzec );
+	for ( $i = 0; $i < $n; $i++ ) {
+		$z = $wzorzec[ $i ];
+		if ( chr( 92 ) === $z && $i + 1 < $n ) {
+			++$i;
+			$re .= preg_quote( $wzorzec[ $i ], '/' );
+			continue;
+		}
+		if ( '%' === $z ) {
+			$re .= '.*';
+			continue;
+		}
+		if ( '_' === $z ) {
+			$re .= '.';
+			continue;
+		}
+		$re .= preg_quote( $z, '/' );
+	}
+	return 1 === preg_match( '/^' . $re . '$/s', $nazwa );
+}
+
+// Kontrola samego narzędzia — inaczej matcher, który nigdy nie trafia, dałby
+// komplet zieleni z zupełnie innego powodu.
+check( aifaq_like_pasuje( 'aifaq!_%', 'aifaq!_settings' ), 'LIKE: `%` lapie dowolny ciag' );
+check( aifaq_like_pasuje( 'ain_', 'ainp' ), 'LIKE: `_` lapie DOKLADNIE jeden znak' );
+check( ! aifaq_like_pasuje( 'ain_', 'ainpx' ), 'LIKE: `_` NIE lapie dwoch znakow' );
+check( ! aifaq_like_pasuje( chr( 92 ) . '_transient%', 'xtransient_a' ), 'LIKE: escapowany `_` jest zwyklym podkresleniem' );
+
+// Prawdziwe klucze wtyczki 2 — nazwy wzięte z jej uninstall.php, nie wymyślone.
+$ainp_probki = array(
+	'ainp_settings',
+	'ainp_sources',
+	'ainp_key',
+	'ainp_usage',
+	'ainp_slug_collision',
+	'ainp_topics_seeded',
+	'ainp_db_version',
+	'_transient_ainp_cokolwiek',
+	'_transient_timeout_ainp_cokolwiek',
+);
+$ainp_meta   = array( '_ainp_item_id', '_ainp_source_url', '_ainp_demo' );
+$ainp_obiekty = array( 'ainp_article', 'ainp_topic', 'ainp_items' );
+
+// 1. Żaden wzorzec LIKE z uninstall.php W1 nie może trafić w klucz wtyczki 2.
+// Wzorzec powstaje w kodzie jako `esc_like( '<prefiks>' ) . '%'`, więc w tokenach
+// stoi ROZBITY na dwa literały. Sklejamy go tak samo jak zapytanie: bierzemy każdy
+// literał i sami escapujemy w nim `_` oraz `%` — dokładnie to robi `esc_like()` —
+// a na końcu doklejamy niescapowane `%`.
+//
+// Sam token `'%'` wzorcem NIE JEST: wzięty osobno łapie wszystko i dawałby fałszywy
+// alarm zamiast dowodu. Bierzemy więc WSZYSTKIE literały pliku, bo każdy z nich
+// mógłby jutro stać się prefiksem zamiatania — pytanie brzmi „czy którykolwiek
+// prefiks obecny w tym pliku sięga po klucz wtyczki 2", nie „czy ten jeden".
+$un_like = array();
+foreach ( aifaq_tokens( $un_src ) as $t ) {
+	$v = aifaq_str( $t );
+	if ( null === $v || '' === $v ) {
+		continue;
+	}
+	$un_like[] = str_replace(
+		array( '_', '%' ),
+		array( chr( 92 ) . '_', chr( 92 ) . '%' ),
+		$v
+	) . '%';
+}
+check( count( $un_like ) >= 2, 'rozlacznosc: skaner widzi wzorce LIKE w uninstall.php W1 (znalezionych: ' . count( $un_like ) . ')' );
+
+$kolizje = array();
+foreach ( $un_like as $wzorzec ) {
+	foreach ( $ainp_probki as $klucz ) {
+		if ( aifaq_like_pasuje( $wzorzec, $klucz ) ) {
+			$kolizje[] = $wzorzec . ' -> ' . $klucz;
+		}
+	}
+}
+check(
+	0 === count( $kolizje ),
+	'rozlacznosc: ZADEN wzorzec LIKE z uninstall.php W1 nie lapie klucza ainp_'
+		. ( $kolizje ? ( ' → ' . implode( ' ; ', $kolizje ) ) : '' )
+);
+
+// 2. Znacznik GUARD-PATTERN, po którym idzie zamiatanie, musi być prefiksem W1.
+$guard_prefix = '';
+if ( 1 === preg_match( '/GUARD-PATTERN:\s*(\S+)/', $un_src, $m_gp ) ) {
+	$guard_prefix = $m_gp[1];
+}
+check( 'aifaq_' === $guard_prefix, 'rozlacznosc: GUARD-PATTERN to `aifaq_` (jest: ' . var_export( $guard_prefix, true ) . ')' );
+// Osobny licznik: dziedziczenie wyniku poprzedniej pętli dałoby asercję, która
+// czerwienieje z CUDZEGO powodu i niczego własnego nie dowodzi.
+$kolizje_gp = array();
+foreach ( array_merge( $ainp_probki, $ainp_meta, $ainp_obiekty ) as $klucz ) {
+	if ( '' !== $guard_prefix && false !== strpos( $klucz, $guard_prefix ) ) {
+		$kolizje_gp[] = 'GUARD-PATTERN -> ' . $klucz;
+	}
+}
+check(
+	0 === count( $kolizje_gp ),
+	'rozlacznosc: prefiks zamiatania nie obejmuje zadnego klucza wtyczki 2'
+		. ( $kolizje_gp ? ( ' -> ' . implode( ' ; ', $kolizje_gp ) ) : '' )
+);
+
+// 3. Żaden literał w uninstall.php W1 nie może BYĆ kluczem, meta ani typem W2.
+$literaly_ainp = array();
+foreach ( array_keys( $un_literals ) as $lit ) {
+	foreach ( array_merge( $ainp_probki, $ainp_meta, $ainp_obiekty ) as $cudzy ) {
+		if ( $lit === $cudzy ) {
+			$literaly_ainp[] = $lit;
+		}
+	}
+}
+check( 0 === count( $literaly_ainp ), 'rozlacznosc: uninstall.php W1 nie wymienia z nazwy zadnego klucza wtyczki 2' );
+
+// 4. Prefiks drugiej wtyczki nie pada w tym pliku w ogóle — także w komentarzu,
+//    bo komentarz jest pierwszym krokiem do dopisania go do listy.
+check(
+	false === strpos( $un_src, 'ainp' ),
+	'rozlacznosc: napis `ainp` nie wystepuje w uninstall.php W1 nawet w komentarzu'
+);
+
+// 5. Kasowane tabele muszą należeć do wtyczki 1 — sprawdzamy wszystkie, nie jedną.
+$tabele_un = array();
+if ( preg_match_all( '/\$wpdb->prefix \. .([a-z0-9_]+)./', $un_src, $m_tab ) ) {
+	$tabele_un = $m_tab[1];
+}
+check( count( $tabele_un ) >= 6, 'rozlacznosc: skaner widzi liste tabel (znalezionych: ' . count( $tabele_un ) . ')' );
+$obce_tabele = array();
+foreach ( $tabele_un as $tab ) {
+	if ( 0 !== strpos( $tab, 'aifaq_' ) ) {
+		$obce_tabele[] = $tab;
+	}
+}
+check(
+	0 === count( $obce_tabele ),
+	'rozlacznosc: KAZDA kasowana tabela ma prefiks aifaq_' . ( $obce_tabele ? ( ' → ' . implode( ',', $obce_tabele ) ) : '' )
+);
+
+// 6. Kierunek odwrotny jest pokryty po stronie W2 — sprawdzamy, że dalej jest.
+//    Bez tego para asercji rozjeżdża się przy pierwszym porządkowaniu tamtego pliku.
+$w2_test = dirname( __DIR__ ) . '/ai-news-portal/tests/krok1-uninstall-test.php';
+check(
+	is_readable( $w2_test ) && false !== strpos( (string) file_get_contents( $w2_test ), 'aifaq' ),
+	'rozlacznosc: zestaw W2 nadal pilnuje kierunku odwrotnego'
+);
+
 // ---------------------------------------------------------------------------
 // F9. RAU-R15-002 — NAJDŁUŻSZY TTL TRANSIENTU LICZONY, NIE PRZEPISANY
 // ---------------------------------------------------------------------------
@@ -964,10 +1140,10 @@ if ( '' !== $doc_tech ) {
 }
 
 // Licznik podłogowy: bez niego plik z wywaloną sekcją raportuje zielono na zero asercji.
-// F9: podłoga podniesiona 20 -> 43. Asercja ZMIENIONA, nie usunięta: zestaw
+// F9: podłoga podniesiona 20 -> 43, F10: 43 -> 56. Asercja ZMIENIONA, nie usunięta: zestaw
 // wykonywał już 24 asercje, więc próg 20 przepuszczałby wycięcie całej sekcji
 // multisite. Nowa liczba to stan po dopisaniu strażników TTL, sieci i TECH-22.
-check( $ran >= 43, "wykonano komplet asercji (asercji: {$ran})" );
+check( $ran >= 56, "wykonano komplet asercji (asercji: {$ran})" );
 
 echo "\n=== " . ( 0 === $fail ? 'WSZYSTKIE OK' : "BŁĘDÓW: {$fail}" ) . " (asercji: {$ran}) ===\n";
 exit( $fail > 0 ? 1 : 0 );

@@ -11,9 +11,14 @@
  * Ten zestaw pilnuje czterech granic:
  *
  *   1. ZEPSUTY JSON ponawiany DOKLADNIE raz — dwa wywolania, nie trzy.
+ *      TO SAMO ROBI PUSTA ODPOWIEDZ, od audytu 8.10: jedna powtorka (SAFETY
+ *      i RECITATION przy probkowaniu potrafia puscic za drugim razem), po niej
+ *      sprawa jest TERMINALNA. Wczesniej 'empty' nie byl ani ponawiany, ani
+ *      terminalny — pozycja zostawala w kolejce i palila slot na kazdym
+ *      przebiegu, blokujac wszystkie za soba.
  *   2. KAZDY INNY powod konczy sprawe po pierwszym wywolaniu: brak klucza,
- *      wyczerpany sufit, budzet czasu, transport, kod inny niz 200, pusta
- *      odpowiedz. Zadne z nich nie naprawi sie powtorzeniem w tym samym ticku.
+ *      wyczerpany sufit, budzet czasu, transport, kod inny niz 200. Zadne
+ *      z nich nie naprawi sie powtorzeniem w tym samym ticku.
  *   3. ODPOWIEDZ NIEZGODNA Z KONTRAKTEM tez NIE jest ponawiana — model dostal
  *      ten sam material i te sama instrukcje, wiec odda to samo.
  *   4. BUDZET CZASU odliczany MIEDZY probami, inaczej dwie proby po 30 s
@@ -521,6 +526,31 @@ namespace {
 	k4p_check( 2 === count( $GLOBALS['__zadania'] ), 'do transportu poszly dokladnie dwa zadania' );
 	k4p_check( 'empty' === $r['reason'], 'powod: pusta odpowiedz' );
 	k4p_check( true === $r['terminal'], 'po ponowieniu terminal — pozycja NIE wraca na kolejny przebieg' );
+
+	/*
+	 * RAU-R10-002. Naglowek tego pliku wymienial pusta odpowiedz wsrod powodow
+	 * konczacych sprawe PO PIERWSZYM wywolaniu, podczas gdy asercja kilka linii
+	 * wyzej wymaga DWOCH. Kazdy przeglad polityki ponowien prowadzony z naglowka
+	 * — a od niego sie zaczyna — startowal od zdania sprzecznego z tym plikiem.
+	 *
+	 * Straznik czyta WLASNY naglowek i zderza go z zachowaniem zmierzonym wyzej.
+	 * Zwykly komentarz zjechalby ponownie przy najblizszej zmianie polityki.
+	 */
+	$naglowek = (string) file_get_contents( __FILE__ );
+	$naglowek = substr( $naglowek, 0, (int) strpos( $naglowek, ' */' ) );
+
+	k4p_check(
+		false !== strpos( $naglowek, 'TO SAMO ROBI PUSTA ODPOWIEDZ' ),
+		'naglowek mowi, ze pusta odpowiedz JEST ponawiana raz'
+	);
+	k4p_check(
+		1 === preg_match( '/kod inny niz 200\. Zadne/', $naglowek ),
+		'naglowek NIE wymienia juz pustej odpowiedzi wsrod powodow konczacych po pierwszym wywolaniu'
+	);
+	k4p_check(
+		2 === $r['calls'] && false !== strpos( $naglowek, 'po niej' ),
+		'i to, co naglowek deklaruje, zgadza sie ze zmierzonymi dwoma wywolaniami'
+	);
 
 	k4p_reset();
 	$GLOBALS['__plan'] = array(
