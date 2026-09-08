@@ -304,7 +304,12 @@ class PageGuard {
 		}
 
 		// 4. Backoff — bez niego nieudana próba powtarzałaby się na KAŻDYM żądaniu.
-		if ( $s['last'] > 0 && ( time() - $s['last'] ) < self::RETRY_DELAY ) {
+		// Człon `tries > 0` jest istotny: backoff należy WYŁĄCZNIE do stanu `failed`.
+		// Bliźniacza MenuGuard ma go od początku wraz z tym uzasadnieniem, PageGuard
+		// nie miała — a `last` zapisuje TAKŻE po sukcesie, jako znacznik ostatniej
+		// próby. Skutek: podstrona skasowana tuż po udanym utworzeniu czekała pięć
+		// minut na odtworzenie, mimo że nic nie padło.
+		if ( $s['tries'] > 0 && $s['last'] > 0 && ( time() - $s['last'] ) < self::RETRY_DELAY ) {
 			return $s;
 		}
 

@@ -431,6 +431,43 @@ n5_check(
 	'komunikat dziennika mowi WPROST, ze wtyczka nic nie kasuje sama (retencja zostaje opt-in)'
 );
 
+// ---------------------------------------------------------------------------
+echo "\n=== RAU-R03-002: wyjatek z ponowienia pobran NIE ginie po cichu ===\n";
+// ---------------------------------------------------------------------------
+/*
+ * `catch` w Dashboardzie robil `unset( $aifaq_e )` i nic wiecej: wyjatek znikal
+ * bez sladu — bez potwierdzenia, bez bledu i bez wpisu w dzienniku serwera.
+ * Wlasciciel klikal „Ponow", ekran przeladowywal sie niezmieniony i nic nie
+ * mowilo, ze cos poszlo nie tak. To JEDYNA sciezka w tym pliku, ktora zmienia
+ * stan, wiec cisza byla tam najdrozsza.
+ */
+n5_check(
+	false !== strpos( $dash_src, '$aifaq_retry_error = $aifaq_e->getMessage();' ),
+	'RAU-R03-002: komunikat wyjatku ZAPISANY do zmiennej, nie polkniety'
+);
+n5_check(
+	false !== strpos( $dash_src, "'' !== \$aifaq_retry_error" ),
+	'RAU-R03-002: widok sprawdza, czy jest co pokazac'
+);
+n5_check(
+	false !== strpos( $dash_src, 'notice-error' ),
+	'RAU-R03-002: i rysuje go jako BLAD, nie jako potwierdzenie'
+);
+n5_check(
+	false !== strpos( $dash_src, 'Nie udało się zwolnić stron do ponownego pobrania' ),
+	'RAU-R03-002: komunikat mowi wprost, czego nie udalo sie zrobic'
+);
+
+// Kontrola negatywna: `unset()` bez zapisu bylby powrotem do ciszy.
+$poz_catch = strpos( $dash_src, 'catch ( \Throwable $aifaq_e )' );
+// Okno 900 BAJTOW, nie 400: miedzy `catch` a zapisem stoi komentarz
+// z uzasadnieniem, a polskie znaki waza w UTF-8 po dwa bajty.
+$fragment  = ( false === $poz_catch ) ? '' : substr( $dash_src, $poz_catch, 900 );
+n5_check(
+	'' !== $fragment && false !== strpos( $fragment, 'aifaq_retry_error' ),
+	'RAU-R03-002: zapis stoi WEWNATRZ tego samego bloku catch'
+);
+
 // Podloga licznika.
 n5_check( $ran >= 30, "wykonano komplet asercji (asercji: {$ran})" );
 

@@ -78,7 +78,18 @@ if ( ! function_exists( 'sanitize_textarea_field' ) ) { function sanitize_textar
 if ( ! function_exists( 'sanitize_key' ) ) { function sanitize_key( $s ) { return strtolower( preg_replace( '/[^a-z0-9_\-]/i', '', (string) $s ) ); } }
 if ( ! function_exists( 'sanitize_title' ) ) { function sanitize_title( $s ) { return strtolower( trim( preg_replace( '/[^A-Za-z0-9\-_]+/', '-', (string) $s ), '-' ) ); } }
 if ( ! function_exists( 'absint' ) ) { function absint( $n ) { return abs( (int) $n ); } }
-if ( ! function_exists( 'apply_filters' ) ) { function apply_filters( $h, $v = null, ...$a ) { return $v; } }
+// Filtr STEROWALNY — bez tego nie da się sprawdzić, czy `aifaq_min_threshold`
+// działa w obu miejscach nakładania podłogi (UZUP-06). Bez wpisu w `__filters`
+// zachowanie jest identyczne jak dotąd: wartość przechodzi bez zmiany.
+$GLOBALS['__filters'] = array();
+if ( ! function_exists( 'apply_filters' ) ) {
+	function apply_filters( $h, $v = null, ...$a ) {
+		if ( isset( $GLOBALS['__filters'][ $h ] ) && is_callable( $GLOBALS['__filters'][ $h ] ) ) {
+			return call_user_func( $GLOBALS['__filters'][ $h ], $v, ...$a );
+		}
+		return $v;
+	}
+}
 if ( ! function_exists( 'add_filter' ) ) { function add_filter( $h, $cb, $p = 10, $n = 1 ) { return true; } }
 if ( ! function_exists( 'add_action' ) ) { function add_action( $h, $cb, $p = 10, $n = 1 ) { return true; } }
 if ( ! function_exists( 'do_action' ) ) { function do_action( $h, ...$a ) { return null; } }
@@ -523,6 +534,75 @@ echo "\n== Higiena ==\n";
 check( 0 === $GLOBALS['aifaq_warnings'], 'zero warningów/notice PHP w całym pliku (było: ' . $GLOBALS['aifaq_warnings'] . ')' );
 
 echo "\n== Podłoga pokrycia ==\n";
+// ===========================================================================
+echo "\n=== RAU-R11-001 + UZUP-06: podłoga progu miękkiego — jedna kotwica, jeden filtr ===\n";
+// ===========================================================================
+/*
+ * Podłoga stała w tym pliku DWA razy jako goły literał `0.70`, przy czym tylko
+ * jedna z nich — ta w `get()` — przechodziła przez filtr `aifaq_min_threshold`.
+ * Podłoga w `sanitize()` filtra nie miała wcale, więc filtr obniżający próg
+ * działał tylko do PIERWSZEGO zapisu ustawień: `sanitize()` po cichu podnosiło
+ * wartość z powrotem, a filtr dalej się wołał, tylko nie miał już czego obniżyć.
+ */
+$GLOBALS['__filters'] = array();
+
+// Zapisana wartość PONIŻEJ podłogi — tylko wtedy widać, czy podłoga działa.
+// (Domyślne 0,85 jest wyżej i przechodziłoby przez każdą podłogę bez zmiany.)
+$GLOBALS['__opt'][ \AIFAQ\Core\Settings::OPTION ] = array( 'rag_threshold' => 0.50 );
+
+$bez_filtra_get = \AIFAQ\Core\Settings::get();
+$bez_filtra_san = \AIFAQ\Core\Settings::sanitize( array( 'rag_threshold' => 0.50 ) );
+
+check(
+	0.70 === round( (float) $bez_filtra_get['rag_threshold'], 2 ),
+	'bez filtra: get() podłoguje do 0,70 (jest: ' . round( (float) $bez_filtra_get['rag_threshold'], 2 ) . ')'
+);
+check(
+	0.70 === round( (float) $bez_filtra_san['rag_threshold'], 2 ),
+	'bez filtra: sanitize() też podłoguje do 0,70 (jest: ' . round( (float) $bez_filtra_san['rag_threshold'], 2 ) . ')'
+);
+
+// Filtr obniża podłogę — MUSI zadziałać w OBU miejscach, inaczej zapis ustawień
+// cofa obniżenie zrobione z kodu.
+$GLOBALS['__filters']['aifaq_min_threshold'] = static function () { return 0.40; };
+
+$z_filtrem_get = \AIFAQ\Core\Settings::get();
+$z_filtrem_san = \AIFAQ\Core\Settings::sanitize( array( 'rag_threshold' => 0.50 ) );
+
+check(
+	0.50 === round( (float) $z_filtrem_get['rag_threshold'], 2 ),
+	'z filtrem 0,40: get() przepuszcza zapisane 0,50 (jest: ' . round( (float) $z_filtrem_get['rag_threshold'], 2 ) . ')'
+);
+check(
+	0.50 === round( (float) $z_filtrem_san['rag_threshold'], 2 ),
+	'UZUP-06 (KLUCZOWA): z filtrem 0,40 sanitize() NIE cofa obniżenia (jest: ' . round( (float) $z_filtrem_san['rag_threshold'], 2 ) . ')'
+);
+check(
+	round( (float) $z_filtrem_get['rag_threshold'], 2 ) === round( (float) $z_filtrem_san['rag_threshold'], 2 ),
+	'obie ścieżki dają TĘ SAMĄ wartość — jeden filtr, jedna podłoga'
+);
+
+// Pole w ustawieniach nadal NIE przebija podłogi w dół poniżej filtra.
+$GLOBALS['__filters']['aifaq_min_threshold'] = static function () { return 0.60; };
+$przy_060 = \AIFAQ\Core\Settings::sanitize( array( 'rag_threshold' => 0.10 ) );
+check(
+	0.60 === round( (float) $przy_060['rag_threshold'], 2 ),
+	'pole w ustawieniach nie schodzi poniżej podłogi (jest: ' . round( (float) $przy_060['rag_threshold'], 2 ) . ')'
+);
+
+$GLOBALS['__filters'] = array();
+
+// Strażnik strukturalny: literał podłogi zniknął z obu miejsc na rzecz kotwicy.
+$zrodlo_set = (string) file_get_contents( dirname( __DIR__ ) . '/src/Core/Settings.php' );
+check(
+	2 === substr_count( $zrodlo_set, 'self::min_soft_threshold()' ),
+	'podłoga brana z JEDNEJ metody w obu miejscach (jest: ' . substr_count( $zrodlo_set, 'self::min_soft_threshold()' ) . ')'
+);
+check(
+	false !== strpos( $zrodlo_set, 'RagService::ASK_MIN_THRESHOLD' ),
+	'kotwicą jest RagService::ASK_MIN_THRESHOLD, nie literał'
+);
+
 $floor = $ran;
 check( $floor >= 40, 'wykonano co najmniej 40 asercji (było ' . $floor . ')' );
 

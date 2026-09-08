@@ -212,10 +212,7 @@ class Settings {
 		// Próg TWARDY podłogi filtrowanej nie ma i nie potrzebuje: `RagService::make()`
 		// nakłada na niego filtr `aifaq_threshold_hard` PO odczycie, więc jego wartość
 		// pozostaje w pełni nadpisywalna z kodu.
-		$min_soft = 0.70;
-		if ( function_exists( 'apply_filters' ) ) {
-			$min_soft = (float) apply_filters( 'aifaq_min_threshold', $min_soft );
-		}
+		$min_soft = self::min_soft_threshold();
 
 		$all['rag_threshold']      = max( $min_soft, (float) $all['rag_threshold'] );
 		$all['rag_threshold_hard'] = max( 0.65, (float) $all['rag_threshold_hard'] );
@@ -230,6 +227,32 @@ class Settings {
 	 * @param mixed  $default Wartość domyślna, gdy brak.
 	 * @return mixed
 	 */
+	/**
+	 * Podłoga progu MIĘKKIEGO — jedna kotwica i jeden filtr dla wszystkich miejsc.
+	 *
+	 * Kotwicą jest {@see \AIFAQ\Rag\RagService::ASK_MIN_THRESHOLD}, czyli ta sama
+	 * wartość, którą K19 zmierzył i którą `RagService` podłoguje po stronie odczytu.
+	 * Do wersji 1.0.0 ten plik trzymał ją dwa razy jako goły literał `0.70`, przy
+	 * czym tylko JEDEN z nich przechodził przez filtr `aifaq_min_threshold` —
+	 * skutkiem był cichy rozjazd opisany przy `sanitize()`.
+	 *
+	 * `class_exists()`, bo `Settings` bywa ładowane bez reszty wtyczki (testy,
+	 * `uninstall.php`); wartość zapasowa jest tą samą liczbą co kotwica.
+	 *
+	 * @return float
+	 */
+	private static function min_soft_threshold(): float {
+		$min = class_exists( '\AIFAQ\Rag\RagService' )
+			? (float) \AIFAQ\Rag\RagService::ASK_MIN_THRESHOLD
+			: 0.70;
+
+		if ( function_exists( 'apply_filters' ) ) {
+			$min = (float) apply_filters( 'aifaq_min_threshold', $min );
+		}
+
+		return $min;
+	}
+
 	public static function get_field( string $key, $default = null ) {
 		$all = self::get();
 		return $all[ $key ] ?? $default;
@@ -367,7 +390,13 @@ class Settings {
 		// `RestController::handle_settings_save()`), stara wersja zostawiała zapisane np.
 		// 0,50, a walidacja krzyżowa niżej NATYCHMIAST ściągała do niego świeżo nałożoną
 		// podłogę progu twardego — czyli podłoga kasowała samą siebie.
-		$out['rag_threshold'] = max( 0.70, max( 0.05, min( 1.0, round( (float) ( $input['rag_threshold'] ?? $out['rag_threshold'] ), 2 ) ) ) );
+		//
+		// UZUP-06: podłoga bierze się z tej samej kotwicy i przechodzi przez ten sam
+		// filtr co podłoga w `get()`. Do wersji 1.0.0 stał tu goły literał 0.70 BEZ
+		// filtra, więc `aifaq_min_threshold` obniżający próg działał tylko do
+		// pierwszego zapisu ustawień — `sanitize()` po cichu podnosiło wartość
+		// z powrotem, a filtr dalej się wołał, tylko nie miał już czego obniżyć.
+		$out['rag_threshold'] = max( self::min_soft_threshold(), max( 0.05, min( 1.0, round( (float) ( $input['rag_threshold'] ?? $out['rag_threshold'] ), 2 ) ) ) );
 
 		// Próg twardy — podłoga 0.65 (POMIAR z K19: max( 0.55 ; max_off 0.6184 + 0.03 )),
 		// sufit 1.0, ale NIGDY powyżej progu miękkiego. To jedyna walidacja krzyżowa

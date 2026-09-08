@@ -122,19 +122,32 @@ class GenerationRepository extends Repository {
 			}
 		}
 
-		// 2) Liczba wierszy — „trzymaj N najnowszych" po kluczu głównym.
-		//    Najpierw ustalamy ID granicznego wiersza (N+1 od końca), potem kasujemy
-		//    wszystko poniżej: MySQL nie pozwala na DELETE z podzapytaniem do tej
-		//    samej tabeli, a dwa zapytania z WHERE są czytelniejsze niż sztuczka
-		//    z tabelą pochodną.
+		// 2) Liczba wierszy — „trzymaj N najnowszych". Porządek jest TEN SAM co
+		//    w `page()`: po `created_at`, z `id` wyłącznie jako rozstrzygnięciem
+		//    remisu. Do wersji 1.0.0 granica szła po `ORDER BY id DESC`, podczas
+		//    gdy `page()` sortuje po dacie — czyli ten sam plik miał DWA różne
+		//    pojęcia „najnowszy". Wada bliźniacza wobec RAU-R07-004 w
+		//    `QaLogRepository` i naprawiona tym samym wzorcem: klucz główny kłamie
+		//    o wieku wpisu wszędzie tam, gdzie data przychodzi z zewnątrz, a
+		//    `log()` przyjmuje własne `created_at`.
+		//    Dwa zapytania (granica → DELETE), bo MySQL nie pozwala na DELETE
+		//    z podzapytaniem do tej samej tabeli.
 		if ( $keep_rows > 0 ) {
-			$boundary = (int) $wpdb->get_var(
-				$wpdb->prepare( "SELECT id FROM {$table} ORDER BY id DESC LIMIT 1 OFFSET %d", $keep_rows ) // phpcs:ignore WordPress.DB
+			$granica = $wpdb->get_row(
+				$wpdb->prepare( "SELECT created_at, id FROM {$table} ORDER BY created_at DESC, id DESC LIMIT 1 OFFSET %d", $keep_rows ), // phpcs:ignore WordPress.DB
+				ARRAY_A
 			);
 
-			if ( $boundary > 0 ) {
+			if ( is_array( $granica ) && isset( $granica['created_at'], $granica['id'] ) ) {
+				$data_granicy = (string) $granica['created_at'];
+
 				$n = $wpdb->query(
-					$wpdb->prepare( "DELETE FROM {$table} WHERE id <= %d", $boundary ) // phpcs:ignore WordPress.DB
+					$wpdb->prepare(
+						"DELETE FROM {$table} WHERE created_at < %s OR ( created_at = %s AND id <= %d )", // phpcs:ignore WordPress.DB
+						$data_granicy,
+						$data_granicy,
+						(int) $granica['id']
+					)
 				);
 				$deleted += max( 0, (int) $n );
 			}

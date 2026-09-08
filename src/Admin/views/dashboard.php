@@ -35,12 +35,21 @@ $aifaq_crawl_on = ( '1' === (string) \AIFAQ\Core\Settings::get_field( 'crawl_ena
 // już wysłane (kokpit wyrysował swoją górę), więc po zapisie NIE przekierowujemy —
 // pokazujemy potwierdzenie i odświeżony stan. Bramka: uprawnienie + nonce.
 $aifaq_crawl_retried = -1;
+$aifaq_retry_error   = '';
 if ( isset( $_POST['aifaq_crawl_retry'] ) && class_exists( '\AIFAQ\Index\CrawlQueue' ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
 	if ( current_user_can( \AIFAQ\Admin\Menu::CAPABILITY ) ) {
 		check_admin_referer( 'aifaq_crawl_retry' );
 		try {
 			$aifaq_crawl_retried = ( new \AIFAQ\Index\CrawlQueue() )->retry_failed();
 		} catch ( \Throwable $aifaq_e ) {
+			/*
+			 * Komunikat ZAPISANY, nie połknięty. Do wersji 1.0.0 wyjątek znikał
+			 * tu bez śladu: bez potwierdzenia, bez błędu i bez wpisu w dzienniku
+			 * serwera. Właściciel klikał „Ponów", ekran przeładowywał się
+			 * niezmieniony i nic nie mówiło, że coś poszło nie tak — a to jedyna
+			 * ścieżka w tym pliku, która zmienia stan.
+			 */
+			$aifaq_retry_error = $aifaq_e->getMessage();
 			unset( $aifaq_e );
 		}
 	}
@@ -171,6 +180,20 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 				<p>
 					<strong><?php esc_html_e( 'Zmieniłeś ustawienia źródeł treści.', 'ai-faq-generator' ); ?></strong>
 					<?php esc_html_e( 'Pobrane wcześniej strony zostały skasowane. Zaindeksuj treść ponownie — pamiętaj, że to ponowne, płatne liczenie embeddingów u dostawcy AI.', 'ai-faq-generator' ); ?>
+				</p>
+			</div>
+		<?php endif; ?>
+
+		<?php if ( '' !== $aifaq_retry_error ) : ?>
+			<div class="notice notice-error inline">
+				<p>
+					<?php
+					printf(
+						/* translators: %s: komunikat bledu z ponowienia pobran */
+						esc_html__( 'Nie udało się zwolnić stron do ponownego pobrania: %s', 'ai-faq-generator' ),
+						esc_html( $aifaq_retry_error )
+					);
+					?>
 				</p>
 			</div>
 		<?php endif; ?>

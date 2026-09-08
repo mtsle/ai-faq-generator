@@ -1157,6 +1157,98 @@ if ( $has_plugin ) {
 // PODŁOGA POKRYCIA (§8.1 pkt 4) — liczona PRZED własnym check().
 // ===========================================================================
 echo "\n== Podłoga pokrycia ==\n";
+// ===========================================================================
+echo "\n=== RAU-R11-002: backoff należy WYŁĄCZNIE do stanu `failed` ===\n";
+// ===========================================================================
+/*
+ * `PageGuard` zapisuje `last` TAKŻE po sukcesie — jako znacznik ostatniej próby.
+ * Warunek backoffu nie miał członu `tries > 0`, więc podstrona skasowana tuż po
+ * udanym utworzeniu czekała pięć minut na odtworzenie, mimo że nic nie padło.
+ * Bliźniacza `MenuGuard` ma ten człon od początku, wraz z uzasadnieniem.
+ */
+$zrodlo_pg = (string) file_get_contents( dirname( __DIR__ ) . '/src/PublicUi/PageGuard.php' );
+$zrodlo_mg = (string) file_get_contents( dirname( __DIR__ ) . '/src/PublicUi/MenuGuard.php' );
+
+check(
+	false !== strpos( $zrodlo_pg, "\$s['tries'] > 0 && \$s['last'] > 0" ),
+	'RAU-R11-002: PageGuard ma człon `tries > 0` w warunku backoffu'
+);
+check(
+	false !== strpos( $zrodlo_mg, "\$s['tries'] > 0 && \$s['last'] > 0" ),
+	'kontrola: MenuGuard ma dokładnie ten sam warunek'
+);
+
+// Asercja SYMETRII — asymetria obu bliźniaczych klas ma być wykrywalna
+// mechanicznie, nie przez czyjąś pamięć.
+$warunek_pg = ( 1 === preg_match( '/if \( \$s\[.tries.\] > 0 && \$s\[.last.\] > 0 && \( time\(\) - \$s\[.last.\] \) < self::RETRY_DELAY \)/', $zrodlo_pg ) );
+$warunek_mg = ( 1 === preg_match( '/if \( \$s\[.tries.\] > 0 && \$s\[.last.\] > 0 && \( time\(\) - \$s\[.last.\] \) < self::RETRY_DELAY \)/', $zrodlo_mg ) );
+check( $warunek_pg && $warunek_mg, 'warunek backoffu jest IDENTYCZNY w obu strażnikach' );
+
+// ===========================================================================
+echo "\n=== RAU-R02-001: odrzucone żądanie nie zmienia stanu witryny ===\n";
+// ===========================================================================
+/*
+ * `PageNotice::handle()` wykonywało `update_option( 'aifaq_page_ok', '' )`
+ * BEZWARUNKOWO, przed rozpoznaniem akcji. Żądanie z nieznaną wartością
+ * parametru — albo bez parametru w ogóle — zmieniało więc stan witryny, choć
+ * żadna akcja nie zostawała wykonana: odrzucenie kosztowało tyle co przyjęcie.
+ * Bliźniacza `MenuGuard` ma tę kolejność poprawnie.
+ */
+$zrodlo_pn = (string) file_get_contents( dirname( __DIR__ ) . '/src/Admin/PageNotice.php' );
+$poz_lista = strpos( $zrodlo_pn, "in_array( \$fix, array( 'dismiss', 'create', 'restore', 'publish' ), true )" );
+$poz_zapis = strpos( $zrodlo_pn, "update_option( 'aifaq_page_ok'" );
+
+check( false !== $poz_lista, 'RAU-R02-001: whitelista akcji istnieje w handle()' );
+check(
+	false !== $poz_zapis && false !== $poz_lista && $poz_zapis > $poz_lista,
+	'RAU-R02-001: zapis stanu stoi ZA whitelistą, nie przed nią'
+);
+check(
+	false !== strpos( $zrodlo_pn, '$znana_akcja && function_exists' ),
+	'RAU-R02-001: zapis jest warunkowany rozpoznaniem akcji'
+);
+
+// ===========================================================================
+echo "\n=== RAU-R01-001: bramka podpowiedzi w edytorze — cap NARZĘDZIA, świadomie ===\n";
+// ===========================================================================
+/*
+ * Rozstrzygnięcie: poprawiamy DOKUMENT, nie kod. Podpowiedź jest DLA REDAKCJI,
+ * a jej skutek nie wychodzi poza dane własne użytkownika (zapis do jego
+ * usermeta). Podniesienie bramki do `manage_options` zabiłoby funkcję dla tych,
+ * dla których powstała. UPR-W1-26 opisuje teraz ten wyjątek wprost.
+ */
+$zrodlo_en = (string) file_get_contents( dirname( __DIR__ ) . '/src/Admin/EditorNotice.php' );
+
+check(
+	false !== strpos( $zrodlo_en, 'current_user_can( self::tool_capability() )' ),
+	'RAU-R01-001: EditorNotice bramkuje się capem NARZĘDZIA'
+);
+check(
+	false === strpos( $zrodlo_en, "current_user_can( 'manage_options' )" ),
+	'RAU-R01-001: i NIE administratorem — inaczej funkcja umiera dla redakcji'
+);
+
+// Kotwica: cap narzędzia bierze się z RestController, nie z literału w tym pliku.
+check(
+	false !== strpos( $zrodlo_en, 'CAPABILITY_TOOL' ),
+	'RAU-R01-001: cap narzędzia wiązany z RestController::CAPABILITY_TOOL'
+);
+
+// Reguła dokumentu MUSI wymieniać ten wyjątek — inaczej rozjazd wraca.
+$doc_upr = (string) file_get_contents( dirname( dirname( dirname( __DIR__ ) ) ) . '/projektAUDYT/dokumentacja/DOKUMENTACJA-FUNKCJONALNA-2-UPRAWNIENIA.txt' );
+if ( '' !== $doc_upr ) {
+	check(
+		false !== strpos( $doc_upr, 'EditorNotice (podpowiedz w edytorze) bramkuje sie capem' ),
+		'RAU-R01-001: UPR-W1-26 opisuje wyjątek EditorNotice'
+	);
+	check(
+		false !== strpos( $doc_upr, 'Bramka druga            : PublishService' ),
+		'RAU-R14-004: UPR-W1-14 opisuje OBIE warstwy bramki'
+	);
+} else {
+	check( false, 'dokumentacja funkcjonalna nieczytelna z testu' );
+}
+
 $floor = $ran;
 check( $floor >= 90, 'wykonano co najmniej 90 asercji (było ' . $floor . ')' );
 

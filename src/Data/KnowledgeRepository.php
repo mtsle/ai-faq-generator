@@ -90,7 +90,17 @@ class KnowledgeRepository extends Repository {
 		// try/finally: wyjątek między START a COMMIT/ROLLBACK NIE może zostawić
 		// otwartej transakcji (zablokowane wiersze do końca requestu).
 		try {
-			$this->delete_by_post( $post_id );
+			/*
+			 * Wynik kasowania SPRAWDZANY. Transakcja była tu od początku, ale
+			 * nieudane skasowanie starych fragmentów jej nie przerywało: wpis
+			 * kończył z PODWOJONYM zestawem i dodatnim wynikiem, jak przy
+			 * sukcesie. Docblock tej metody obiecuje spójność zestawu — dopiero
+			 * ta gałąź czyni z obietnicy warunek.
+			 */
+			if ( false === $this->delete_by_post( $post_id ) ) {
+				$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB
+				return 0;
+			}
 
 			$inserted = 0;
 			$index    = 0;
@@ -126,12 +136,18 @@ class KnowledgeRepository extends Repository {
 	/**
 	 * Usuwa wszystkie fragmenty danego wpisu (przed ponownym indeksowaniem).
 	 *
+	 * Zwraca `false` przy BŁĘDZIE zapytania — inaczej nie da się odróżnić awarii
+	 * od legalnego „nie było czego kasować", bo obie sytuacje dawały `0`.
+	 * Rozróżnienie jest potrzebne {@see replace_for_post()}, która na błędzie
+	 * musi wycofać transakcję: nieskasowane stare fragmenty plus wstawione nowe
+	 * to podwojony zestaw dla jednego wpisu.
+	 *
 	 * @param int $post_id ID wpisu źródłowego.
-	 * @return int Liczba usuniętych fragmentów.
+	 * @return int|false Liczba usuniętych fragmentów albo `false` przy błędzie.
 	 */
-	public function delete_by_post( int $post_id ): int {
+	public function delete_by_post( int $post_id ) {
 		global $wpdb;
-		return (int) $wpdb->delete( static::table(), array( 'post_id' => $post_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		return $wpdb->delete( static::table(), array( 'post_id' => $post_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 	}
 
 	/**
