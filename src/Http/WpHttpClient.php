@@ -42,8 +42,12 @@ class WpHttpClient implements HttpClient {
 	 *         przy błędzie sieci/transportu obiekt `\WP_Error`.
 	 */
 	public function request( string $method, string $url, array $options = array() ) {
-		// Jawny timeout. 0/ujemne = „czekaj w nieskończoność" w cURL → wiszący
-		// worker; traktujemy je jak brak wartości i klampujemy do MAX_TIMEOUT.
+		// DWA RÓŻNE KROKI, nie jeden (REG-W1-35):
+		// 1. brak klucza `timeout` ORAZ wartość 0/ujemna (w cURL „czekaj w nieskończoność"
+		//    → wiszący worker) dają DEFAULT_TIMEOUT, czyli 15 s — nie MAX_TIMEOUT;
+		// 2. dopiero potem wartość jest przycinana z góry do MAX_TIMEOUT (120 s).
+		// Oba progi są obroną dla wołających spoza wtyczki: obaj produkcyjni wołający
+		// GeminiProvider podają timeout jawnie i zawsze z przedziału 5..60 s.
 		$timeout = isset( $options['timeout'] ) ? (int) $options['timeout'] : self::DEFAULT_TIMEOUT;
 		if ( $timeout <= 0 ) {
 			$timeout = self::DEFAULT_TIMEOUT;
