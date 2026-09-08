@@ -6,7 +6,7 @@
  *
  * @package AI_FAQ_Generator
  */
-require __DIR__ . '/l3-shared-state-shim.php';
+require_once __DIR__ . '/l3-shared-state-shim.php';
 
 const LOCK_TTL = 900;
 
@@ -15,7 +15,7 @@ function acquire_lock_after(): bool {
 	if ( add_option( 'lock', (string) $now ) ) {
 		return true;
 	}
-	$held = (int) real_get_option( 'lock', 0 );
+	$held = (int) aifaq_lt_real_get_option( 'lock', 0 );
 	if ( $held > 0 && ( $now - $held ) < LOCK_TTL ) {
 		return false;
 	}

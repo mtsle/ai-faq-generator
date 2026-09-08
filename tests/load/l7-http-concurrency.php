@@ -66,15 +66,47 @@ function fire_batch( int $n ): array {
 echo "=== L7a — Spike/stress REALNY na ai-faq-dev.local ===\n\n";
 
 echo "--- Bezpiecznik: weryfikacja że mock providera jest aktywny (czas < 500ms = mock, > 500ms = PRAWDZIWE Gemini) ---\n";
-$probe = fire_batch( 1 );
-$probe_ms = $probe['results'][0]['time'];
-printf( "  1 żądanie: %.0fms, HTTP %s\n", $probe_ms, $probe['results'][0]['http'] );
+$probe      = fire_batch( 1 );
+$probe_ms   = $probe['results'][0]['time'];
+$probe_http = (int) $probe['results'][0]['http'];
+$probe_err  = (string) $probe['results'][0]['error'];
+printf( "  1 żądanie: %.0fms, HTTP %s\n", $probe_ms, $probe_http );
+
+/*
+ * RAU-R15-005. Bezpiecznik rozstrzygal WYLACZNIE po czasie odpowiedzi sondy.
+ * Skutek: gdy mu-plugin z atrapa dostawcy nie jest wgrany albo padl, a witryna
+ * odpowiada SZYBKO kodem 401/429/500 (albo curl konczy sie bledem przed 500 ms),
+ * skrypt meldowal „mock aktywny, zero kosztu API" i wysylal kolejnych 15 zadan
+ * na trase bijaca w PRAWDZIWE Gemini. Limit chroniacy dobowa pule nie chronil
+ * jej dokladnie w scenariuszu, dla ktorego powstal.
+ *
+ * Dane byly w miejscu decyzji dostepne: `fire_batch()` zwraca `http`, `time`
+ * i `error` — czytany byl tylko `time`. Teraz sonda musi spelnic WSZYSTKIE trzy
+ * warunki, a kazdy niespelniony jest wymieniony z nazwy w komunikacie.
+ *
+ * Kod wyjscia: 1, nie 0. Przerwanie z ochrony budzetu NIE jest sukcesem i musi
+ * dac sie odroznic od przebiegu, ktory doszedl do konca — takze dla powloki.
+ */
+$powody = array();
 if ( $probe_ms > 500 ) {
-	echo "  STOP: czas > 500ms sugeruje PRAWDZIWE wywołanie Gemini (mock nie aktywny lub padł).\n";
-	echo "  Sprawdź wp-content/mu-plugins/aifaq-loadtest-mock-provider.php na ai-faq-dev — NIE kontynuuję (ochrona budżetu API).\n";
-	exit( 0 );
+	$powody[] = sprintf( 'czas %.0f ms > 500 ms (sugeruje PRAWDZIWE wywolanie Gemini)', $probe_ms );
 }
-echo "  OK — mock aktywny, zero kosztu API. Kontynuuję.\n\n";
+if ( 200 !== $probe_http ) {
+	$powody[] = sprintf( 'HTTP %d zamiast 200 (szybka odpowiedz BLEDNA nie jest dowodem na atrape)', $probe_http );
+}
+if ( '' !== $probe_err ) {
+	$powody[] = 'blad curla: ' . $probe_err;
+}
+
+if ( $powody ) {
+	echo "  STOP: sonda nie potwierdza atrapy dostawcy.\n";
+	foreach ( $powody as $powod ) {
+		echo "    - {$powod}\n";
+	}
+	echo "  Sprawdź wp-content/mu-plugins/aifaq-loadtest-mock-provider.php na ai-faq-dev — NIE kontynuuję (ochrona budżetu API).\n";
+	exit( 1 );
+}
+echo "  OK — mock aktywny (HTTP 200, bez bledu curla, ponizej 500 ms), zero kosztu API. Kontynuuję.\n\n";
 
 echo "--- Rosnąca współbieżność (realny HTTP, curl_multi) ---\n";
 printf( "%-8s %8s %8s %10s %10s %10s\n", 'concur', 'OK', 'errors', 'p50(ms)', 'max(ms)', 'batch(s)' );

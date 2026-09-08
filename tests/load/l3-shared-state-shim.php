@@ -43,35 +43,45 @@ function aifaq_lt_write( array $data ): void {
 	fclose( $fh );
 }
 
-function get_transient( string $key ) {
-	$d = aifaq_lt_read();
-	return $d[ $key ] ?? false;
+if ( ! function_exists( 'get_transient' ) ) {
+	function get_transient( string $key ) {
+		$d = aifaq_lt_read();
+		return $d[ $key ] ?? false;
+	}
 }
 
-function set_transient( string $key, $value, int $ttl = 0 ): bool {
-	$d          = aifaq_lt_read();
-	$d[ $key ]  = $value;
-	aifaq_lt_write( $d );
-	return true;
+if ( ! function_exists( 'set_transient' ) ) {
+	function set_transient( string $key, $value, int $ttl = 0 ): bool {
+		$d          = aifaq_lt_read();
+		$d[ $key ]  = $value;
+		aifaq_lt_write( $d );
+		return true;
+	}
 }
 
-function delete_transient( string $key ): bool {
-	$d = aifaq_lt_read();
-	unset( $d[ $key ] );
-	aifaq_lt_write( $d );
-	return true;
+if ( ! function_exists( 'delete_transient' ) ) {
+	function delete_transient( string $key ): bool {
+		$d = aifaq_lt_read();
+		unset( $d[ $key ] );
+		aifaq_lt_write( $d );
+		return true;
+	}
 }
 
-function get_option( string $key, $default = false ) {
-	$d = aifaq_lt_read();
-	return array_key_exists( $key, $d ) ? $d[ $key ] : $default;
+if ( ! function_exists( 'get_option' ) ) {
+	function get_option( string $key, $default = false ) {
+		$d = aifaq_lt_read();
+		return array_key_exists( $key, $d ) ? $d[ $key ] : $default;
+	}
 }
 
-function update_option( string $key, $value ): bool {
-	$d          = aifaq_lt_read();
-	$d[ $key ]  = $value;
-	aifaq_lt_write( $d );
-	return true;
+if ( ! function_exists( 'update_option' ) ) {
+	function update_option( string $key, $value ): bool {
+		$d          = aifaq_lt_read();
+		$d[ $key ]  = $value;
+		aifaq_lt_write( $d );
+		return true;
+	}
 }
 
 function aifaq_lt_reset(): void {
@@ -89,21 +99,25 @@ function aifaq_lt_option_path( string $name ): string {
 	return AIFAQ_LT_STATE_FILE . '.opt_' . preg_replace( '/[^a-z0-9_]/i', '_', $name );
 }
 
-function add_option( string $name, $value, $deprecated = '', $autoload = 'yes' ): bool {
-	$fh = @fopen( aifaq_lt_option_path( $name ), 'x' );
-	if ( ! $fh ) {
-		return false;
+if ( ! function_exists( 'add_option' ) ) {
+	function add_option( string $name, $value, $deprecated = '', $autoload = 'yes' ): bool {
+		$fh = @fopen( aifaq_lt_option_path( $name ), 'x' );
+		if ( ! $fh ) {
+			return false;
+		}
+		fwrite( $fh, (string) $value );
+		fclose( $fh );
+		return true;
 	}
-	fwrite( $fh, (string) $value );
-	fclose( $fh );
-	return true;
 }
 
-function real_get_option( string $name, $default = false ) {
+function aifaq_lt_real_get_option( string $name, $default = false ) {
 	$path = aifaq_lt_option_path( $name );
 	return file_exists( $path ) ? file_get_contents( $path ) : $default;
 }
 
-function delete_option( string $name ): bool {
-	return @unlink( aifaq_lt_option_path( $name ) );
+if ( ! function_exists( 'delete_option' ) ) {
+	function delete_option( string $name ): bool {
+		return @unlink( aifaq_lt_option_path( $name ) );
+	}
 }

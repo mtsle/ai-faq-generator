@@ -6,7 +6,7 @@
  *
  * @package AI_FAQ_Generator
  */
-require __DIR__ . '/l3-shared-state-shim.php';
+require_once __DIR__ . '/l3-shared-state-shim.php';
 
 if ( get_transient( 'lock' ) ) {
 	echo "blocked\n";
