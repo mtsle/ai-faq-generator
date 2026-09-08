@@ -129,6 +129,16 @@ final class Article {
 	public const MAX_CONTENT_CHARS = 20000;
 
 	/**
+	 * Ile razy bramka sufitu ma ponowic przyciecie awaryjne, zanim odda pusto.
+	 *
+	 * Kazda proba tnie o 10% ostrzej. Trzy proby schodza do 72,9% sufitu — a
+	 * roznica, ktora domykaja, to pojedyncze znaki Unicode zmieniajace dlugosc
+	 * przy zmianie wielkosci liter. Skonczona liczba prob jest tu istotna: bez
+	 * niej bramka sufitu bylaby petla bez gwarancji wyjscia.
+	 */
+	private const CAP_FALLBACK_TRIES = 3;
+
+	/**
 	 * Ile limitu pamieci wolno zajac, zanim odpuszczamy kolejny scraping: 80%.
 	 *
 	 * Wyczerpania pamieci NIE LAPIE `try/catch` — proces po prostu ginie
@@ -721,8 +731,18 @@ final class Article {
 	 * z niego tyle, ile wejdzie — dzieki temu artykul w jednym wielkim `<div>`
 	 * tez daje sie przyciac. Ostatni tekst ucinany jest na granicy slowa.
 	 *
-	 * Gdy cokolwiek pojdzie nie tak, wraca tresc NIEZMIENIONA: lepiej oddac
-	 * za duzo niz nic.
+	 * SUFIT OBOWIAZUJE BEZWZGLEDNIE. Do wersji 1.0.0 kazde wyjscie awaryjne
+	 * oddawalo tresc NIEPRZYCIETA, a docblock oglaszal to jako swiadomy wybor
+	 * — bylo ich piec: nieparsowalny dokument, brak `//body`, wyjatek, pusty
+	 * wynik `take()` i sciezka zgodna z regula. Skutek: limit chroniacy baze i prompt
+	 * przestawal obowiazywac dokladnie przy wejsciu niepoprawnym, czyli
+	 * w sytuacji, na ktora zostal zalozony. Dzis kazda z tych sciezek schodzi
+	 * do `cap_hard()`: tresc traci znaczniki, ale miesci sie w sufinie.
+	 *
+	 * Zabezpieczenie jest w JEDNYM wyjsciu z metody — petla ponizej mierzy
+	 * wynik i nie wypuszcza go, dopoki nie zejdzie pod sufit. Nowa gałąź
+	 * bledu dolozona kiedykolwiek w przyszlosci przechodzi przez te sama
+	 * bramke, bez pamietania o niej przez autora.
 	 *
 	 * @param string $html Tresc.
 	 *
@@ -733,31 +753,134 @@ final class Article {
 			return $html;
 		}
 
+		$wynik = self::cap_dom( $html );
+
+		if ( '' === trim( $wynik ) ) {
+			$wynik = self::cap_hard( $html, self::MAX_CONTENT_CHARS );
+		}
+
+		/*
+		 * BRAMKA SUFITU — jedyne wyjscie z `cap()`. `cap_hard()` liczy znaki na
+		 * tekscie golym, a `text_length()` mierzy je po `mb_strtolower()`;
+		 * dla kilku znakow Unicode zmiana wielkosci liter zmienia dlugosc, wiec
+		 * jedno przejscie nie jest matematyczna gwarancja. Petla domyka roznice,
+		 * a gdy i to zawiedzie, oddajemy PUSTO — nigdy ponad sufit.
+		 */
+		$limit = self::MAX_CONTENT_CHARS;
+		$proba = 0;
+
+		while ( self::text_length( $wynik ) > self::MAX_CONTENT_CHARS ) {
+			++$proba;
+
+			if ( $proba > self::CAP_FALLBACK_TRIES ) {
+				return '';
+			}
+
+			$limit = (int) floor( $limit * 0.9 );
+			$wynik = self::cap_hard( $html, $limit );
+		}
+
+		return $wynik;
+	}
+
+	/**
+	 * Przyciecie po drzewie dokumentu — albo pusty lancuch, gdy sie nie da.
+	 *
+	 * Wydzielone z `cap()` po to, zeby wszystkie sciezki awaryjne konczyly sie
+	 * jedna wartoscia (pusty lancuch) i przechodzily przez jedna bramke sufitu,
+	 * zamiast kazda oddawac wlasny wynik prosto do wywolujacego.
+	 *
+	 * @param string $html Tresc.
+	 *
+	 * @return string Przycieta tresc albo pusty lancuch przy kazdym niepowodzeniu.
+	 */
+	private static function cap_dom( string $html ): string {
 		$poprzedni = libxml_use_internal_errors( true );
 
 		try {
 			$xpath = self::load( $html );
 
 			if ( null === $xpath ) {
-				return $html;
+				return '';
 			}
 
 			$body = $xpath->query( '//body' );
 
 			if ( false === $body || 0 === $body->length ) {
-				return $html;
+				return '';
 			}
 
 			$budzet = self::MAX_CONTENT_CHARS;
-			$wynik  = self::take( $body->item( 0 ), $budzet );
 
-			return ( '' === trim( $wynik ) ) ? $html : $wynik;
+			return self::take( $body->item( 0 ), $budzet );
 		} catch ( \Throwable $e ) {
-			return $html;
+			return '';
 		} finally {
 			libxml_clear_errors();
 			libxml_use_internal_errors( $poprzedni );
 		}
+	}
+
+	/**
+	 * Przyciecie awaryjne: goly tekst na granicy slowa, znaki specjalne zakodowane.
+	 *
+	 * Uzywane wtedy, gdy drzewa dokumentu nie da sie zbudowac. Tresc traci
+	 * znaczniki — to jest cena za dotrzymanie sufitu i swiadomy wybor: material
+	 * i tak idzie do modelu jako tekst, a `Runner` bierze z niego `text_length()`,
+	 * nie strukture.
+	 *
+	 * @param string $html  Tresc.
+	 * @param int    $limit Sufit znakow.
+	 *
+	 * @return string
+	 */
+	private static function cap_hard( string $html, int $limit ): string {
+		$tekst = self::plain_text( $html );
+
+		if ( '' === $tekst || 0 >= $limit ) {
+			return '';
+		}
+
+		/*
+		 * Dlugosc mierzona wprost, NIE przez `text_length()`. Tekst jest tu juz
+		 * goly, a `text_length()` przepuscilby go przez `strip_tags()` po raz
+		 * drugi — i zjadl kazdy fragment WYGLADAJACY jak znacznik. Artykul
+		 * cytujacy `<script>` w tresci mierzylby wtedy o polowe mniej, niz waza
+		 * jego znaki, bramka sufitu w `cap()` odrzucalaby wynik jako za dlugi,
+		 * a po wyczerpaniu prob oddawalaby PUSTO. Zmierzone na materiale
+		 * 22 499 znakow: `text_length()` mowilo 9 499.
+		 */
+		$dlugosc = function_exists( 'mb_strlen' ) ? mb_strlen( $tekst, 'UTF-8' ) : strlen( $tekst );
+
+		if ( $dlugosc <= $limit ) {
+			return htmlspecialchars( $tekst, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8' );
+		}
+
+		// `cut_text()` doklada wielokropek, wiec budzet znakow jest o ten jeden mniejszy.
+		return self::cut_text( $tekst, max( 1, $limit - 1 ) );
+	}
+
+	/**
+	 * Goly tekst z HTML-a, z zachowana wielkoscia liter.
+	 *
+	 * To sa dokladnie te same kroki co w `Dedup::normalize_text()` — z ktorych
+	 * `text_length()` liczy dlugosc — BEZ ostatniego, sprowadzajacego tekst do
+	 * malych liter. Dzieki temu dlugosc mierzona tu i dlugosc mierzona przez
+	 * sufit to ta sama liczba, a tresc nadaje sie do czytania.
+	 *
+	 * @param string $html Tresc.
+	 *
+	 * @return string
+	 */
+	private static function plain_text( string $html ): string {
+		$tekst = Dedup::valid_utf8( $html );
+		$tekst = (string) preg_replace( '#<(script|style)\b[^>]*>.*?</\1>#is', ' ', $tekst );
+		$tekst = strip_tags( $tekst );
+		$tekst = html_entity_decode( $tekst, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$tekst = str_replace( "\xC2\xA0", ' ', $tekst );
+		$tekst = (string) preg_replace( '/\s+/u', ' ', $tekst );
+
+		return trim( $tekst );
 	}
 
 	/**
@@ -845,18 +968,27 @@ final class Article {
 	}
 
 	/**
-	 * Tnie goly tekst na granicy slowa.
+	 * Tnie goly tekst na granicy slowa i KODUJE znaki specjalne.
+	 *
+	 * Kodowanie jest tu obowiazkowe, bo wynik jest doklejany do HTML-a obok
+	 * kawalkow z `saveHTML()`. `saveHTML()` koduje `& < >` z powrotem na encje,
+	 * a ta galaz do wersji 1.0.0 oddawala surowy `textContent` — wiec tekst
+	 * zapisany w zrodle jako `&lt;script&gt;` wracal do tresci jako DZIALAJACY
+	 * znacznik. Obie galezie przycinania maja miec jedno zachowanie wobec
+	 * kodowania i `ENT_NOQUOTES` jest tym samym zestawem, ktory stosuje
+	 * `saveHTML()` w wezle tekstowym: cudzyslowy w tekscie nie sa znacznikiem.
 	 *
 	 * @param string $tekst Tekst.
 	 * @param int    $limit Ile znakow zostawic.
 	 *
-	 * @return string
+	 * @return string HTML — tekst z zakodowanymi znakami specjalnymi.
 	 */
 	private static function cut_text( string $tekst, int $limit ): string {
 		$ciety = function_exists( 'mb_substr' ) ? mb_substr( $tekst, 0, $limit, 'UTF-8' ) : substr( $tekst, 0, $limit );
 		$spacja = strrpos( $ciety, ' ' );
+		$ciety  = rtrim( ( false === $spacja || $spacja < 1 ) ? $ciety : substr( $ciety, 0, $spacja ) );
 
-		return rtrim( ( false === $spacja || $spacja < 1 ) ? $ciety : substr( $ciety, 0, $spacja ) ) . '…';
+		return htmlspecialchars( $ciety, ENT_NOQUOTES | ENT_SUBSTITUTE, 'UTF-8' ) . '…';
 	}
 
 	/**

@@ -37,14 +37,32 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class Filter {
 
 	/**
-	 * Sufit tekstu branego do porownania: 128 KB.
+	 * Sufit tekstu branego do porownania: 128 KB — mierzony po `normalize()`.
 	 *
 	 * Kanal z pelna trescia potrafi podac artykul na kilkaset kilobajtow, a
 	 * kazde slowo z listy to osobne przejscie wyrazeniem regularnym. Slowo
-	 * wykluczajace, ktore pojawia sie dopiero w 129. kilobajcie tekstu, i tak
+	 * wykluczajace, ktore pojawia sie dopiero w 129. kilobajcie TEKSTU, i tak
 	 * nie mowi nic o temacie artykulu.
+	 *
+	 * Slowo TEKSTU jest tu istotne. Do wersji 1.0.0 przyciecie stalo przed
+	 * `normalize()`, wiec sufit mierzyl znaczniki razem z trescia i pozycja
+	 * z rozbudowanym HTML-em trafiala do filtra okrojona.
 	 */
 	public const MAX_HAYSTACK_BYTES = 131072;
+
+	/**
+	 * Sufit SUROWEJ sklejki wchodzacej do `normalize()`: 1 MB.
+	 *
+	 * To jest bramka KOSZTU, nie sufit tresci — po to, zeby zdejmowanie
+	 * znacznikow nie chodzilo po calym kanale wazacym `Http::LIMIT_FEED`
+	 * (4 MB). Wartosc przeliczona, nie przepisana: osiem razy `MAX_HAYSTACK_BYTES`
+	 * odpowiada dokumentowi, w ktorym na jeden bajt tekstu przypada siedem
+	 * bajtow znacznikow — a to juz skrajnosc, bo pola pozycji przechodza
+	 * przez `Feed::clean_text()`, ktore znaczniki zdejmuje u zrodla. Liczba
+	 * rowna sie `Http::LIMIT_ARTICLE`: filtr nie oglada wiecej bajtow, niz
+	 * wolno wazyc calemu pobranemu artykulowi.
+	 */
+	public const MAX_HAYSTACK_INPUT_BYTES = 1048576;
 
 	/** Poczatek notatki zapisywanej przy pominietej pozycji. */
 	public const NOTE_PREFIX = 'Słowo wykluczające: ';
@@ -231,13 +249,36 @@ final class Filter {
 
 		$tekst = implode( ' ', $czesci );
 
+		/*
+		 * BRAMKA KOSZTU — na sklejce SUROWEJ, przed zdjeciem znacznikow. Nie
+		 * jest sufitem tresci: jej jedynym zadaniem jest ograniczyc, ile bajtow
+		 * przerabia `normalize()`. Stad wartosc az osiem razy wieksza od sufitu
+		 * — patrz `MAX_HAYSTACK_INPUT_BYTES`.
+		 */
+		if ( strlen( $tekst ) > self::MAX_HAYSTACK_INPUT_BYTES ) {
+			$tekst = function_exists( 'mb_strcut' )
+				? mb_strcut( $tekst, 0, self::MAX_HAYSTACK_INPUT_BYTES, 'UTF-8' )
+				: substr( $tekst, 0, self::MAX_HAYSTACK_INPUT_BYTES );
+		}
+
+		$tekst = self::normalize( $tekst );
+
+		/*
+		 * SUFIT TRESCI — dopiero TERAZ, po zdjeciu znacznikow. Do wersji 1.0.0
+		 * przyciecie stalo PRZED `normalize()`, wiec 128 KB konsumowaly
+		 * znaczniki zamiast tekstu artykulu: pozycja z rozbudowanym HTML-em
+		 * i krotkim tekstem trafiala do filtra okrojona, a slowo wykluczajace
+		 * z konca tresci nie bylo w ogole ogladane.
+		 */
 		if ( strlen( $tekst ) > self::MAX_HAYSTACK_BYTES ) {
 			$tekst = function_exists( 'mb_strcut' )
 				? mb_strcut( $tekst, 0, self::MAX_HAYSTACK_BYTES, 'UTF-8' )
 				: substr( $tekst, 0, self::MAX_HAYSTACK_BYTES );
+
+			$tekst = rtrim( $tekst );
 		}
 
-		return self::normalize( $tekst );
+		return $tekst;
 	}
 
 	/**

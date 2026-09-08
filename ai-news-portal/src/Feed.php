@@ -45,6 +45,19 @@ final class Feed {
 	/** Przestrzen nazw Atoma. */
 	public const NS_ATOM = 'http://www.w3.org/2005/Atom';
 
+	/** Przestrzen nazw XHTML — tresc wpisu Atoma przy `type="xhtml"`. */
+	public const NS_XHTML = 'http://www.w3.org/1999/xhtml';
+
+	/**
+	 * Ile poczatkowych bajtow kanalu liczy sie jako prolog: 4 KB.
+	 *
+	 * Deklaracja XML stoi w pierwszej linii, a doklejka z motywu, ktora ja
+	 * spycha (komunikat PHP, pusta linia), ma kilkadziesiat bajtow. Granica
+	 * jest po to, zeby `strip_prolog()` nie szukal deklaracji w tresci
+	 * artykulow — patrz komentarz przy tej metodzie.
+	 */
+	private const MAX_PROLOG_BYTES = 4096;
+
 	/**
 	 * Rozklada kanal na pozycje.
 	 *
@@ -171,6 +184,15 @@ final class Feed {
 	/**
 	 * Atom.
 	 *
+	 * Wpisy czytane przez `children( NS_ATOM )`, nie przez sama nazwe lokalna.
+	 * Do wersji 1.0.0 stala `NS_ATOM` byla MARTWA (jedno trafienie w calym
+	 * repozytorium — wlasna deklaracja), a dostep szedl przez `$doc->entry`.
+	 * Kanal `<atom:feed>`/`<atom:entry>` — prefiksowany, calkowicie poprawny —
+	 * konczyl sie wiec wynikiem ok=true z ZEREM pozycji i pustym polem bledu:
+	 * wlasciciel widzial „kanal bez nowosci" zamiast informacji o formacie.
+	 * Wariant z przestrzenia domyslna przechodzi ta sama galezia, bo dla niego
+	 * `children( NS_ATOM )` tez zwraca wpisy.
+	 *
 	 * @param \SimpleXMLElement $doc Dokument.
 	 *
 	 * @return array<string,mixed>
@@ -178,8 +200,9 @@ final class Feed {
 	private static function parse_atom( \SimpleXMLElement $doc ): array {
 		$items   = array();
 		$skipped = 0;
+		$wpisy   = self::atom_kids( $doc );
 
-		foreach ( $doc->entry as $entry ) {
+		foreach ( $wpisy->entry as $entry ) {
 			$url = self::atom_link( $entry );
 
 			if ( ! Http::is_http_url( $url ) ) {
@@ -187,20 +210,52 @@ final class Feed {
 				continue;
 			}
 
+			$pola = self::atom_kids( $entry );
+
 			$items[] = array(
-				'title'     => self::clean_title( (string) $entry->title ),
+				'title'     => self::clean_title( (string) $pola->title ),
 				'url'       => $url,
-				'summary'   => self::clean_text( (string) $entry->summary ),
+				'summary'   => self::clean_text( (string) $pola->summary ),
 				'content'   => self::atom_content( $entry ),
-				'guid'      => self::clean_text( (string) $entry->id ),
+				'guid'      => self::clean_text( (string) $pola->id ),
 				'published' => self::to_timestamp(
-					(string) $entry->published,
-					(string) $entry->updated
+					(string) $pola->published,
+					(string) $pola->updated
 				),
 			);
 		}
 
-		return self::result( true, '', 'atom', self::clean_title( (string) $doc->title ), $items, $skipped );
+		/*
+		 * ZERO POZYCJI BEZ POWODU JEST BLEDEM, nie sukcesem. Naglowek tej klasy
+		 * obiecuje „czytelny blad zamiast cichej pustki" — a pusta lista przy
+		 * `skipped === 0` znaczy, ze w kanale nie bylo ANI JEDNEGO elementu
+		 * `<entry>`, ktory umiemy odczytac. Gdy wpisy byly, ale odpadly na
+		 * adresie, `skipped` jest dodatni i to juz jest opisany wynik — takiego
+		 * kanalu nie zglaszamy jako bledu.
+		 */
+		if ( 0 === count( $items ) && 0 === $skipped ) {
+			return self::result( false, 'Kanal Atom bez ani jednego wpisu <entry>' );
+		}
+
+		return self::result( true, '', 'atom', self::clean_title( (string) self::atom_kids( $doc )->title ), $items, $skipped );
+	}
+
+	/**
+	 * Dzieci elementu w przestrzeni Atoma, z odwrotem na przestrzen domyslna.
+	 *
+	 * Kanal deklarujacy Atom jako przestrzen domyslna ORAZ kanal prefiksowany
+	 * (`<atom:feed>`) przechodza pierwsza galezia. Odwrot jest dla kanalow,
+	 * ktore przestrzeni nie deklaruja wcale — takie w naturze wystepuja i do
+	 * wersji 1.0.0 dzialaly.
+	 *
+	 * @param \SimpleXMLElement $element Element.
+	 *
+	 * @return \SimpleXMLElement
+	 */
+	private static function atom_kids( \SimpleXMLElement $element ): \SimpleXMLElement {
+		$w_przestrzeni = $element->children( self::NS_ATOM );
+
+		return ( null !== $w_przestrzeni && $w_przestrzeni->count() > 0 ) ? $w_przestrzeni : $element;
 	}
 
 	/**
@@ -239,9 +294,18 @@ final class Feed {
 	private static function atom_link( \SimpleXMLElement $entry ): string {
 		$zapasowy = '';
 
-		foreach ( $entry->link as $link ) {
-			$rel  = isset( $link['rel'] ) ? strtolower( (string) $link['rel'] ) : '';
-			$href = self::clean_text( (string) $link['href'] );
+		// Atrybuty `rel` i `href` przestrzeni NIE maja — tylko sam element.
+		foreach ( self::atom_kids( $entry )->link as $link ) {
+			/*
+			 * Atrybuty pobierane JAWNIE przez `attributes()`. Zapis `$link['rel']`
+			 * szuka atrybutu w biezacej przestrzeni nazw elementu, a po przejsciu
+			 * na `children( NS_ATOM )` ta przestrzen to Atom — natomiast `rel`
+			 * i `href` sa w Atomie NIEPRZESTRZENNE. Bez tego oba wychodzily null
+			 * i kazdy wpis odpadal na bramce adresu.
+			 */
+			$atrybuty = $link->attributes();
+			$rel      = isset( $atrybuty['rel'] ) ? strtolower( (string) $atrybuty['rel'] ) : '';
+			$href     = isset( $atrybuty['href'] ) ? self::clean_text( (string) $atrybuty['href'] ) : '';
 
 			if ( '' === $href ) {
 				continue;
@@ -271,16 +335,31 @@ final class Feed {
 	 * @return string
 	 */
 	private static function atom_content( \SimpleXMLElement $entry ): string {
-		if ( ! isset( $entry->content ) ) {
+		$pola = self::atom_kids( $entry );
+
+		if ( ! isset( $pola->content ) ) {
 			return '';
 		}
 
-		$content = $entry->content;
-		$type    = isset( $content['type'] ) ? strtolower( (string) $content['type'] ) : '';
+		$content  = $pola->content;
+		$atrybuty = $content->attributes();
+		$type     = isset( $atrybuty['type'] ) ? strtolower( (string) $atrybuty['type'] ) : '';
 
 		if ( 'xhtml' === $type ) {
+			/*
+			 * Tresc `type="xhtml"` siedzi w przestrzeni XHTML, nie w Atomie —
+			 * a `children()` bez argumentu bierze dzieci w przestrzeni BIEZACEJ,
+			 * czyli po `atom_kids()` w Atomie. Odwrot jest dla kanalow, ktore
+			 * przestrzeni XHTML nie deklaruja.
+			 */
+			$wezly = $content->children( self::NS_XHTML );
+
+			if ( null === $wezly || 0 === $wezly->count() ) {
+				$wezly = $content->children();
+			}
+
 			$html = '';
-			foreach ( $content->children() as $dziecko ) {
+			foreach ( $wezly as $dziecko ) {
 				$html .= $dziecko->asXML();
 			}
 			return self::clean_text( $html );
@@ -368,6 +447,18 @@ final class Feed {
 	 * bledu „XML declaration allowed only at the start of the document" —
 	 * kanal jest poprawny, psuje go doklejka z motywu albo z wtyczki serwera.
 	 *
+	 * Deklaracja szukana WYLACZNIE w prologu — ta sama poprawka, ktora przeszla
+	 * obok `has_doctype()`. Do wersji 1.0.0 `strpos()` szukal `<?xml` w CALYM
+	 * dokumencie i obcinal wszystko przed pierwszym trafieniem, wiec kanal bez
+	 * deklaracji, ktory cytowal ja dalej w CDATA — normalna tresc na blogu
+	 * o technologii — zostawal przyciety do smiecia i odrzucany w CALOSCI,
+	 * razem z wszystkimi pozycjami.
+	 *
+	 * Prolog konczy sie na pierwszym `<`: dalej stoi juz element (albo cytat
+	 * w jego wnetrzu) i nic tam nie jest deklaracja dokumentu. Drugi warunek to
+	 * `MAX_PROLOG_BYTES` — doklejka z motywu ma kilkadziesiat bajtow, a skan
+	 * bez granicy jest kosztem liniowym na kazdym kanale.
+	 *
 	 * @param string $xml Tresc.
 	 *
 	 * @return string
@@ -376,8 +467,12 @@ final class Feed {
 		$xml = (string) preg_replace( '/^\xEF\xBB\xBF/', '', $xml );
 		$xml = ltrim( $xml );
 
-		$pozycja = strpos( $xml, '<?xml' );
-		if ( false !== $pozycja && $pozycja > 0 ) {
+		$prolog  = substr( $xml, 0, self::MAX_PROLOG_BYTES );
+		$pozycja = strpos( $prolog, '<?xml' );
+
+		// `<` przed deklaracja znaczy, ze dokument juz sie zaczal — wtedy to nie
+		// jest prolog, tylko cytat w tresci.
+		if ( false !== $pozycja && $pozycja > 0 && false === strpos( substr( $prolog, 0, $pozycja ), '<' ) ) {
 			$xml = substr( $xml, $pozycja );
 		}
 
@@ -387,11 +482,45 @@ final class Feed {
 	/**
 	 * Tekst bez znacznikow, encji i nadmiarowych bialych znakow.
 	 *
+	 * Do wersji 1.0.0 cialo tej metody bylo jednym `return trim()`, mimo tego
+	 * opisu — a to ona czysci adres, zajawke, tresc i guida w OBU galeziach
+	 * parsera. Skutek: `<description>` i `<content:encoded>` z pelnym HTML-em
+	 * (norma w kanalach z pelna trescia) trafialy ze znacznikami do tablicy
+	 * pozycji, do bazy i do sufitu dlugosci w `Filter::haystack()`.
+	 *
+	 * PODZIAL NA AKAPITY ZOSTAJE. Zwykle zwiniecie bialych znakow sklejaloby
+	 * caly artykul w jeden blok — dlatego znaczniki konca bloku zamieniaja sie
+	 * najpierw w znak konca linii, a zwijanie dziala w obrebie linii.
+	 *
 	 * @param string $tekst Wejscie.
 	 *
 	 * @return string
 	 */
 	private static function clean_text( string $tekst ): string {
+		if ( '' === $tekst ) {
+			return '';
+		}
+
+		$tekst = Dedup::valid_utf8( $tekst );
+
+		// Tresc skryptu i stylu nie jest tekstem — znika RAZEM ze znacznikiem.
+		$tekst = (string) preg_replace( '#<(script|style)\b[^>]*>.*?</\1>#is', ' ', $tekst );
+
+		// Koniec bloku i lamanie linii to granica akapitu, nie spacja.
+		$tekst = (string) preg_replace( '#<br\b[^>]*/?>#i', "\n", $tekst );
+		$tekst = (string) preg_replace( '#</(p|div|li|tr|h[1-6]|blockquote|pre|section|article)\s*>#i', "\n\n", $tekst );
+
+		$tekst = strip_tags( $tekst );
+		$tekst = html_entity_decode( $tekst, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+
+		// Twarda spacja z `&nbsp;` to inny bajt niz spacja.
+		$tekst = str_replace( "\xC2\xA0", ' ', $tekst );
+
+		// Zwijanie W OBREBIE LINII, potem ograniczenie pustych linii do jednej.
+		$tekst = (string) preg_replace( '/[^\S\n]+/u', ' ', $tekst );
+		$tekst = (string) preg_replace( '/[^\S\n]*\n[^\S\n]*/u', "\n", $tekst );
+		$tekst = (string) preg_replace( '/\n{3,}/u', "\n\n", $tekst );
+
 		return trim( $tekst );
 	}
 

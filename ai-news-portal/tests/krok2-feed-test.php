@@ -61,6 +61,9 @@ set_error_handler(
 );
 
 require_once $root . '/src/Http.php';
+// `Feed::clean_text()` bierze z `Dedup` ochrone przed polamanym UTF-8 — ta sama
+// definicja golego tekstu, ktorej uzywa `Filter::normalize()`.
+require_once $root . '/src/Dedup.php';
 require_once $root . '/src/Feed.php';
 
 use AINP\Feed;
@@ -114,9 +117,16 @@ k2f_check(
 );
 k2f_check( 'https://psy.pl/karma-bytowa/' === $i['url'], 'RSS: adres z <link>' );
 k2f_check( 'Krotki zajawka.' === $i['summary'], 'RSS: zajawka z <description>' );
+/*
+ * ZMIENIONA przy naprawie RAU-R04-002. Do wersji 1.0.0 ta asercja zadala
+ * znacznikow w polu `content` — czyli utrwalala dokladnie ten defekt, ktory
+ * naprawiamy: `clean_text()` deklarowala w docbloku zdjecie znacznikow, encji
+ * i bialych znakow, a wykonywala samo `trim()`. Pytanie zostaje to samo (czy
+ * tresc z CDATA dochodzi w calosci), tylko zadane o TEKST, nie o znacznik.
+ */
 k2f_check(
-	'<p>Pelna tresc <strong>z CDATA</strong>.</p>' === $i['content'],
-	'RSS: content:encoded z CDATA, ze znacznikami HTML'
+	'Pelna tresc z CDATA.' === $i['content'],
+	'RSS: content:encoded z CDATA dochodzi jako TEKST, bez znacznikow'
 );
 k2f_check( 'psy-pl-123' === $i['guid'], 'RSS: guid zachowany' );
 k2f_check( strtotime( 'Tue, 04 Aug 2026 08:30:00 +0200' ) === $i['published'], 'RSS: data z pubDate' );
@@ -194,15 +204,18 @@ k2f_check( 1 === $out['skipped'], 'Atom: wpis wylacznie z rel="self" pominiety' 
 
 $i = $out['items'][0];
 k2f_check( 'https://example.org/wpis-1/' === $i['url'], 'Atom: rel="alternate" wygrywa z rel="self"' );
-k2f_check( '<p>Tresc HTML</p>' === $i['content'], 'Atom: tresc type="html" rozkodowana' );
+// ZMIENIONA przy naprawie RAU-R04-002 — patrz uzasadnienie przy asercji RSS wyzej.
+k2f_check( 'Tresc HTML' === $i['content'], 'Atom: tresc type="html" rozkodowana i bez znacznikow' );
 k2f_check( 'Zajawka Atoma.' === $i['summary'], 'Atom: zajawka z <summary>' );
 k2f_check( 'tag:example.org,2026:1' === $i['guid'], 'Atom: <id> trafia do guid' );
 k2f_check( strtotime( '2026-08-01T09:00:00Z' ) === $i['published'], 'Atom: published ma pierwszenstwo' );
 
 $i = $out['items'][1];
 k2f_check( 'https://example.org/wpis-2/' === $i['url'], 'Atom: <link> bez rel liczy sie jak alternate' );
+// ZMIENIONA przy naprawie RAU-R04-002 — pytanie („czy tresc z wezlow doszla,
+// zamiast pustego lancucha") zostaje, badane na tekscie zamiast na znaczniku.
 k2f_check(
-	false !== strpos( $i['content'], '<p>Akapit w wezlach</p>' ),
+	'Akapit w wezlach' === $i['content'],
 	'Atom: tresc type="xhtml" wyciagnieta z wezlow, nie pusta'
 );
 k2f_check( strtotime( '2026-08-05T09:00:00Z' ) === $i['published'], 'Atom: updated jako zapas' );
@@ -323,8 +336,14 @@ $cdata = '<?xml version="1.0"?><rss version="2.0"><channel><title>Blog</title>'
 $out = Feed::parse( $cdata );
 k2f_check( true === $out['ok'], 'DOCTYPE w CDATA: kanal NIE jest kasowany' );
 k2f_check( 1 === count( $out['items'] ), 'DOCTYPE w CDATA: pozycja doszla' );
+/*
+ * ZMIENIONA przy naprawie RAU-R04-002. Pytanie tej asercji brzmi „czy kanal
+ * przezyl DOCTYPE w CDATA i oddal tresc pozycji", a nie „czy znacznik przetrwal
+ * czyszczenie". Po naprawie `clean_text()` zdejmuje znaczniki — takze cytowany
+ * `<!DOCTYPE html>` — wiec badamy TEKST zdania, ktory nadal ma przyjsc caly.
+ */
 k2f_check(
-	false !== strpos( $out['items'][0]['content'], '<!DOCTYPE html>' ),
+	false !== strpos( $out['items'][0]['content'], 'Kazdy plik zaczyna sie od' ),
 	'DOCTYPE w CDATA: tresc artykulu zachowana w calosci'
 );
 
@@ -438,6 +457,181 @@ k2f_check( ! isset( $nazwy['LIBXML_DTDLOAD'] ), 'kod nie laduje DTD' );
 k2f_check( ! isset( $nazwy['file_get_contents'] ), 'parser nie czyta z dysku' );
 k2f_check( isset( $nazwy['LIBXML_NONET'] ), 'kod ustawia LIBXML_NONET' );
 k2f_check( ! isset( $nazwy['simplexml_load_file'] ), 'parser nie laduje XML-a z adresu' );
+
+// ---------------------------------------------------------------------------
+echo "\n-- RAU-R04-002: clean_text() realizuje swoj docblock --\n";
+// ---------------------------------------------------------------------------
+/*
+ * Do wersji 1.0.0 cialo `clean_text()` bylo jednym `return trim()`, mimo ze
+ * docblock deklarowal zdjecie znacznikow, encji i nadmiarowych bialych znakow.
+ * A to ona czysci adres, zajawke, tresc i guida w OBU galeziach parsera — wiec
+ * `<description>` i `<content:encoded>` z pelnym HTML-em (norma w kanalach
+ * z pelna trescia) szly ze znacznikami do tablicy pozycji, do bazy i do sufitu
+ * dlugosci w `Filter::haystack()`.
+ */
+$brudny = '<?xml version="1.0" encoding="UTF-8"?>'
+	. '<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>'
+	. '<title>Kanal z pelna trescia</title><item>'
+	. '<title>Karma bytowa</title>'
+	. '<link>https://psy.pl/a/?x=1&amp;y=2</link>'
+	. '<description><![CDATA[<div class="lead"><strong>Zajawka</strong> z&nbsp;HTML-em.</div>]]></description>'
+	. '<content:encoded><![CDATA[<p>Pierwszy akapit.</p><p>Drugi akapit.</p>'
+	. '<script>alert("x")</script><style>.a{color:red}</style>]]></content:encoded>'
+	. '<guid isPermaLink="false">psy-pl-777</guid>'
+	. '</item></channel></rss>';
+
+$out = Feed::parse( $brudny );
+k2f_check( true === $out['ok'], 'R04-002: kanal z pelna trescia sparsowany' );
+$i = $out['items'][0];
+
+k2f_check(
+	false === strpos( $i['content'], '<' ) && false === strpos( $i['content'], '>' ),
+	'R04-002: tresc wychodzi BEZ znacznikow'
+);
+k2f_check(
+	false === strpos( $i['summary'], '<' ) && false === strpos( $i['summary'], '>' ),
+	'R04-002: zajawka wychodzi BEZ znacznikow'
+);
+k2f_check(
+	false === strpos( $i['content'], 'alert("x")' ),
+	'R04-002: TRESC skryptu znika razem ze znacznikiem, nie zostaje tekstem'
+);
+k2f_check(
+	false === strpos( $i['content'], 'color:red' ),
+	'R04-002: tresc stylu znika razem ze znacznikiem'
+);
+k2f_check(
+	false === strpos( $i['summary'], '&nbsp;' ) && false === strpos( $i['summary'], "\xC2\xA0" ),
+	'R04-002: encje rozwiniete, twarda spacja zamieniona na zwykla'
+);
+k2f_check(
+	'https://psy.pl/a/?x=1&y=2' === $i['url'],
+	'R04-002: adres z encja `&amp;` wychodzi rozkodowany (' . $i['url'] . ')'
+);
+
+// PODZIAL NA AKAPITY ZOSTAJE — zwykle zwiniecie bialych znakow skleiloby
+// caly artykul w jeden blok, a to material, ktory idzie do modelu.
+k2f_check(
+	false !== strpos( $i['content'], "\n" ),
+	'R04-002: tresc zachowuje podzial na akapity'
+);
+k2f_check(
+	1 === preg_match( '/Pierwszy akapit\.\s*\n+\s*Drugi akapit\./', $i['content'] ),
+	'R04-002: granica miedzy akapitami to znak konca linii, nie spacja'
+);
+
+// Kontrola negatywna: pole bez znacznikow ma przejsc NIETKNIETE poza trimem.
+$czysty = '<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><item>'
+	. '<title>Tytul</title><link>https://psy.pl/b/</link>'
+	. '<description>  Zwykla zajawka bez HTML-u.  </description>'
+	. '<guid isPermaLink="false">g-1</guid></item></channel></rss>';
+$out2 = Feed::parse( $czysty );
+k2f_check(
+	'Zwykla zajawka bez HTML-u.' === $out2['items'][0]['summary'],
+	'R04-002: tekst bez znacznikow przechodzi bez zmian poza trimem'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n-- RAU-R04-001: deklaracja XML szukana WYLACZNIE w prologu --\n";
+// ---------------------------------------------------------------------------
+/*
+ * `strip_prolog()` szukalo `<?xml` w CALYM dokumencie i obcinalo wszystko przed
+ * pierwszym trafieniem. Kanal BEZ deklaracji, ktory cytuje ja dalej w CDATA
+ * — normalna tresc na blogu o technologii — zostawal przyciety do smiecia
+ * i odrzucany W CALOSCI, razem z wszystkimi pozycjami.
+ */
+$cytat = '<rss version="2.0"><channel><title>Blog techniczny</title><item>'
+	. '<title>Jak zaczac plik XML</title><link>https://blog.pl/xml/</link>'
+	. '<description><![CDATA[Kazdy plik zaczyna sie od <?xml version="1.0"?> i to jest regula.]]></description>'
+	. '<guid isPermaLink="false">blog-xml-1</guid></item></channel></rss>';
+$out3 = Feed::parse( $cytat );
+k2f_check( true === $out3['ok'], 'R04-001: kanal bez deklaracji, cytujacy ja w CDATA, NIE jest odrzucony (' . $out3['error'] . ')' );
+k2f_check( 1 === count( $out3['items'] ), 'R04-001: pozycja z takiego kanalu doszla' );
+k2f_check(
+	false !== strpos( $out3['items'][0]['summary'], 'Kazdy plik zaczyna sie od' ),
+	'R04-001: tresc cytujaca deklaracje zachowana'
+);
+
+// Kontrola pozytywna: prawdziwa doklejka PRZED deklaracja nadal jest scinana.
+$doklejka = "\n\n  " . '<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><item>'
+	. '<title>Tytul</title><link>https://psy.pl/c/</link><guid isPermaLink="false">g-2</guid>'
+	. '</item></channel></rss>';
+$out4 = Feed::parse( $doklejka );
+k2f_check( true === $out4['ok'], 'R04-001: doklejka przed deklaracja nadal scinana — kanal parsuje sie' );
+
+// Doklejka niebiala, ale krotka — mieszczaca sie w prologu — tez ma byc scieta.
+$notice = 'Notice: Undefined index: x in /var/www/motyw.php on line 12. ';
+$krotka = $notice . '<?xml version="1.0"?><rss version="2.0"><channel><title>T</title><item>'
+	. '<title>Tytul</title><link>https://psy.pl/d/</link><guid isPermaLink="false">g-3</guid>'
+	. '</item></channel></rss>';
+k2f_check( strlen( $notice ) < 4096, 'material: komunikat motywu miesci sie w prologu' );
+k2f_check( true === Feed::parse( $krotka )['ok'], 'R04-001: komunikat motywu przed deklaracja jest scinany' );
+
+/*
+ * GRANICA PROLOGU. Doklejka dluzsza niz `MAX_PROLOG_BYTES` przestaje byc
+ * prologiem — i tak ma byc: skan bez granicy to koszt liniowy na kazdym
+ * kanale, a doklejka wazaca 4 KB nie jest juz „pusta linia z motywu".
+ */
+$daleka = str_repeat( $notice, 200 ) . '<?xml version="1.0"?><rss version="2.0"><channel>'
+	. '<title>T</title></channel></rss>';
+k2f_check( strlen( str_repeat( $notice, 200 ) ) > 4096, 'material: doklejka przekracza granice prologu' );
+k2f_check(
+	false === Feed::parse( $daleka )['ok'],
+	'R04-001: deklaracja za granica prologu NIE jest juz szukana'
+);
+
+// ---------------------------------------------------------------------------
+echo "\n-- RAU-R04-003: Atom czytany przez NS_ATOM, zero pozycji to blad --\n";
+// ---------------------------------------------------------------------------
+/*
+ * Stala `NS_ATOM` byla MARTWA — jedno trafienie w calym repozytorium, wlasna
+ * deklaracja. Wpisy szly przez `$doc->entry`, wiec kanal `<atom:feed>` z
+ * prefiksowanym korzeniem konczyl sie wynikiem ok=true z ZEREM pozycji
+ * i pustym polem bledu: wlasciciel widzial „kanal bez nowosci".
+ */
+$prefiks = '<?xml version="1.0" encoding="UTF-8"?>'
+	. '<atom:feed xmlns:atom="http://www.w3.org/2005/Atom">'
+	. '<atom:title>Kanal prefiksowany</atom:title>'
+	. '<atom:entry>'
+	. '<atom:title>Wpis pierwszy</atom:title>'
+	. '<atom:link href="https://example.org/p-1/" rel="alternate"/>'
+	. '<atom:summary>Zajawka wpisu.</atom:summary>'
+	. '<atom:id>tag:example.org,2026:p1</atom:id>'
+	. '<atom:published>2026-08-05T09:00:00Z</atom:published>'
+	. '</atom:entry>'
+	. '<atom:entry>'
+	. '<atom:title>Wpis drugi</atom:title>'
+	. '<atom:link href="https://example.org/p-2/"/>'
+	. '<atom:id>tag:example.org,2026:p2</atom:id>'
+	. '</atom:entry>'
+	. '</atom:feed>';
+$out5 = Feed::parse( $prefiks );
+k2f_check( true === $out5['ok'], 'R04-003: kanal <atom:feed> sparsowany (' . $out5['error'] . ')' );
+k2f_check( 'atom' === $out5['format'], 'R04-003: rozpoznany jako atom' );
+k2f_check( 2 === count( $out5['items'] ), 'R04-003: OBA wpisy prefiksowane odczytane (jest ' . count( $out5['items'] ) . ')' );
+k2f_check( 'https://example.org/p-1/' === $out5['items'][0]['url'], 'R04-003: adres z prefiksowanego <atom:link>' );
+k2f_check( 'Wpis pierwszy' === $out5['items'][0]['title'], 'R04-003: tytul z prefiksowanego <atom:title>' );
+k2f_check( 'Zajawka wpisu.' === $out5['items'][0]['summary'], 'R04-003: zajawka z prefiksowanego <atom:summary>' );
+k2f_check( 'tag:example.org,2026:p1' === $out5['items'][0]['guid'], 'R04-003: guid z prefiksowanego <atom:id>' );
+k2f_check( 'Kanal prefiksowany' === $out5['title'], 'R04-003: tytul kanalu z prefiksowanego <atom:title>' );
+
+// Cicha pustka wykluczona: brak <entry> to BLAD z powodem, nie sukces.
+$pusty = '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+	. '<title>Kanal bez wpisow</title></feed>';
+$out6 = Feed::parse( $pusty );
+k2f_check( false === $out6['ok'], 'R04-003: kanal Atom bez <entry> to BLAD, nie cicha pustka' );
+k2f_check( '' !== $out6['error'], 'R04-003: blad ma niepusty powod (' . $out6['error'] . ')' );
+
+// Kontrola negatywna: wpisy BYLY, tylko odpadly na adresie — to nie jest blad.
+$odpadly = '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+	. '<title>Kanal z wpisem bez adresu</title>'
+	. '<entry><title>Bez adresu</title><id>x</id></entry></feed>';
+$out7 = Feed::parse( $odpadly );
+k2f_check( true === $out7['ok'], 'R04-003: wpis odrzucony na adresie NIE robi z kanalu bledu' );
+k2f_check( 1 === $out7['skipped'], 'R04-003: taki wpis liczy sie jako pominiety' );
+
+// Stala przestaje byc martwa.
+k2f_check( isset( $nazwy['NS_ATOM'] ), 'R04-003: stala NS_ATOM jest UZYWANA w kodzie, nie tylko zadeklarowana' );
 
 // ---------------------------------------------------------------------------
 restore_error_handler();

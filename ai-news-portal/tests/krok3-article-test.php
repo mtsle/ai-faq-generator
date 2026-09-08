@@ -568,6 +568,163 @@ namespace {
 	k3a_check( Article::text_length( $wynik['html'] ) <= Article::MAX_CONTENT_CHARS, 'extract() oddaje tresc juz przycieta' );
 
 	// -----------------------------------------------------------------------
+	echo "\n-- RAU-R12-004 + UZUP-02 + UZUP-03: sufit obowiazuje BEZWZGLEDNIE --\n";
+	// -----------------------------------------------------------------------
+	/*
+	 * Do wersji 1.0.0 `cap()` miala PIEC wyjsc oddajacych tresc NIEPRZYCIETA:
+	 * nieparsowalny dokument, brak `//body`, wyjatek, pusty wynik `take()`
+	 * i sciezka zgodna z regula. Limit chroniacy baze i prompt przestawal wiec
+	 * obowiazywac dokladnie przy wejsciu niepoprawnym — w sytuacji, na ktora
+	 * zostal zalozony. Docblock nazywal to wprost: „lepiej oddac za duzo niz
+	 * nic". Ponizej pilnujemy KAZDEGO z tych pieciu wyjsc.
+	 */
+	$dlugi_tekst = str_repeat( 'Zdanie o żywieniu psa dorosłego, powtarzane dla objętości. ', 400 );
+	k3a_check(
+		Article::text_length( $dlugi_tekst ) > Article::MAX_CONTENT_CHARS,
+		'material patologiczny przekracza sufit (' . Article::text_length( $dlugi_tekst ) . ')'
+	);
+
+	/*
+	 * WYJSCIE 2 — brak wezla `//body`, wywolane NAPRAWDE. Bajt NUL na poczatku
+	 * dokumentu sprawia, ze libxml buduje drzewo bez `<body>`; zmierzone, nie
+	 * zalozone. Przed naprawa ta galaz oddawala caly `$html`.
+	 */
+	$bez_body = "\0" . '<div>' . $dlugi_tekst . '</div>';
+	$c_bez    = Article::cap( $bez_body );
+	k3a_check(
+		Article::text_length( $c_bez ) <= Article::MAX_CONTENT_CHARS,
+		'wyjscie 2 (brak //body): sufit dotrzymany (' . Article::text_length( $c_bez ) . ')'
+	);
+	k3a_check(
+		$c_bez !== $bez_body,
+		'wyjscie 2 (brak //body): tresc NIE wraca nietknieta'
+	);
+
+	// WYJSCIE 5 — sciezka zgodna z regula, czyli udane ciecie po drzewie.
+	$c_regula = Article::cap( '<div><p>' . $dlugi_tekst . '</p></div>' );
+	k3a_check(
+		Article::text_length( $c_regula ) <= Article::MAX_CONTENT_CHARS,
+		'wyjscie 5 (sciezka zgodna z regula): sufit dotrzymany'
+	);
+
+	/*
+	 * BRAMKA ZBIORCZA — zadne wejscie nie wychodzi ponad sufit. To jest ta
+	 * asercja, ktora obejmuje WSZYSTKIE galezie naraz: gdyby ktorakolwiek
+	 * wrocila do oddawania `$html`, ktorys z tych przypadkow ja przewroci.
+	 */
+	$patologie = array(
+		'nul na poczatku'      => "\0" . $dlugi_tekst,
+		'nul i znacznik'       => "\0" . '<p>' . $dlugi_tekst . '</p>',
+		'goly tekst'           => $dlugi_tekst,
+		'niedomkniety element' => '<div><p>' . $dlugi_tekst,
+		'gleboki zagniezdzony' => str_repeat( '<div>', 200 ) . $dlugi_tekst . str_repeat( '</div>', 200 ),
+		'zlamany utf8'         => "\xC3\x28" . $dlugi_tekst,
+		'sam komentarz'        => '<!-- boks -->' . $dlugi_tekst,
+	);
+
+	$ponad = array();
+	foreach ( $patologie as $nazwa => $wejscie ) {
+		if ( Article::text_length( Article::cap( $wejscie ) ) > Article::MAX_CONTENT_CHARS ) {
+			$ponad[] = $nazwa;
+		}
+	}
+	k3a_check(
+		0 === count( $ponad ),
+		'ZADNA galaz cap() nie oddaje tresci ponad sufit (ponad: ' . ( $ponad ? implode( ', ', $ponad ) : 'brak' ) . ')'
+	);
+
+	/*
+	 * WYJSCIA 1, 3 i 4 — nieparsowalny dokument, wyjatek i pusty wynik `take()`
+	 * — sa z zewnatrz NIEOSIAGALNE: `loadHTML()` z `LIBXML_NOWARNING` odzyskuje
+	 * kazde wejscie, jakie umiemy podac (sprawdzone: NUL, zagniezdzenie 60 000,
+	 * zlamane UTF-8 — wszystkie daja `true`). Dlatego pilnuje ich straznik
+	 * strukturalny: w calym ciele `cap()` i `cap_dom()` nie wolno oddac `$html`
+	 * inaczej niz przez bramke „ponizej sufitu".
+	 */
+	$zrodlo = (string) file_get_contents( $root . '/src/Article.php' );
+	$od     = strpos( $zrodlo, 'public static function cap(' );
+	$do     = strpos( $zrodlo, 'private static function take(' );
+	k3a_check( false !== $od && false !== $do && $do > $od, 'strazniki: cialo cap()...take() odnalezione w zrodle' );
+
+	$cialo = substr( $zrodlo, $od, $do - $od );
+
+	// Jedyne dozwolone `return $html` to pierwsza bramka: tresc juz miesci sie w sufinie.
+	k3a_check(
+		1 === substr_count( $cialo, 'return $html;' ),
+		'wyjscia 1/3/4: cap() ma DOKLADNIE JEDNO `return $html` — bramke „ponizej sufitu" (jest '
+			. substr_count( $cialo, 'return $html;' ) . ')'
+	);
+
+	// Trzy galezie awaryjne SAMEGO cap_dom(): load()===null, brak //body, wyjatek.
+	$od_dom = strpos( $zrodlo, 'private static function cap_dom(' );
+	$do_dom = strpos( $zrodlo, 'private static function cap_hard(' );
+	k3a_check( false !== $od_dom && false !== $do_dom && $do_dom > $od_dom, 'strazniki: cialo cap_dom() odnalezione w zrodle' );
+
+	$cialo_dom = substr( $zrodlo, $od_dom, $do_dom - $od_dom );
+	k3a_check(
+		3 === substr_count( $cialo_dom, "return '';" ),
+		'wyjscia 1/3/4: trzy galezie awaryjne cap_dom() oddaja PUSTO, nie tresc (jest '
+			. substr_count( $cialo_dom, "return '';" ) . ')'
+	);
+	k3a_check(
+		0 === substr_count( $cialo_dom, 'return $html' ),
+		'wyjscia 1/3/4: cap_dom() NIE oddaje nieprzycietej tresci zadna galezia'
+	);
+	k3a_check(
+		false !== strpos( $cialo, 'while ( self::text_length( $wynik ) > self::MAX_CONTENT_CHARS )' ),
+		'bramka sufitu stoi na jedynym wyjsciu z cap()'
+	);
+	k3a_check(
+		false !== strpos( $cialo, 'cap_hard' ),
+		'przyciecie awaryjne cap_hard() jest wpiete w cap()'
+	);
+
+	// UZUP-03 — docblock nie moze juz oglaszac swiadomego kompromisu z regula.
+	$doc_od = strpos( $zrodlo, 'Przycina tresc do sufitu' );
+	$doc    = substr( $zrodlo, $doc_od, $od - $doc_od );
+	k3a_check(
+		false === strpos( $doc, 'lepiej oddac' ),
+		'UZUP-03: docblock cap() nie oglasza juz „lepiej oddac za duzo niz nic"'
+	);
+	k3a_check(
+		false !== strpos( $doc, 'SUFIT OBOWIAZUJE BEZWZGLEDNIE' ),
+		'UZUP-03: docblock cap() oglasza sufit bezwzgledny'
+	);
+
+	// -----------------------------------------------------------------------
+	echo "\n-- RAU-R03-001: ciecie tekstu koduje znaki specjalne --\n";
+	// -----------------------------------------------------------------------
+	/*
+	 * Galaz `cut_text()` wstawiala do wynikowego HTML surowy `textContent`,
+	 * podczas gdy siostrzana galaz szla przez `saveHTML()`, ktora koduje
+	 * `& < >` z powrotem na encje. Tekst zapisany w zrodle jako `&lt;script&gt;`
+	 * wracal wiec do tresci jako DZIALAJACY znacznik.
+	 *
+	 * Wejscie: JEDEN wielki wezel tekstowy, zeby ciecie na pewno weszlo w
+	 * `cut_text()`, a nie skonczylo sie na granicy calych wezlow.
+	 */
+	$z_encja = '<div><p>' . str_repeat( 'Kod &lt;script&gt;alert(1)&lt;/script&gt; w przykładzie. ', 500 ) . '</p></div>';
+	$c_enc   = Article::cap( $z_encja );
+
+	k3a_check( Article::text_length( $c_enc ) <= Article::MAX_CONTENT_CHARS, 'ciecie w wezle tekstowym: sufit dotrzymany' );
+	k3a_check(
+		false === strpos( $c_enc, '<script>' ),
+		'RAU-R03-001: encja ze zrodla NIE wraca jako dzialajacy znacznik'
+	);
+	k3a_check(
+		false !== strpos( $c_enc, '&lt;script&gt;' ),
+		'RAU-R03-001: encja ze zrodla zostaje encja'
+	);
+
+	// Ampersand — ten sam mechanizm, drugi znak.
+	$z_amp = '<div><p>' . str_repeat( 'Kot &amp; pies w jednym zdaniu przykładowym. ', 600 ) . '</p></div>';
+	$c_amp = Article::cap( $z_amp );
+	k3a_check(
+		false === strpos( str_replace( '&amp;', '', $c_amp ), '&' ),
+		'RAU-R03-001: kazdy `&` w przycietym tekscie jest zakodowany'
+	);
+
+	// -----------------------------------------------------------------------
 	echo "\n-- Audyt D-7: declutter() dla tresci z kanalu --\n";
 	// -----------------------------------------------------------------------
 	$z_kanalu = '<p>' . str_repeat( 'Treść artykułu prosto z kanału RSS. ', 25 ) . '</p>'

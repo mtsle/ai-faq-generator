@@ -20,9 +20,9 @@ run_php() { "$PHP" "$1" 2>&1; }
 segments=(
   "S1  Cykl zycia instalacji (Plugin.php, ai-news-portal.php)|krok1-cykl-zycia-test.php:75"
   "S2  Wejscie sieciowe (Http.php)|krok2-http-test.php:102"
-  "S3  Kanaly i parsowanie (Feed.php)|krok2-feed-test.php:89"
+  "S3  Kanaly i parsowanie (Feed.php)|krok2-feed-test.php:120"
   "S4  Tozsamosc pozycji i duplikaty (Dedup.php)|krok2-dedup-test.php:112 krok2-zapis-test.php:65 krok3-tresc-test.php:78"
-  "S5  Bramki tresci (Filter.php, Article.php)|krok3-filtr-test.php:62 krok3-note-test.php:28 krok3-article-test.php:135 krok3-wymog-test.php:55 krok4-bramka-test.php:67"
+  "S5  Bramki tresci (Filter.php, Article.php)|krok3-filtr-test.php:69 krok3-note-test.php:28 krok3-article-test.php:153 krok3-wymog-test.php:55 krok4-bramka-test.php:67"
   "S6  Model i kontrakt odpowiedzi (Gemini.php, Validator.php)|krok4-gemini-test.php:99 krok4-walidator-test.php:43 krok4-ponowienie-test.php:63 krok7-wejscie-test.php:27"
   "S7  Publikacja idempotentna (Publisher.php)|krok4-publikacja-test.php:92"
   "S8  Orkiestracja przebiegu i zamek (Runner.php)|krok5-przejecie-test.php:35 krok5-ponowienia-test.php:43"
