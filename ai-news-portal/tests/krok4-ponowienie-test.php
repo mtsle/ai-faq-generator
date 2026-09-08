@@ -542,7 +542,10 @@ namespace {
 	k4p_reset();
 	unset( $GLOBALS['__opt'][ Settings::OPTION_KEY ] );
 	$r = Runner::ask_model( k4p_wiersz(), null, $kategorie );
-	k4p_check( 'no_key' === $r['reason'] && 1 === $r['calls'], 'brak klucza konczy sprawe od razu' );
+	// ZMIANA KONTRAKTU (audyt przebieg-2, RAU-R08-002): asercja wymagala tu
+	// JEDNEGO wywolania, wbrew wlasnemu komentarzowi dwie linie wyzej („zero
+	// wywolan") i wbrew asercji ponizej, ktora liczy zero wyslanych zadan.
+	k4p_check( 'no_key' === $r['reason'] && 0 === $r['calls'], 'brak klucza konczy sprawe od razu i NIE liczy sie jako wywolanie AI' );
 	k4p_check( 0 === count( $GLOBALS['__zadania'] ), 'i nie wysyla ani jednego zadania' );
 	k4p_check( false === $r['terminal'], 'brak klucza nie skazuje pozycji na failed' );
 
@@ -550,6 +553,39 @@ namespace {
 	$GLOBALS['__opt'][ Settings::OPTION_USAGE ] = serialize( array( 'date' => '2026-08-07', 'count' => 20 ) );
 	$r = Runner::ask_model( k4p_wiersz(), null, $kategorie );
 	k4p_check( 'cap' === $r['reason'] && 0 === count( $GLOBALS['__zadania'] ), 'wyczerpany sufit: zero zadan' );
+
+	/*
+	 * STRAZNIK RAU-R08-002. Licznik wywolan AI trafia do podsumowania przebiegu
+	 * i na ekran Materialow, wiec klient czyta z niego zuzycie dobowej puli.
+	 * `Gemini::generate()` ma TRZY bramy wstepne — klucz, budzet czasu, rezerwacja
+	 * slotu — ktore odmawiaja PRZED `wp_remote_post()` i nie zabieraja slotu;
+	 * mowi to wprost jej wlasny docblock. Podbijanie licznika na nich pokazywalo
+	 * wywolania, ktorych nie bylo: witryna bez klucza meldowala jedno na kazdy
+	 * przebieg, takze automatyczny.
+	 */
+	k4p_check( 0 === $r['calls'], 'wyczerpany sufit dobowy: zero ZADAN i zero policzonych wywolan' );
+
+	k4p_reset();
+	$r = Runner::ask_model( k4p_wiersz(), 0.5, $kategorie );
+	k4p_check( 'time' === $r['reason'], 'budzet ponizej progu wejscia modelu: odmowa z powodu czasu' );
+	k4p_check( 0 === $r['calls'], 'i zero policzonych wywolan' );
+	k4p_check( 0 === count( $GLOBALS['__zadania'] ), 'i zero wyslanych zadan (kontrola spojnosci licznika z siecia)' );
+
+	// KONTROLA POZYTYWNA: zadanie, ktore naprawde wyszlo, MUSI byc policzone —
+	// inaczej „naprawa" polegalaby na wyzerowaniu licznika na zawsze.
+	k4p_reset();
+	$GLOBALS['__plan'] = array( k4p_odp( 200, k4p_koperta( k4p_dobra() ) ) );
+	$r                 = Runner::ask_model( k4p_wiersz(), null, $kategorie );
+	k4p_check( true === $r['ok'] && 1 === $r['calls'], 'KONTROLA POZYTYWNA: udane zadanie liczy sie jako jedno wywolanie' );
+	k4p_check( 1 === count( $GLOBALS['__zadania'] ), 'i naprawde poszlo do sieci' );
+
+	// Lista powodow „bez zadania" ma JEDNEGO wlasciciela — `Gemini`. Gdyby Runner
+	// trzymal wlasna kopie, rozjechalaby sie przy pierwszej nowej bramie.
+	k4p_check(
+		array( 'no_key', 'time', 'cap', 'busy' ) === Gemini::REASONS_BEFORE_REQUEST,
+		'powody odmowy sprzed zadania sa zadeklarowane w Gemini, nie przepisane w Runnerze'
+	);
+
 	k4p_check( false === $r['terminal'], 'pozycja czeka na jutro, nie idzie na failed' );
 
 	// ------------------------------------------------------------------

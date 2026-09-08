@@ -173,10 +173,17 @@ final class Runner {
 	 * Dlaczego 25, nie 20: na TYM SAMYM ladunku zmierzono 9,74 s i 20,58 s
 	 * (wariancja `thoughtsTokenCount` 460 vs 2562), wiec przy 20 s wolniejsze
 	 * losowanie przepalalo slot z dobowej puli mimo poprawnej odpowiedzi.
-	 * 25 pokrywa zmierzony ogon, publikacja po cwiartkach zbierania
-	 * i przygotowania dostaje ~12,5 s (nadal > TIMEOUT_MIN), a nierownosc
-	 * z PUBLISH_BUDGET=30 zostaje — na niej stoi test rozrozniajacy budzety
-	 * z etapu 8.7.
+	 * 25 pokrywa zmierzony ogon, a publikacja po cwiartkach zbierania
+	 * i przygotowania dostaje ~12,5 s, czyli powyzej `Gemini::TIMEOUT_MIN`.
+	 *
+	 * UWAGA na budzety EFEKTYWNE. Ta stala jest zalozeniem; obowiazuje
+	 * liczba po przycieciu do `max_execution_time`. Do audytu przebieg-2
+	 * ten sam docblock twierdzil, ze nierownosc z PUBLISH_BUDGET zostaje —
+	 * a przy 30 s, ktore samo nazywa typowym, oba budzety wychodzily rowne
+	 * co do sekundy (0,8 * 30 = 24), bo kazdy szedl przez wlasne przyciecie
+	 * (RAU-R13-001 i UZUP-04). Teraz przyciecie obowiazuje budzet publikacji,
+	 * a budzet ticku jest z niego wyprowadzany w proporcji tych stalych, wiec
+	 * nierownosc trzyma sie na KAZDYM hostingu — patrz `tick_budget()`.
 	 */
 	public const TICK_BUDGET = 25;
 
@@ -279,7 +286,7 @@ final class Runner {
 		try {
 			$budzet  = ( null === $budget ) ? self::tick_budget() : max( 1.0, $budget );
 			$start   = microtime( true );
-			$dzialka = $budzet * self::TICK_SHARE;
+			$dzialka = self::phase_share( $budzet );
 
 			$wynik['budget'] = $budzet;
 
@@ -315,6 +322,16 @@ final class Runner {
 				 * z budzetem, przy ktorym `Gemini` i tak odmawia startu.
 				 */
 				if ( $zostalo <= 0 ) {
+					$wynik['skipped'][] = $faza;
+					continue;
+				}
+
+				/*
+				 * Publikacja ponizej progu wejscia modelu jest POMIJANA, a nie
+				 * odpalana „na chwile": `Gemini::timeout_for()` i tak zwrocilby 0,
+				 * a przebieg zapisalby w podsumowaniu wywolanie AI, ktorego nie bylo.
+				 */
+				if ( 'publish' === $faza && $zostalo < Gemini::TIMEOUT_MIN ) {
 					$wynik['skipped'][] = $faza;
 					continue;
 				}
@@ -378,7 +395,24 @@ final class Runner {
 	 * @return float
 	 */
 	public static function tick_budget(): float {
-		return self::clamp_budget( (float) self::TICK_BUDGET );
+		/*
+		 * Nierownosc TICK < PUBLISH jest mechanizmem, nie ozdoba (TECH-73):
+		 * zadanie panelu, przy ktorym czeka czlowiek, ma dostawac wiecej czasu
+		 * niz przebieg w tle. Przed naprawa oba budzety szly przez to samo
+		 * przyciecie do 0,8 * max_execution_time, wiec na KAZDYM hostingu
+		 * z limitem do 31 s zrownywaly sie co do sekundy — takze przy 30 s.
+		 *
+		 * Przyciecie obowiazuje teraz budzet publikacji (to on jest gorna
+		 * granica tego, co hosting udzwignie), a budzet ticku wyprowadzamy
+		 * z niego w proporcji stalych. Dzieki temu OBA mieszcza sie w 0,8
+		 * limitu, a nierownosc zostaje takze po przycieciu.
+		 */
+		$publikacja = self::publish_budget();
+
+		return min(
+			(float) self::TICK_BUDGET,
+			$publikacja * self::TICK_BUDGET / self::PUBLISH_BUDGET
+		);
 	}
 
 	/**
@@ -400,6 +434,42 @@ final class Runner {
 	 *
 	 * @return float
 	 */
+	/**
+	 * Dzialka jednej fazy ticku, przy zachowanym progu wejscia modelu.
+	 *
+	 * CZYSTA DECYZJA — zero I/O, zero zegara, testowalna wprost. Rozdzial
+	 * „decyzja vs skorupa" jest tu wymogiem, nie stylem: gdy ten rachunek siedzial
+	 * inline w `tick()`, mutacja odwracajaca go nie miala czego zaczerwienic
+	 * i mechanizm pojechal na produkcje niesprawdzony — ten sam wzorzec, co
+	 * `Plugin::should_flush_cache()` we wtyczce 1.
+	 *
+	 * Faza publikacji ma PROG WEJSCIA: `Gemini` nie startuje ponizej
+	 * `TIMEOUT_MIN`. Dzialka liczona od budzetu JUZ przycietego przez
+	 * `clamp_budget()` potrafila zepchnac publikacje pod ten prog — przy limicie
+	 * hostingu 1-19 s automat zbieral material w nieskonczonosc i nie publikowal
+	 * ANI RAZU (audyt przebieg-2, RAU-R13-003). Gwarancja opisana przy
+	 * `TICK_SHARE` jest teraz liczba w kodzie, nie zdaniem w komentarzu.
+	 *
+	 * Podloga jednej sekundy jest rownie wazna jak sufit: bez niej zbieranie
+	 * i przygotowanie dostawalyby zero, a bez materialu nie ma czego publikowac —
+	 * zamienilibysmy jeden zakleszczony automat na drugi. Podloga obowiazuje
+	 * WYLACZNIE w ochronie progu; przy budzecie ponizej progu dzialka zostaje
+	 * cwiartka, bo tam publikacja i tak nie ruszy.
+	 *
+	 * @param float $budzet Budzet calego ticku w sekundach.
+	 *
+	 * @return float
+	 */
+	public static function phase_share( float $budzet ): float {
+		$dzialka = $budzet * self::TICK_SHARE;
+
+		if ( $budzet > Gemini::TIMEOUT_MIN ) {
+			$dzialka = max( 1.0, min( $dzialka, ( $budzet - Gemini::TIMEOUT_MIN ) / 2 ) );
+		}
+
+		return $dzialka;
+	}
+
 	private static function clamp_budget( float $zalozony ): float {
 		$limit = (int) ini_get( 'max_execution_time' );
 
@@ -1233,7 +1303,18 @@ final class Runner {
 			$zostalo = ( null === $remaining ) ? null : ( $remaining - ( microtime( true ) - $start ) );
 
 			$odp = Gemini::generate( $prompt, $categories, $zostalo );
-			$calls++;
+
+			/*
+			 * Licznik ma mierzyc ZADANIA, nie wywolania metody. Trzy bramy wstepne
+			 * `Gemini::generate()` odmawiaja PRZED `wp_remote_post()` i nie zuzywaja
+			 * slotu z puli dobowej — podbijanie licznika na nich pokazywalo klientowi
+			 * w panelu wywolania AI, ktorych nie bylo, i falszowalo ocene zuzycia puli
+			 * (audyt przebieg-2, RAU-R08-002). Lista powodow zyje w `Gemini`, zeby
+			 * ta wiedza mial jeden wlasciciel.
+			 */
+			if ( ! in_array( (string) ( $odp['reason'] ?? '' ), Gemini::REASONS_BEFORE_REQUEST, true ) ) {
+				$calls++;
+			}
 
 			if ( $odp['ok'] || ! in_array( $odp['reason'], array( 'bad_json', 'empty' ), true ) ) {
 				break;

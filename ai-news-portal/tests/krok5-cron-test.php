@@ -616,6 +616,7 @@ require_once $root . '/src/Admin.php';
 
 use AINP\Admin;
 use AINP\Article;
+use AINP\Gemini;
 use AINP\Http;
 use AINP\Plugin;
 use AINP\Runner;
@@ -995,7 +996,15 @@ k5_check( 25.0 === Runner::tick_budget(), 'bez limitu wykonania obowiazuje samo 
  * i to co godzine. Bierzemy 80% limitu — ta sama proporcja, co przy pamieci.
  */
 ini_set( 'max_execution_time', '10' );
-k5_check( 8.0 === Runner::tick_budget(), 'limit 10 s przycina budzet do 8 s (80%)' );
+/*
+ * ZMIANA KONTRAKTU (audyt przebieg-2, RAU-R13-001). Ta asercja wymagala do tej
+ * pory 8,0 s — czyli DOKLADNIE tyle, ile wychodzilo `publish_budget()` przy tym
+ * samym limicie. Utrwalala wiec zrownanie obu budzetow, ktore TECH-73 opisuje
+ * jako niedopuszczalne. Przyciecie do 80% limitu obowiazuje teraz budzet
+ * publikacji, a budzet ticku jest z niego wyprowadzany w proporcji stalych:
+ * 8,0 * 25/30 = 6,67 s. Publikacja nadal dostaje 8,0 — asercja nizej.
+ */
+k5_check( abs( Runner::tick_budget() - 6.666666 ) < 0.001, 'limit 10 s: budzet ticku to 6,67 s (jest: ' . round( Runner::tick_budget(), 3 ) . ')' );
 
 /*
  * ETAP 8.7 — publikacja z PANELU ma wlasny budzet.
@@ -1025,6 +1034,63 @@ k5_check( Runner::publish_budget() !== Runner::tick_budget(), 'budzet panelu i b
 $pod_panelu = Runner::publish_batch( 1 );
 k5_check( Runner::publish_budget() === (float) $pod_panelu['budget'], 'publish_batch() BEZ argumentu bierze budzet panelu (jest: ' . $pod_panelu['budget'] . ')' );
 k5_check( (float) Runner::PREPARE_BUDGET !== (float) $pod_panelu['budget'], 'i na pewno nie budzet przygotowania' );
+
+/*
+ * STRAZNIK RAU-R13-001 + UZUP-04. Nierownosc TICK < PUBLISH jest mechanizmem
+ * (TECH-73), a nie ozdoba: zadanie panelu, przy ktorym czeka czlowiek, ma dostawac
+ * wiecej czasu niz przebieg w tle. Przed naprawa kazdy budzet szedl przez wlasne
+ * przyciecie do 0,8 * max_execution_time, wiec na KAZDYM hostingu z limitem do 31 s
+ * wychodzily rowne co do sekundy — takze przy 30 s, ktore docblock TICK_BUDGET
+ * sam nazywa typowym. Jedyna asercja nierownosci stala przy limicie 0, czyli
+ * dokladnie tam, gdzie przyciecie nie zachodzi i wada nie wystepuje.
+ */
+echo "
+-- Nierownosc budzetow na WSZYSTKICH limitach hostingu (RAU-R13-001) --
+";
+
+foreach ( array( 10, 15, 20, 30, 31, 40 ) as $k5_limit ) {
+	ini_set( 'max_execution_time', (string) $k5_limit );
+
+	$k5_tick    = Runner::tick_budget();
+	$k5_publish = Runner::publish_budget();
+
+	k5_check( $k5_tick < $k5_publish, "limit {$k5_limit} s: budzet ticku < budzet publikacji (jest: " . round( $k5_tick, 2 ) . ' < ' . round( $k5_publish, 2 ) . ')' );
+	k5_check( $k5_publish <= $k5_limit * 0.8 + 0.0001, "limit {$k5_limit} s: publikacja miesci sie w 80% limitu hostingu" );
+	k5_check( $k5_tick <= $k5_limit * 0.8 + 0.0001, "limit {$k5_limit} s: tick miesci sie w 80% limitu hostingu" );
+}
+
+ini_set( 'max_execution_time', '0' );
+
+/*
+ * STRAZNIK RAU-R13-003. Dzialka fazy liczona od budzetu JUZ przycietego spychala
+ * publikacje pod prog wejscia modelu: przy limicie 1-19 s zadanie do modelu nie
+ * wychodzilo ANI RAZU, mimo pelnej kolejki. Rachunek wyjety z `tick()` do czystej
+ * decyzji, zeby dalo sie go sprawdzic wprost.
+ */
+echo "
+-- Dzialka fazy chroni prog wejscia modelu (RAU-R13-003) --
+";
+
+foreach ( array( 10.0, 12.0, 15.0, 20.0, 24.0, 25.0 ) as $k5_budzet ) {
+	$k5_dzialka = Runner::phase_share( $k5_budzet );
+	$k5_dla_pub = $k5_budzet - 2 * $k5_dzialka;
+
+	k5_check( $k5_dla_pub >= Gemini::TIMEOUT_MIN - 0.0001, "budzet {$k5_budzet} s: publikacji zostaje co najmniej TIMEOUT_MIN (jest: " . round( $k5_dla_pub, 2 ) . ' s)' );
+}
+
+k5_check( 6.25 === Runner::phase_share( 25.0 ), 'bez ograniczenia hostingu dzialka to nadal cwiartka budzetu (brak regresji)' );
+k5_check( 1.0 === Runner::phase_share( 9.0 ), 'budzet ledwie nad progiem: dzialka spada do podlogi 1 s, zeby zbieranie nie zgaslo' );
+k5_check( 0.25 === Runner::phase_share( 1.0 ), 'budzet PONIZEJ progu: podloga NIE podnosi dzialki (kontrakt sprzed naprawy zachowany)' );
+
+/*
+ * I kontrola zachowaniowa: przy budzecie ponizej progu faza publikacji jest
+ * POMIJANA, a nie odpalana „na chwile" z zerowym timeoutem.
+ */
+$GLOBALS['__zadania']    = array();
+$GLOBALS['__http_sleep'] = 0.0;
+
+$k5_maly = Runner::tick( 5.0 );
+k5_check( in_array( 'publish', $k5_maly['skipped'], true ), 'budzet 5 s (ponizej TIMEOUT_MIN): faza publikacji POMINIETA (skipped: ' . implode( ',', $k5_maly['skipped'] ) . ')' );
 
 $pod_ticku = Runner::publish_batch( 1, 7.5 );
 k5_check( 7.5 === (float) $pod_ticku['budget'], 'budzet podany jawnie (tak robi tick) obowiazuje bez zmian' );
