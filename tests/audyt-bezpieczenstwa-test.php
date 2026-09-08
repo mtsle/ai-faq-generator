@@ -406,6 +406,7 @@ class SecQaLogWpdb {
 	public function insert( $table, $data ) { $this->last_table = $table; $this->queries[] = array( 'insert', $table ); return 1; }
 	public function prepare( $sql, ...$a ) { foreach ( $a as $v ) { $sql = preg_replace( '/%[ds]/', (string) $v, $sql, 1 ); } return $sql; }
 	public function get_var( $sql ) { $this->queries[] = array( 'get_var', $sql ); return 500; } // "granica" id
+	public function get_row( $sql, $mode = null ) { $this->queries[] = array( 'get_row', $sql ); return array( 'created_at' => '2026-01-01 00:00:00', 'id' => 500 ); } // "granica" retencji: data + id
 	public function query( $sql ) { $this->queries[] = array( 'query', $sql ); return 7; } // wierszy "skasowanych"
 	public function deletes() {
 		$out = array();
