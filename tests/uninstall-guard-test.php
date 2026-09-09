@@ -1045,6 +1045,12 @@ $ttl_znane_zmienne = array(
 	// GeminiProvider: `$ttl` to karencja wyłącznika obwodu — dobowa albo minutowa,
 	// więc sufitem jest ta dłuższa, COOLDOWN_DAY_SECONDS.
 	'GeminiProvider.php:$ttl'       => 3600,
+	// GAŁĄŹ DEMO. `Demo::allow()` dostaje odstęp w argumencie, więc statycznie
+	// wartości nie widać. Sufitem jest jedyna wartość, z jaką ta metoda jest
+	// wołana: `GENERATE_ODSTEP` = 300 s. Pilnują tego DWIE kotwice niżej —
+	// sama stała oraz liczba wołających. Trzeci wołający z większym odstępem
+	// zapali strażnika, zanim ten sufit zdąży skłamać.
+	'Demo.php:max(1,$odstep)'       => 300,
 );
 $ttl_nierozwiazane = array_values( array_unique( $ttl_nierozwiazane ) );
 $ttl_nowe          = array_values( array_diff( $ttl_nierozwiazane, array_keys( $ttl_znane_zmienne ) ) );
@@ -1059,6 +1065,20 @@ $rag_src = (string) file_get_contents( $root . '/src/Rag/RagService.php' );
 check(
 	false !== strpos( $rag_src, "? 86400 : 3600" ) && false !== strpos( $rag_src, "'rag_rate_window'" ),
 	'TTL: sufit okna limitera (86400) ma kotwice w RagService — `rag_rate_window`'
+);
+
+// GAŁĄŹ DEMO: sufit 300 s musi mieć oparcie w kodzie, nie w dobrej wierze.
+$demo_src = (string) file_get_contents( $root . '/src/Core/Demo.php' );
+check(
+	false !== strpos( $demo_src, 'public const GENERATE_ODSTEP = 300;' ),
+	'TTL demo: sufit 300 s ma kotwice — `Demo::GENERATE_ODSTEP`'
+);
+// Sufit jest prawdziwy tylko dopoki `allow()` ma JEDNEGO wolajacego. Liczymy
+// wywolania, pomijajac sama definicje metody.
+$demo_wolania = preg_match_all( '/self::allow\(/', $demo_src );
+check(
+	1 === $demo_wolania,
+	'TTL demo: `Demo::allow()` ma DOKLADNIE jednego wolajacego (jest: ' . $demo_wolania . ')'
 );
 
 $gem_src = (string) file_get_contents( $root . '/src/Providers/GeminiProvider.php' );
@@ -1184,7 +1204,7 @@ if ( '' !== $doc_tech ) {
 // F9: podłoga podniesiona 20 -> 43, F10: 43 -> 56. Asercja ZMIENIONA, nie usunięta: zestaw
 // wykonywał już 24 asercje, więc próg 20 przepuszczałby wycięcie całej sekcji
 // multisite. Nowa liczba to stan po dopisaniu strażników TTL, sieci i TECH-22.
-check( $ran >= 56, "wykonano komplet asercji (asercji: {$ran})" );
+check( $ran >= 58, "wykonano komplet asercji (asercji: {$ran})" );
 
 echo "\n=== " . ( 0 === $fail ? 'WSZYSTKIE OK' : "BŁĘDÓW: {$fail}" ) . " (asercji: {$ran}) ===\n";
 exit( $fail > 0 ? 1 : 0 );

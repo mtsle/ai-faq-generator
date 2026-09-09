@@ -2,15 +2,17 @@
 
 [![Testy](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml/badge.svg)](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml)
 
-To repozytorium zawiera **dwie niezależne wtyczki WordPress**, obie wydane jako **v1.1.0** —
-wydanie po audycie całości obu wtyczek.
+To repozytorium zawiera **dwie niezależne wtyczki WordPress**. **To jest gałąź `demo-1.1.0`** —
+wydanie 1.1.0 po audycie całości obu wtyczek **plus tryb demonstracyjny**. Wtyczka 1 ma tu wersję
+**1.1.1** (1.1.0 powiększone o tryb demo), wtyczka 2 zostaje na **1.1.0** — tryb demo nie zmienia
+jej numeru. Gałąź nie jest wydaniem: tagi i paczki klienta powstają wyłącznie z `main`.
 Ten plik jest jednocześnie README całego repozytorium i dokumentacją wtyczki 1.
 
 ## Dwie wtyczki w jednym repozytorium
 
 | Wtyczka | Folder | Wersja | Tagi wydań | README |
 |---|---|---|---|---|
-| **AI FAQ Generator** | korzeń repo | 1.1.0 | `v0.1.0`–`v1.0.0` (historyczne, bez prefiksu); od 1.1.0 prefiks `aifaq-`, czyli `aifaq-v1.1.0` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
+| **AI FAQ Generator** | korzeń repo | 1.1.1 (demo) | `v0.1.0`–`v1.0.0` (historyczne, bez prefiksu); od 1.1.0 prefiks `aifaq-`, czyli `aifaq-v1.1.0` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
 | **AI News Portal** | `ai-news-portal/` | 1.1.0 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.1.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
 
 ### Dokumentacja poza kodem
@@ -75,8 +77,8 @@ PHP 8.2 z `mbstring`) wołają CI-owe kopie runnerów z `.github/ci/`:
 
 | job | runner | kryterium zaliczenia |
 |---|---|---|
-| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **62 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
-| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2306 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
+| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **63 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
+| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **16 segmentów, 30 zestawów, dokładnie 2362 asercje** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
 
 Te same skrypty działają lokalnie (wymagany PHP CLI z rozszerzeniem `mbstring`):
 
@@ -148,7 +150,7 @@ Do tego **dane strukturalne JSON-LD (FAQPage)** zgodne ze Schema.org.
 Autoloader PSR-4-lite: przestrzeń `AIFAQ\` → katalog `src/`.
 ```
 src/Core/      Plugin, Settings, Activator, Deactivator, Router
-          (v1.0.1) Demo — tryb publicznej wystawy: zamrożone ustawienia, limity per IP
+          (v1.1.1) Demo — tryb publicznej wystawy: zamrożone ustawienia, limity per IP
 src/Data/      Schema (5 tabel) + repozytoria + Migrator
 src/Http/      HttpClient (interfejs) + WpHttpClient — generyczny transport HTTP
 src/Providers/ ProviderInterface, GeminiProvider, ProviderFactory — warstwa AI (BYOK)
@@ -372,11 +374,11 @@ drugi raz); **realny `score` przy trafieniu cache** (dotąd log zapisywał zmyś
 | 9. Audyt ❌ | **NIE WYKONANY — świadomie zdjęty z zakresu** decyzją właściciela projektu (2026-08-03). Nie jest to etap „zaliczony po cichu": osobnego audytu przed v1.0.0 nie było. Warto pamiętać, że pełny audyt bezpieczeństwa całej wtyczki przeszedł wcześniej, w **v0.26.0**, a etapy 1–5 tego Kroku były w praktyce ciągiem audytów (red team, wydajność, architektura, obciążenie, cykl życia na żywo) |
 | 10. Domknięcie ✅ | `AIFAQ_VERSION` → **1.0.0**, tag i release |
 
-**Testy.** W `tests/` leży **62 zestawy**, spinane runnerem
-[`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh): **62/62 przechodzi**. Kopia robocza
-tego runnera (`zasoby/run-tests.sh`, **poza tym repo**) wymienia jeszcze `demo-tryb-test.php`,
-który żyje wyłącznie na gałęzi `demo` — daje więc 63 zestawy przy 1 niezaliczonym. To znany
-stan, nie regresja. Runner w repo — ta sama lista
+**Testy.** W `tests/` leży **63 zestawy**, spinane runnerem
+[`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh): **63/63 przechodzi**. Ostatni z nich,
+`demo-tryb-test.php`, istnieje wyłącznie na tej gałęzi — na `main` jest 62 zestawy. Kopia robocza
+runnera (`zasoby/run-tests.sh`, **poza tym repo**) wymienia ten sam komplet i przy tej gałęzi
+przechodzi w całości. Runner w repo — ta sama lista
 zestawów i to samo kryterium; woła ją workflow „Testy" (sekcja „CI" na górze). Runner nie
 jest PHPUnitem — to zwykłe skrypty PHP z atrapami WordPressa, uruchamiane bez bazy danych.
 Osobno `tests/load/` (**14 plików**, Krok 23 etap 4) wymaga żywego środowiska i **nie wchodzi**
@@ -448,7 +450,7 @@ więc te dwa nie mają jak się rozjechać.
 > prosto z API). Bez sufitu jeden bot wyczerpywał pulę do południa i wszyscy kolejni goście
 > dostawali błąd. Pule `generateContent` i `embedContent` są **odrębne**.
 
-### Tryb demo (v1.0.1)
+### Tryb demo (v1.1.1)
 
 Do publicznej wystawy, na której kokpit jest otwarty dla wszystkich. Włącza go **stała
 w `wp-config.php`**, nie ustawienie — ustawienie da się zmienić z tego samego kokpitu:
