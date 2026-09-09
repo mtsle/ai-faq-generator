@@ -1,48 +1,133 @@
-# AI FAQ Generator
+# AI FAQ Generator + AI News Portal
 
 [![Testy](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml/badge.svg)](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml)
+[![Licencja: GPLv2](https://img.shields.io/badge/licencja-GPLv2-blue.svg)](LICENSE)
+[![WordPress](https://img.shields.io/badge/WordPress-6.4%2B-21759b.svg)](https://wordpress.org/)
+[![PHP](https://img.shields.io/badge/PHP-8.0%2B-777bb4.svg)](https://www.php.net/)
 
-To repozytorium zawiera **dwie niezależne wtyczki WordPress**, obie wydane jako **v1.1.0** —
-wydanie po audycie całości obu wtyczek.
+**Dwie niezależne wtyczki WordPress w jednym repozytorium.** Pierwsza odpowiada gościom na
+pytania wyłącznie treścią ich własnej strony. Druga prowadzi portal wiedzy, który zasila się
+sam z kanałów RSS. Obie korzystają z modeli Gemini na **kluczu właściciela witryny** (BYOK)
+i obie da się z witryny usunąć bez śladu.
+
 Ten plik jest jednocześnie README całego repozytorium i dokumentacją wtyczki 1.
 
-## Dwie wtyczki w jednym repozytorium
+> [!IMPORTANT]
+> **Korzeń repozytorium jest katalogiem wtyczki 1, a wtyczka 2 leży w podfolderze.**
+> To nie jest bałagan, tylko wymuszenie WordPressa: skaner wtyczek schodzi tylko dwa poziomy
+> w głąb `wp-content/plugins/`, więc plik główny musi leżeć najwyżej jeden katalog niżej.
+> Na żywą instalację celują junctiony dokładnie w te ścieżki, dlatego **przenoszenie katalogów
+> wtyczek albo zmiana ich nazw psuje żywą stronę i testy.**
 
-| Wtyczka | Folder | Wersja | Tagi wydań | README |
-|---|---|---|---|---|
-| **AI FAQ Generator** | korzeń repo | 1.1.0 | `v0.1.0`–`v1.0.0` (historyczne, bez prefiksu); od 1.1.0 prefiks `aifaq-`, czyli `aifaq-v1.1.0` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
-| **AI News Portal** | `ai-news-portal/` | 1.1.0 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.1.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
+## Spis treści
 
-### Dokumentacja poza kodem
+- [Stan](#stan)
+- [Co robi każda wtyczka](#co-robi-każda-wtyczka)
+- [Gdzie co leży](#gdzie-co-leży)
+- [Rozdzielność wtyczek](#rozdzielność-wtyczek)
+- [Instalacja](#instalacja--każda-wtyczka-osobno)
+- [Praca w repozytorium](#praca-w-repozytorium)
+- [Testy i strażnicy](#testy-i-strażnicy)
+- [CI](#ci--workflow-testy)
+- [Bezpieczeństwo](#bezpieczeństwo)
+- [Dokumentacja poza kodem](#dokumentacja-poza-kodem)
+- [Współpraca](#współpraca)
+- [Dokumentacja wtyczki 1](#dokumentacja-wtyczki-1--ai-faq-generator) — reszta tego pliku
 
-| Katalog | Co zawiera |
+## Stan
+
+| Wtyczka | Folder | Wersja | WordPress | PHP | Tagi wydań | README |
+|---|---|---|---|---|---|---|
+| **AI FAQ Generator** | korzeń repo | 1.1.0 | ≥ 6.4 | ≥ 8.0 | `v0.1.0`–`v1.0.0` (historyczne, bez prefiksu); od 1.1.0 prefiks `aifaq-`, czyli `aifaq-v1.1.0` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
+| **AI News Portal** | `ai-news-portal/` | 1.1.0 | ≥ 6.5 | ≥ 8.1 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.1.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
+
+Obie wtyczki są testowane do WordPressa **7.0.2**. Obie są na licencji **GPLv2** — wyłącznie
+wersja druga, bez klauzuli „or later"; pełny tekst w [LICENSE](LICENSE).
+
+Wersja 1.1.0 to wydanie po audycie całości obu wtyczek. Co audyt znalazł i co z tego
+naprawiono, opisuje katalog [audyt/](audyt/).
+
+## Co robi każda wtyczka
+
+### AI FAQ Generator (wtyczka 1)
+
+Indeksuje treść witryny, dzieli ją na fragmenty i liczy dla nich embeddingi. Gość pyta,
+wtyczka szuka pasujących fragmentów i odpowiada **tylko wtedy, gdy pokrycie w treści jest
+wystarczające** — poza tematem odmawia zamiast zmyślać. Do tego narzędzie dla właściciela,
+które układa gotowe zestawy pytań i odpowiedzi.
+
+| Element | Konkret |
 |---|---|
-| [audyt/](audyt/) | **Audyt jakości obu wtyczek** — jak był prowadzony, co znalazł (48 pozycji), co z tego naprawiono i jak to udowodniono. Wraz z surowym raportem. |
-| [instrukcje/](instrukcje/) | Dokumentacja wtyczki 1 dla klienta i informatyka: 5 PDF-ów, źródła HTML, schematy, zrzuty. |
-| [ai-news-portal/instrukcje/](ai-news-portal/instrukcje/) | To samo dla wtyczki 2. |
+| Podstrona dla gościa | `/faqgenerator` |
+| Przestrzeń REST | `aifaq/v1` — 15 tras |
+| Tabele w bazie | 5: `knowledge`, `qa_log`, `cache`, `faq`, `generations` (z przedrostkiem witryny) |
+| Dane strukturalne | jeden węzeł JSON-LD `WebApplication` |
+| Model | Gemini, klucz właściciela witryny |
 
-Katalogi `instrukcje/` **nie wchodzą do paczek instalacyjnych** — klient dostaje PDF-y
-osobno, obok pliku `.zip`.
+### AI News Portal (wtyczka 2)
 
-**Układ „korzeń = wtyczka 1, podfolder = wtyczka 2" jest decyzją architektoniczną.**
-WordPress skanuje katalog `wp-content/plugins/` tylko dwa poziomy w głąb, więc plik główny
-wtyczki musi leżeć najwyżej jeden katalog pod `plugins/`. Korzeń repo jest jednocześnie
-katalogiem wtyczki 1, a na żywą instalację celują junctiony/symlinki dokładnie w te ścieżki —
-**przenoszenie lub zmiana nazw katalogów wtyczek psuje żywą stronę i testy.**
+Pobiera wpisy z kanałów RSS, odsiewa je słowami wykluczającymi, sprawdza duplikaty,
+przepisuje materiał modelem i publikuje w Centrum Wiedzy. Przebieg chodzi sam, pod
+atomowym zamkiem, żeby dwa równoległe uruchomienia nie opublikowały tego samego dwa razy.
 
-Wtyczki są w pełni rozdzielne: osobne przestrzenie stałych (`AIFAQ_*` w `ai-faq-generator.php`,
-`AINP_*` w `ai-news-portal/ai-news-portal.php`), osobne `uninstall.php`, `LICENSE`, `readme.txt`
-i `tests/`, zero wspólnego kodu. AI News Portal „nie ma żadnej zależności od drugiej wtyczki
-z tej samej paczki, nie dzieli z nią kodu, opcji ani tabel" (jego README).
+| Element | Konkret |
+|---|---|
+| Front | `/centrum-wiedzy/` |
+| Zadanie cykliczne | `ainp_tick` |
+| Tabele w bazie | 1: `ainp_items` (z przedrostkiem witryny) |
+| Kokpit | własny ekran z akcjami pod nonce i uprawnieniem |
+| Model | Gemini, klucz właściciela witryny |
+
+## Gdzie co leży
+
+```
+.                              wtyczka 1 — korzeń repo
+  ai-faq-generator.php         plik główny, stałe AIFAQ_*
+  uninstall.php                sprzątanie bez śladu (cała sieć witryn)
+  readme.txt                   readme w formacie WordPressa
+  src/                         83 pliki — kod wtyczki 1
+    Admin/     18              kokpit, ustawienia, metabox
+    Index/     11              indeksowanie: chunker, batcher, crawl
+    Rest/       9              trasy aifaq/v1
+    Data/       8              schemat i repozytoria
+    PublicUi/   7              front gościa, nagłówki bezpieczeństwa
+    Core/       6              cykl życia, ustawienia, router
+    Rag/        6              potok pytania gościa
+    App/        5              powłoka aplikacji
+    Providers/  4              warstwa modelu (BYOK)
+    Faq/        3              publikacja par FAQ
+    Http/       3              transport HTTP
+    Seo/        2              JSON-LD
+  tests/                       63 zestawy + tests/load/ (14 skryptów obciążeniowych)
+  assets/                      15 plików — JS, CSS i puste index.php blokujące listowanie
+  instrukcje/                  47 plików — 5 PDF-ów, źródła HTML, schematy, zrzuty
+  audyt/                       14 plików — opis audytu, raport, dokumentacja zderzana z kodem
+  .github/                     workflow „Testy" + CI-owe kopie obu runnerów
+
+ai-news-portal/                wtyczka 2 — 135 plików
+  ai-news-portal.php           plik główny, stałe AINP_*
+  uninstall.php                własne sprzątanie
+  src/         19              15 klas + 4 szablony frontu
+  tests/       30              29 zestawów
+  instrukcje/  60              5 PDF-ów i ich źródła
+  assets/      21
+```
+
+## Rozdzielność wtyczek
+
+Wtyczki są w pełni rozdzielne: osobne przestrzenie stałych (`AIFAQ_*` i `AINP_*`), osobne
+`uninstall.php`, `LICENSE`, `readme.txt` i `tests/`, zero wspólnego kodu. AI News Portal
+„nie ma żadnej zależności od drugiej wtyczki z tej samej paczki, nie dzieli z nią kodu,
+opcji ani tabel" (jego README).
+
+> [!NOTE]
+> Ta rozdzielność nie jest deklaracją, tylko **warunkiem przebiegu testów**. Zestaw
+> [`tests/uninstall-guard-test.php`](tests/uninstall-guard-test.php) zderza każdy literał
+> z `uninstall.php` wtyczki 1 z prawdziwymi kluczami wtyczki 2 własnym matcherem `LIKE`.
+> Napis `ainp` nie musiałby się w kodzie pojawić, żeby dane drugiej wtyczki zniknęły —
+> strażnik szuka skutku, nie słowa.
 
 ## Instalacja — każda wtyczka osobno
-
-Wymagania (z nagłówków plików głównych i `readme.txt` obu wtyczek):
-
-| wtyczka | WordPress | Tested up to | PHP |
-|---|---|---|---|
-| AI FAQ Generator | ≥ 6.4 | 7.0.2 | ≥ 8.0 |
-| AI News Portal | ≥ 6.5 | 7.0.2 | ≥ 8.1 |
 
 **Wtyczka 1 — AI FAQ Generator.** Do `wp-content/plugins/ai-faq-generator/` trafia zawartość
 korzenia repo. Czystą paczkę bez wtyczki 2 daje `git archive` z tagu wydania wtyczki 1 —
@@ -60,12 +145,85 @@ od razu we właściwy katalog:
 git archive ai-news-portal-v1.0.0 ai-news-portal -o ai-news-portal.zip
 ```
 
-> **Uwaga (dev):** sklonowanie całego repo prosto do `plugins/` uaktywni tylko wtyczkę 1 —
+> [!TIP]
+> Sklonowanie całego repo prosto do `plugins/` uaktywni tylko wtyczkę 1 —
 > `ai-news-portal/ai-news-portal.php` leży wtedy trzeci poziom pod `plugins/`, poza zasięgiem
-> skanera WordPressa. Wtyczka 2 wymaga własnego katalogu albo junctiona/symlinku wskazującego
+> skanera WordPressa. Wtyczka 2 wymaga własnego katalogu albo junctiona wskazującego
 > na `ai-news-portal/`.
 
-Paczki ZIP wiszą też przy wydaniach: <https://github.com/mtsle/ai-faq-generator/releases>.
+Gotowe paczki ZIP wiszą przy wydaniach: <https://github.com/mtsle/ai-faq-generator/releases>.
+Katalogi `instrukcje/` **nie wchodzą do paczek instalacyjnych** — klient dostaje PDF-y osobno,
+obok pliku `.zip`.
+
+## Praca w repozytorium
+
+Potrzebny jest tylko **PHP CLI z rozszerzeniem `mbstring`**. Testy nie wymagają bazy danych,
+sieci ani zainstalowanego WordPressa — zamiast nich chodzą atrapy.
+
+```bash
+bash .github/ci/testy-wtyczka1.sh
+bash .github/ci/testy-wtyczka2.sh
+```
+
+Oba runnery biorą interpreter ze zmiennej `PHP` i domyślnie wołają `php` z `PATH`:
+
+```bash
+PHP=/sciezka/do/php bash .github/ci/testy-wtyczka1.sh
+```
+
+Zasady pracy, konwencje commitów, wersjonowanie i wymagania wobec nowych testów opisuje
+osobny dokument: **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+
+## Testy i strażnicy
+
+| | Wtyczka 1 | Wtyczka 2 |
+|---|---|---|
+| Zestawy | **63** w 57 segmentach | **29** w 15 segmentach |
+| Asercje | nieliczone globalnie | **2306**, liczone co do jednej |
+| Kryterium zaliczenia | kod wyjścia zestawu | kod wyjścia **oraz** dokładna liczba asercji |
+
+Różnica w kryteriach jest historyczna i celowa. Runner wtyczki 2 nie zalicza segmentu, jeśli
+liczba wykonanych asercji nie zgadza się z zadeklarowaną — test, który po cichu przestał
+cokolwiek sprawdzać, dalej świeciłby na zielono, a tak przewraca przebieg.
+
+Segmenty wtyczki 2 są ułożone **według architektury**, więc czyta się je jak mapę kodu:
+
+| | Segment | Czego dotyczy |
+|---|---|---|
+| S1 | Cykl życia instalacji | `Plugin.php`, plik główny |
+| S2 | Wejście sieciowe | `Http.php` |
+| S3 | Kanały i parsowanie | `Feed.php` |
+| S4 | Tożsamość pozycji i duplikaty | `Dedup.php` |
+| S5 | Bramki treści | `Filter.php`, `Article.php` |
+| S6 | Model i kontrakt odpowiedzi | `Gemini.php`, `Validator.php` |
+| S7 | Publikacja idempotentna | `Publisher.php` |
+| S8 | Orkiestracja przebiegu i zamek | `Runner.php` |
+| S9 | Automatyzacja czasowa | cron `ainp_tick` |
+| S10 | Kokpit: akcje, nonce, uprawnienia | `Admin.php`, `Admin_Screen.php` |
+| S11 | Ustawienia i klucz API | `Settings.php` |
+| S12 | Front Centrum Wiedzy | `Portal.php`, szablony |
+| S13 | Nagłówki bezpieczeństwa | `Security.php` |
+| S14 | Usuwanie bez śladu | `uninstall.php` |
+| S15 | Zgodność dokumentacji z kodem | `README.md` + `readme.txt` |
+
+Segmenty wtyczki 1 są ułożone **według kroków budowy** (`K3`–`K23`), bo powstawały razem
+z produktem. Pełna lista jest w [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh).
+
+### Strażnicy strukturalni
+
+Osobna kategoria zestawów nie sprawdza zachowania, tylko pilnuje **własności całego kodu** —
+tego, co łatwo cofnąć jedną porządkującą zmianą i czego zwykły test nie zauważy.
+
+| Strażnik | Czego pilnuje |
+|---|---|
+| [`uninstall-guard-test.php`](tests/uninstall-guard-test.php) | Kompletności sprzątania: każdy klucz, który kod zapisuje, musi być kasowany. Najdłuższy czas życia danych tymczasowych jest **wyliczany ze źródeł**, a nie przepisany z komentarza. Osobne ramię pilnuje, że wtyczka 1 nie rusza danych wtyczki 2. |
+| [`wersja-spojnosc-test.php`](tests/wersja-spojnosc-test.php) | Numer wersji ma cztery źródła (nagłówek, stała, `Stable tag`, changelog) i wszystkie muszą podawać to samo. Do tego: źródła instrukcji nie mogą zawierać numeru wersji wpisanego w treść — ma go podstawiać builder z nagłówka. |
+| [`krok21-csp-inline-guard-test.php`](tests/krok21-csp-inline-guard-test.php) | Zero atrybutów `onclick=` i `style=` w plikach panelu właściciela. Polityka CSP nie ma `unsafe-inline`, a nonce chroni tylko znaczniki `<script>` — atrybut przeglądarka zablokuje bezwzględnie i przycisk po prostu przestanie działać. |
+| [`js-rest-contract-test.php`](tests/js-rest-contract-test.php) | Nazwy pól, które przeglądarka wysyła do REST, zgadzają się z deklaracją trasy. Powstał po błędzie, który przeżył dwa Kroki: JS wysyłał nazwy kolumn z bazy, więc „Dodatkowy opis" był ignorowany, a „Liczba pytań" nie działała. |
+| [`seo-jsonld-test.php`](tests/seo-jsonld-test.php) | Dokładnie jeden węzeł `WebApplication` i nigdy `WebPage`, `Organization` czy `FAQPage`. Nowa podstrona nie może powstać bez wstępu i wyciągu, bo wtyczki SEO zbudują wtedy opis z pustki. |
+| [`load-harness-guard-test.php`](tests/load-harness-guard-test.php) | Gałęzie obronne skryptów obciążeniowych z `tests/load/`, których żaden runner nie uruchamia, bo wymagają żywej bazy. Strażnik czyta je statycznie, zamiast je odpalać. |
+| [`readme-zgodnosc-test.php`](tests/readme-zgodnosc-test.php) | Zgodność tego README z kodem: każda liczba jest **wyciągana z README i zderzana z wartością policzoną ze źródeł**, a nie porównywana z przepisaną listą. Do tego zero martwych odsyłaczy. Powstał, bo przy wydaniu 1.1.0 tabela CI podawała 60 zestawów zamiast 62 i 2083 asercje zamiast 2306. |
+| [`etap85-readme-test.php`](ai-news-portal/tests/etap85-readme-test.php) | Zgodność README wtyczki 2 z kodem: nazwa opcji albo liczba, która rozjedzie się z kodem, wywala test, zamiast czekać na kolejnego czytelnika. |
 
 ## CI — workflow „Testy"
 
@@ -75,15 +233,44 @@ PHP 8.2 z `mbstring`) wołają CI-owe kopie runnerów z `.github/ci/`:
 
 | job | runner | kryterium zaliczenia |
 |---|---|---|
-| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **62 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
+| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **63 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
 | Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2306 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
 
-Te same skrypty działają lokalnie (wymagany PHP CLI z rozszerzeniem `mbstring`):
+> [!WARNING]
+> Zielono u siebie nie znaczy zielono w CI. Testy chodzą na Linuksie, a repozytorium powstaje
+> na Windowsie — złapaliśmy tu już asercję zależną od kolejności plików z systemu oraz
+> strażników czytających katalog spoza repozytorium, którego CI nie ma. Zanim otworzysz PR,
+> uruchom runnery także w kopii repo przeniesionej poza katalog roboczy projektu.
 
-```bash
-bash .github/ci/testy-wtyczka1.sh
-bash .github/ci/testy-wtyczka2.sh
-```
+## Bezpieczeństwo
+
+| Obszar | Stan | Gdzie to widać |
+|---|---|---|
+| Uprawnienia | Trasy właściciela za `manage_options`; osobna, konfigurowalna zdolność dla narzędzia FAQ (`aifaq_tool_capability`) | `src/Rest/`, `src/Admin/` |
+| Klucz API | Wtyczka **jednorazowo zdejmuje autoload** z opcji niosącej klucz, żeby nie wisiał w pamięci przy każdym żądaniu | `src/Core/Plugin.php` |
+| CSP | Trasa standalone dostaje `script-src 'self' 'nonce-…'` **bez** `unsafe-inline` | `src/PublicUi/SecurityHeaders.php` |
+| Limity | Odstęp i sufit dobowy liczone dla gościa, z osobnym torem dla właściciela | `src/Rag/`, `src/Rest/` |
+| Odinstalowanie | Kasuje tabele, opcje, dane tymczasowe i metadane, w **całej sieci wielowitrynowej**, stronicując listę witryn | `uninstall.php` obu wtyczek |
+| Dowód | Osobny zestaw audytu bezpieczeństwa oraz strażnik kompletności sprzątania | `tests/audyt-bezpieczenstwa-test.php`, `tests/uninstall-guard-test.php` |
+
+Obie wtyczki działają w modelu **BYOK**: klucz do modelu należy do właściciela witryny,
+nie do autora wtyczki, i nigdzie poza tę witrynę nie wychodzi.
+
+## Dokumentacja poza kodem
+
+| Katalog | Co zawiera |
+|---|---|
+| [audyt/](audyt/) | **Audyt jakości obu wtyczek** — jak był prowadzony, co znalazł (48 pozycji), co z tego naprawiono i jak to udowodniono. Wraz z surowym raportem. |
+| [instrukcje/](instrukcje/) | Dokumentacja wtyczki 1 dla klienta i informatyka: 5 PDF-ów, źródła HTML, schematy, zrzuty. |
+| [ai-news-portal/instrukcje/](ai-news-portal/instrukcje/) | To samo dla wtyczki 2. |
+
+## Współpraca
+
+Zasady pracy w tym repozytorium — przepływ gałęzi, konwencje commitów, wersjonowanie,
+i twarde wymagania wobec każdej zmiany w kodzie — opisuje **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+
+Najkrócej: **każda naprawa dostaje asercję, która zaczerwieni się po jej cofnięciu**, a liczba
+asercji może tylko rosnąć.
 
 ---
 
