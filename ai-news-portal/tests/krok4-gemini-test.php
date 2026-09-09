@@ -579,7 +579,22 @@ namespace {
 	$r = Gemini::reserve_slot();
 	k4g_check( false === $r['ok'], 'przy stalym przegrywaniu wyscigu slot NIE jest brany' );
 	k4g_check( 'busy' === $r['reason'], 'powod odmowy odrozniony od wyczerpanego sufitu' );
-	k4g_check( Gemini::RESERVE_ATTEMPTS === $wpdb_uparty->updates, 'liczba prob ograniczona — brak petli bez konca' );
+	k4g_check( Gemini::CAS_ATTEMPTS === $wpdb_uparty->updates, 'liczba prob ograniczona — brak petli bez konca' );
+
+	/*
+	 * ZABEZPIECZENIE RAU-R13-002. Stala nazywa sie teraz tak, jak dziala.
+	 * Poprzednia nazwa (`RESERVE_ATTEMPTS`) sugerowala rezerwe podejsc trzymana
+	 * w puli dobowej i dokladnie tak opisywala ja regula REG-W2-29 — mechanizmu,
+	 * ktoremu w kodzie nic nie odpowiada, bo pula jest zuzywalna w calosci.
+	 * Warunek wiaze NAZWE z MIEJSCEM uzycia, wiec powrot do mylacej nazwy albo
+	 * uzycie stalej gdzie indziej niz w petli CAS przewraca asercje.
+	 */
+	$k4g_gemini_src = (string) file_get_contents( dirname( __DIR__ ) . '/src/Gemini.php' );
+
+	k4g_check( 5 === Gemini::CAS_ATTEMPTS, 'CAS_ATTEMPTS ma wartosc 5 (REG-W2-29)' );
+	k4g_check( 2 === preg_match_all( '/CAS_ATTEMPTS/', $k4g_gemini_src ), 'CAS_ATTEMPTS wystepuje DOKLADNIE dwa razy: deklaracja i jedno uzycie (kontrola pozytywna wzorca)' );
+	k4g_check( 1 === preg_match( '/for \(.*CAS_ATTEMPTS/', $k4g_gemini_src ), 'i tym jedynym uzyciem jest naglowek petli powtorzen CAS, nie arytmetyka puli' );
+	k4g_check( 0 === preg_match_all( '/RESERVE_ATTEMPTS[^`]/', $k4g_gemini_src ), 'mylaca nazwa RESERVE_ATTEMPTS nie wrocila do kodu' );
 
 	// ------------------------------------------------------------------
 	echo "\n-- Kolejnosc bram: klucz i czas przed slotem --\n";

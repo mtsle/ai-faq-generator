@@ -252,7 +252,16 @@ class K20PruneWpdb {
 	public $last_table = '';
 	public $last_data  = array();
 	public $queries    = array();
-	public $row        = null;
+	/*
+	 * Granica retencji (UZUP-10). `prune()` pyta o NIĄ przez `get_row()`, odkąd
+	 * porządek liczy się po `created_at`, a nie po kluczu głównym — atrapa
+	 * oddająca `null` nie pozwalała ustalić granicy, więc DELETE nigdy nie
+	 * zachodziło i cała ścieżka była niesprawdzalna.
+	 */
+	public $row        = array(
+		'created_at' => '2026-01-01 00:00:00',
+		'id'         => 7,
+	);
 	public $rows       = array();
 	public $var        = 7;
 	public $col        = array( 1, 2, 3, 4, 5, 6, 7 );
@@ -376,7 +385,45 @@ if ( $has_repo && method_exists( 'AIFAQ\Data\GenerationRepository', 'prune' ) ) 
 	$sql_rows = implode( ' | ', $dels );
 	check( false !== stripos( $sql_rows, 'WHERE' ), 'ZAKAZ DELETE bez WHERE — zapytanie ma WHERE' );
 	check( false !== stripos( $sql_rows, 'aifaq_generations' ), 'kasowanie dotyczy tabeli aifaq_generations' );
-	check( false === strpos( $sql_rows, '2025-' ) && false === strpos( $sql_rows, '2026-' ), 'przy keep_days = 0 w zapytaniu NIE MA warunku daty' );
+	/*
+	 * ZMIENIONA przy naprawie UZUP-10. Do wersji 1.0.0 asercja szukała w SQL-u
+	 * dowolnej daty i stwierdzała po jej braku, że kryterium wieku nie zadziałało.
+	 * Po naprawie granica liczby wierszy sama idzie po `created_at` (bo `page()`
+	 * tak sortuje, a klucz główny kłamie o wieku wpisu), więc data w zapytaniu
+	 * jest teraz NORMALNA i szukanie jej niczego nie dowodzi.
+	 *
+	 * Pytanie zostaje to samo — „czy przy `keep_days = 0` kryterium WIEKU jest
+	 * pominięte" — tylko zadane wprost: wiek dałby DRUGIE zapytanie kasujące,
+	 * a jedyne, które padło, jest granicą liczby wierszy i ma człon `id <=`.
+	 */
+	check( 1 === count( $dels ), 'przy keep_days = 0 pada TYLKO jedno DELETE — kryterium wieku pominięte' );
+	check( false !== stripos( $sql_rows, 'id <=' ), 'i jest to granica liczby wierszy (człon `id <=` domyka remis dat)' );
+	check( false !== stripos( $sql_rows, 'created_at' ), 'granica liczona po `created_at` — tym samym porządkiem co page()' );
+
+	/*
+	 * Strażnik na SELEKCIE GRANICY, nie tylko na DELETE. Sam DELETE nosi datę
+	 * także wtedy, gdy granica została ustalona po kluczu głównym — bo warunek
+	 * kasowania jest budowany osobno. Bez tej asercji cofnięcie `ORDER BY` do
+	 * `id DESC` przechodziło na zielono, choć wracała dokładnie ta wada,
+	 * którą naprawiamy (sprawdzone mutacją).
+	 */
+	$selekty = array();
+	foreach ( $GLOBALS['wpdb']->queries as $q ) {
+		if ( false !== stripos( (string) $q, 'SELECT' ) && false !== stripos( (string) $q, 'OFFSET' ) ) {
+			$selekty[] = (string) $q;
+		}
+	}
+	$sql_gran = implode( ' | ', $selekty );
+
+	check( 1 === count( $selekty ), 'granica ustalana JEDNYM zapytaniem (jest: ' . count( $selekty ) . ')' );
+	check(
+		false !== stripos( $sql_gran, 'ORDER BY created_at DESC' ),
+		'UZUP-10 (KLUCZOWA): granicę wyznacza `ORDER BY created_at DESC`, nie klucz główny (jest: ' . $sql_gran . ')'
+	);
+	check(
+		false !== stripos( $sql_gran, 'id DESC' ),
+		'i `id DESC` domyka remis równych dat — granica jest jednoznaczna'
+	);
 
 	// D3 — tylko wiek; granica liczona czasem LOKALNYM (current_time), nie gmdate()/time().
 	$GLOBALS['wpdb'] = new K20PruneWpdb();

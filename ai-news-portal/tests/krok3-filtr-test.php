@@ -331,6 +331,66 @@ k3f_check(
 );
 
 // ---------------------------------------------------------------------------
+echo "\n-- Skutek RAU-R04-002: sufit mierzy TRESC, nie znaczniki --\n";
+// ---------------------------------------------------------------------------
+/*
+ * Do wersji 1.0.0 `haystack()` przycinala sklejke do `MAX_HAYSTACK_BYTES`
+ * PRZED `normalize()`, a znaczniki zdejmuje dopiero `normalize()`. Sufit
+ * dlugosci konsumowaly wiec znaczniki HTML zamiast tekstu artykulu: pozycja
+ * z rozbudowanym HTML-em i krotkim tekstem trafiala do filtra okrojona,
+ * a slowo wykluczajace z konca tresci nie bylo w ogole ogladane.
+ *
+ * Material: duzo znacznikow, malo tekstu. Sam tekst ma daleko do sufitu,
+ * ale sklejka SUROWA przekracza go wielokrotnie.
+ */
+// Spacja po `</div>` jest celowa: `strip_tags()` sama granicy slowa nie stawia,
+// wiec bez niej „pies" i „kot" skleilyby sie w jeden wyraz.
+$znacznikow = str_repeat( '<div class="boks-z-bardzo-dluga-nazwa-klasy-ktora-nic-nie-znaczy"><span>pies</span></div> ', 3000 );
+$znacznikow .= '<p>kot</p>';
+
+k3f_check(
+	strlen( $znacznikow ) > Filter::MAX_HAYSTACK_BYTES,
+	'material znacznikowy przekracza sufit tresci (' . strlen( $znacznikow ) . ' B)'
+);
+k3f_check(
+	strlen( Filter::normalize( $znacznikow ) ) <= Filter::MAX_HAYSTACK_BYTES,
+	'ten sam material PO zdjeciu znacznikow miesci sie w sufinie ('
+		. strlen( Filter::normalize( $znacznikow ) ) . ' B)'
+);
+k3f_check(
+	'kot' === Filter::match( array( 'content' => $znacznikow ), array( 'kot' ) ),
+	'slowo na koncu tresci JEST widziane, choc znaczniki przed nim przekraczaja sufit'
+);
+
+// Sufit nadal obowiazuje — mierzony na TEKSCIE, wiec 128 KB tekstu go przekracza.
+$tekstu = str_repeat( 'pies ', 30000 ) . 'kot';
+k3f_check(
+	'' === Filter::match( array( 'content' => $tekstu ), array( 'kot' ) ),
+	'sufit dalej obowiazuje: 128 KB samego TEKSTU odcina slowo z konca'
+);
+
+// Bramka kosztu jest osobna od sufitu tresci i istotnie wieksza.
+k3f_check(
+	Filter::MAX_HAYSTACK_INPUT_BYTES > Filter::MAX_HAYSTACK_BYTES,
+	'bramka kosztu jest wieksza od sufitu tresci ('
+		. Filter::MAX_HAYSTACK_INPUT_BYTES . ' > ' . Filter::MAX_HAYSTACK_BYTES . ')'
+);
+
+// Straznik strukturalny: przyciecie tresci MUSI stac za normalize().
+$zrodlo_f = (string) file_get_contents( $root . '/src/Filter.php' );
+$od_h     = strpos( $zrodlo_f, 'public static function haystack(' );
+$do_h     = strpos( $zrodlo_f, 'public static function normalize(' );
+k3f_check( false !== $od_h && false !== $do_h && $do_h > $od_h, 'cialo haystack() odnalezione w zrodle' );
+
+$cialo_h  = substr( $zrodlo_f, $od_h, $do_h - $od_h );
+$poz_norm = strpos( $cialo_h, 'self::normalize(' );
+$poz_cut  = strpos( $cialo_h, 'self::MAX_HAYSTACK_BYTES' );
+k3f_check(
+	false !== $poz_norm && false !== $poz_cut && $poz_cut > $poz_norm,
+	'sufit tresci przycina PO normalize(), nie przed'
+);
+
+// ---------------------------------------------------------------------------
 echo "\n-- Lista slow z ustawien --\n";
 // ---------------------------------------------------------------------------
 $GLOBALS['__opcje'] = array();

@@ -677,10 +677,31 @@ namespace {
 	 * nieudanych pozycji — takie szukanie mowi o przypadkowym przycisku.
 	 * Sprawdzamy wiec fragment formularza PUBLIKACJI, nie caly ekran.
 	 */
-	$formularz_publikacji = substr( $html, (int) strpos( $html, 'value="ainp_publish"' ) );
-	$formularz_publikacji = substr( $formularz_publikacji, 0, (int) strpos( $formularz_publikacji, '</form>' ) );
+	/**
+	 * Wycina z ekranu SAM formularz publikacji.
+	 *
+	 * RAU-R08-001: wyciecie bylo tu wpisane w miejscu, a druga asercja o wygaszeniu
+	 * przycisku publikacji (bez klucza API) pytala o caly ekran. Skoro `Wznow nieudane`
+	 * tez sie wygasza, spelnial ja atrybut CUDZEGO przycisku. Jedno wyciecie w funkcji
+	 * obsluguje oba pytania i nie da sie go pominac przez nieuwage.
+	 *
+	 * @param string $html Wyrenderowany ekran.
+	 *
+	 * @return string Fragment formularza albo pusty string, gdy formularza nie ma.
+	 */
+	function k4a_formularz_publikacji( $html ) {
+		$od = strpos( $html, 'value="ainp_publish"' );
 
-	k4a_check( false === strpos( $formularz_publikacji, 'disabled' ), 'przy zapisanym kluczu przycisk publikacji jest aktywny' );
+		if ( false === $od ) {
+			return '';
+		}
+
+		$kawalek = substr( $html, (int) $od );
+
+		return substr( $kawalek, 0, (int) strpos( $kawalek, '</form>' ) );
+	}
+
+	k4a_check( false === strpos( k4a_formularz_publikacji( $html ), 'disabled' ), 'przy zapisanym kluczu przycisk publikacji jest aktywny' );
 	k4a_check( false !== strpos( $html, 'Wznów nieudane' ), 'obok stoi przycisk wznowienia (etap 5.4)' );
 	k4a_check( false === strpos( $html, 'AIzaTESTOWY' ), 'klucz NIE wycieka na ekran Materiałów' );
 
@@ -809,7 +830,12 @@ namespace {
 	Admin::render_items();
 	$html = (string) ob_get_clean();
 
-	k4a_check( false !== strpos( $html, 'disabled="disabled"' ), 'bez klucza przycisk publikacji jest wylaczony' );
+	// RAU-R08-001: pytanie ZAWEZONE do formularza publikacji. `k4a_reset( false )` zeruje
+	// takze liczbe nieudanych, wiec przycisk „Wznow nieudane" ma wtedy WLASNE `disabled`
+	// i szukanie po calym ekranie przechodzilo takze po wycieciu warunku z Admin_Screen.
+	$formularz_bez_klucza = k4a_formularz_publikacji( $html );
+	k4a_check( '' !== $formularz_bez_klucza, 'formularz publikacji da sie wyciac z ekranu bez klucza' );
+	k4a_check( false !== strpos( $formularz_bez_klucza, 'disabled="disabled"' ), 'bez klucza przycisk publikacji jest wylaczony' );
 	k4a_check( false !== strpos( $html, 'Klucz API nie jest zapisany' ), 'i klient wie dlaczego' );
 
 	// Licznik na ekranie idzie za stanem puli.

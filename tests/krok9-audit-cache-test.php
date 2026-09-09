@@ -24,13 +24,26 @@ if ( ! function_exists( '__' ) ) { function __( $s, $d = null ) { return $s; } }
 if ( ! function_exists( 'get_transient' ) ) { function get_transient( $k ) { return false; } }
 if ( ! function_exists( 'set_transient' ) ) { function set_transient( $k, $v, $t = 0 ) { return true; } }
 if ( ! function_exists( 'delete_transient' ) ) { function delete_transient( $k ) { return true; } }
+// Potrzebne od naprawy RAU-R06-004/R06-003 — te ścieżki repozytoriów sięgają
+// po czas i po sanityzację, a wcześniej test ich nie dotykał.
+if ( ! function_exists( 'current_time' ) ) { function current_time( $t, $gmt = 0 ) { return '2026-01-01 12:00:00'; } }
+if ( ! function_exists( 'wp_json_encode' ) ) { function wp_json_encode( $d, $f = 0 ) { return json_encode( $d, $f ); } }
+if ( ! function_exists( 'sanitize_text_field' ) ) { function sanitize_text_field( $s ) { return is_string( $s ) ? trim( strip_tags( $s ) ) : ''; } }
+if ( ! function_exists( 'wp_strip_all_tags' ) ) { function wp_strip_all_tags( $s, $b = false ) { return strip_tags( (string) $s ); } }
 if ( ! function_exists( 'register_shutdown_function_shim' ) ) { /* placeholder */ }
 
 // Spy $wpdb — rejestruje wszystkie zapytania.
 class SpyWpdb {
 	public $prefix = 'wp_';
 	public $queries = array();
-	public function query( $sql ) { $this->queries[] = $sql; return 1; }
+	public $insert_id = 42;
+	/** Sterowana awaria zapytania — potrzebna dla RAU-R06-004 i RAU-R06-003. */
+	public $query_ret = 1;
+	public $delete_ret = 1;
+	public $inserts = 0;
+	public function query( $sql ) { $this->queries[] = $sql; return $this->query_ret; }
+	public function delete( $table, $where, $fmt = null ) { $this->queries[] = 'DELETE ' . $table; return $this->delete_ret; }
+	public function insert( $table, $data, $fmt = null ) { $this->inserts++; $this->insert_id = 100 + $this->inserts; return 1; }
 	public function get_var( $sql ) { $this->queries[] = $sql; return 5; }
 	public function get_row( $sql, $o = null ) { $this->queries[] = $sql; return array( 'chunks' => 0, 'posts' => 0, 'embedded' => 0 ); }
 	public function prepare( $q, ...$a ) { return $q; }
@@ -74,6 +87,61 @@ $from = strpos( $src, 'function run_reindex' );
 $to   = strpos( $src, 'function run_clear' );
 $reindex_body = ( false !== $from && false !== $to && $to > $from ) ? substr( $src, $from, $to - $from ) : '';
 check( '' !== $reindex_body && false !== strpos( $reindex_body, 'CacheRepository' ) && false !== strpos( $reindex_body, 'clear_all' ), 'run_reindex woła CacheRepository::clear_all (po zmianie treści)' );
+
+// ===========================================================================
+echo "\n=== RAU-R06-004: put() sprawdza wynik zapytania ===\n";
+// ===========================================================================
+/*
+ * Docblock `put()` obiecuje „0, gdy nie udało się ustalić ID", a metoda oddawała
+ * `insert_id` bez względu na wynik zapytania. `$wpdb->insert_id` trzyma przy
+ * błędzie wartość z POPRZEDNIEGO wstawienia w tym samym połączeniu, więc
+ * nieudany zapis oddawał CUDZE, istniejące ID — wywołujący zapamiętywał je jako
+ * identyfikator wiersza, którego nie ma.
+ */
+$cache_repo = new \AIFAQ\Data\CacheRepository();
+
+$GLOBALS['wpdb']->query_ret = 1;
+$GLOBALS['wpdb']->insert_id = 42;
+check( 42 === $cache_repo->put( 'P?', 'O.' ), 'udany zapis: put() oddaje insert_id (jest: ' . $cache_repo->put( 'P?', 'O.' ) . ')' );
+
+$GLOBALS['wpdb']->query_ret = false;
+$GLOBALS['wpdb']->insert_id = 42;   // Cudze ID z poprzedniego wstawienia — właśnie o nie chodzi.
+check( 0 === $cache_repo->put( 'P?', 'O.' ), 'RAU-R06-004: nieudany zapis → put() oddaje 0, nie cudze insert_id (jest: ' . $cache_repo->put( 'P?', 'O.' ) . ')' );
+
+$GLOBALS['wpdb']->query_ret = 1;
+
+// ===========================================================================
+echo "\n=== RAU-R06-003: nieudane kasowanie fragmentów wycofuje transakcję ===\n";
+// ===========================================================================
+/*
+ * Transakcja w `replace_for_post()` była od początku, ale nieudane skasowanie
+ * starych fragmentów jej NIE przerywało: wpis kończył z PODWOJONYM zestawem
+ * i dodatnim wynikiem, jak przy sukcesie. Docblock obiecuje spójność zestawu —
+ * dopiero teraz jest to warunek, a nie deklaracja.
+ */
+$know_repo = new \AIFAQ\Data\KnowledgeRepository();
+
+$GLOBALS['wpdb']->queries    = array();
+$GLOBALS['wpdb']->delete_ret = false;
+$GLOBALS['wpdb']->inserts    = 0;
+
+$wynik_know = $know_repo->replace_for_post( 5, array( array( 'content' => 'A', 'embedding' => array( 0.1 ) ) ) );
+
+check( 0 === $wynik_know, 'RAU-R06-003: nieudane kasowanie → replace_for_post() zwraca 0 (jest: ' . $wynik_know . ')' );
+check( 0 === $GLOBALS['wpdb']->inserts, 'RAU-R06-003: i NIE wstawia ani jednego fragmentu (jest: ' . $GLOBALS['wpdb']->inserts . ')' );
+check( $GLOBALS['wpdb']->found( 'ROLLBACK' ), 'RAU-R06-003: transakcja WYCOFANA, nie zatwierdzona' );
+check( ! $GLOBALS['wpdb']->found( 'COMMIT' ), 'RAU-R06-003: żadnego COMMIT na tej ścieżce' );
+
+// Kontrola pozytywna: `0` z kasowania (nie było czego kasować) NIE jest awarią.
+$GLOBALS['wpdb']->queries    = array();
+$GLOBALS['wpdb']->delete_ret = 0;
+$GLOBALS['wpdb']->inserts    = 0;
+
+$wynik_zero = $know_repo->replace_for_post( 5, array( array( 'content' => 'A', 'embedding' => array( 0.1 ) ) ) );
+check( $GLOBALS['wpdb']->found( 'COMMIT' ), 'kontrola: zero skasowanych to NIE awaria — transakcja zatwierdzona' );
+check( $wynik_zero > 0, 'kontrola: i fragmenty zostały wstawione (jest: ' . $wynik_zero . ')' );
+
+$GLOBALS['wpdb']->delete_ret = 1;
 
 echo "\n=== " . ( 0 === $fail ? 'WSZYSTKIE OK' : "BŁĘDÓW: {$fail}" ) . " ===\n";
 exit( $fail > 0 ? 1 : 0 );

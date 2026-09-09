@@ -33,7 +33,9 @@ class Activator {
 		Schema::install();
 
 		// 2. Migracja danych ze starej tabeli historii (jednorazowa).
-		Migrator::run();
+		//    Wynik jest potrzebny w kroku 8: wersja bazy nie ma prawa pójść w górę,
+		//    jeśli dane nie przeszły (AWA-W1-16, audyt przebieg-2 RAU-R05-002).
+		$zmigrowano = Migrator::run();
 
 		// 3. Rejestracja reguły rewrite i przebudowa (żeby /faqgenerator działało od razu).
 		$router = new Router();
@@ -94,7 +96,12 @@ class Activator {
 			}
 		}
 
-		// 8. Zapis wersji bazy.
-		update_option( 'aifaq_db_version', AIFAQ_DB_VERSION );
+		// 8. Zapis wersji bazy — TYLKO gdy krok 2 rzeczywiście przeniósł dane.
+		//    Wersja zapisana po nieudanej migracji zamyka drogę powrotną: przy
+		//    następnym wejściu `maybe_upgrade_db()` uzna schemat za aktualny
+		//    i nie spróbuje ponownie.
+		if ( $zmigrowano ) {
+			update_option( 'aifaq_db_version', AIFAQ_DB_VERSION );
+		}
 	}
 }

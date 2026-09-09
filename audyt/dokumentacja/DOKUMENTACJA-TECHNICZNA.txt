@@ -1,0 +1,1320 @@
+﻿======================================
+PROJEKTAUDYT — DOKUMENTACJA TECHNICZNA
+======================================
+
+
+Zakres: wtyczka 1 „AI FAQ Generator" (A) + wtyczka 2 „AI News Portal" (B)
+Wersja kodu: gałąź main. Tryb demo poza zakresem.
+Warstwa pierwsza (reguły TECH-nn) pochodzi z oryginalnych źródeł normatywnych, nie z odtworzenia z
+pamięci — lista niżej.
+Warstwa druga (realizacja, kotwica, stan) powstała przez otwarcie miejsc w kodzie.
+
+Źródła normatywne
+=================
+
+
+  Obszar: WordPress
+  -------------------
+    Źródło : Plugin Handbook — Escaping, Sanitizing, Nonces, Cron; Common APIs
+
+  Obszar: PHP
+  -------------
+    Źródło : Podręcznik PHP — libxml i jego stałe
+
+  Obszar: Bezpieczeństwo
+  ------------------------
+    Źródło : OWASP Cheat Sheets — SSRF Prevention, XXE Prevention, Secrets Management
+
+  Obszar: HTTP
+  --------------
+    Źródło : RFC 9110 — Conditional Requests
+
+  Obszar: Dostawca modelu
+  -------------------------
+    Źródło : Gemini API — generateContent, Troubleshooting
+
+  Obszar: Kanały
+  ----------------
+    Źródło : RSS 2.0 Specification; RFC 4287 (Atom)
+
+  Obszar: Adresy
+  ----------------
+    Źródło : WHATWG URL Standard
+
+  Obszar: Przeglądarka
+  ----------------------
+    Źródło : MDN — Content-Security-Policy
+
+  Obszar: Dostępność
+  --------------------
+    Źródło : WCAG 2.2 (A, AA)
+
+
+Legenda
+=======
+
+
+  Stan: REALIZOWANE
+  -------------------
+    Znaczenie : mechanizm istnieje — sprawdzony przez otwarcie miejsca w kodzie, nie po nazwie
+
+  Stan: BRAK
+  ------------
+    Znaczenie : reguła dotyczy projektuAUDYT, mechanizmu nie ma
+
+  Stan: NIE DOTYCZY
+  -------------------
+    Znaczenie : reguła nie stosuje się — z uzasadnieniem
+
+  Stan: DO ROZSTRZYGNIĘCIA
+  --------------------------
+    Znaczenie : nie da się orzec bez uruchomienia albo bez pełnego przeglądu
+
+
+Wagi: KRYTYCZNY (zdalne wykonanie kodu, wyciek sekretu lub danych, utrata danych, zablokowanie
+witryny) · DUŻY (awaria funkcji w typowym użyciu, konflikt psujący motyw lub inną wtyczkę,
+przepalony limit usługi) · ŚREDNI (niezgodność ze standardem platformy bez bezpośredniej szkody) ·
+MAŁY (konwencja, porządek w paczce).
+
+
+____________________________________________________________________________________________________
+
+
+1 · WordPress jako platforma
+============================
+
+
+  ID: TECH-01
+  -------------
+    Reguła techniczna           : Aktywacja przy istniejących tabelach ze starszej wersji migruje
+                                  dane, nie nadpisuje ich
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Wersja schematu trzymana w opcji, migracje w osobnej klasie;
+                                  obecna wersja 6.
+    Kotwica                     : src/Data/Migrator.php; opcja aifaq_db_version
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-02
+  -------------
+    Reguła techniczna           : Deaktywacja wyrejestrowuje wszystkie zadania cron wtyczki
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Wyrejestrowywane są dwa haki: pełzania i wznowienia reindeksu,
+                                  przez wp_unschedule_hook().
+    Kotwica                     : src/Core/Deactivator.php
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-03
+  -------------
+    Reguła techniczna           : Deaktywacja wyrejestrowuje zadanie cron wtyczki
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : wp_clear_scheduled_hook() na haku automatu.
+    Kotwica                     : Plugin::deactivate(), Plugin::CRON_HOOK
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-04
+  -------------
+    Reguła techniczna           : WP-Cron nie jest niezawodnym harmonogramem — zadanie odpala się
+                                  przy wczytaniu strony, więc przy braku ruchu nie odpali się wcale
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Automat chodzi wyłącznie na WP-Cronie (hourly). Kod nie sprawdza,
+                                  czy DISABLE_WP_CRON jest włączone, i nie ostrzega właściciela, że
+                                  przy martwym ruchu portal przestanie się zasilać.
+    Kotwica                     : Plugin::CRON_HOOK, CRON_RECURRENCE
+    Stan                        : BRAK
+    Waga                        : DUŻY
+
+  ID: TECH-05
+  -------------
+    Reguła techniczna           : Zadanie cykliczne nie może zostać zdublowane w tablicy crona
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Skanowana jest cała tablica crona przy sprawdzaniu, czy zadanie
+                                  już istnieje — naprawa z audytu Kroku 8.
+    Kotwica                     : Plugin (has_recurring_tick)
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-06
+  -------------
+    Reguła techniczna           : Wtyczka ładuje własne tłumaczenia we właściwym momencie
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Obie wołają load_plugin_textdomain(); wtyczka 2 ma udokumentowaną
+                                  kolejność przeszukiwania katalogów.
+    Kotwica                     : src/Core/Plugin.php; ai-news-portal/src/Plugin.php
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-07
+  -------------
+    Reguła techniczna           : Własny typ treści i taksonomia są rejestrowane na init i
+                                  wyrejestrowywane przy sprzątaniu
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : register_post_type() i register_taxonomy() na init; unregister_*
+                                  przy odinstalowaniu.
+    Kotwica                     : Plugin::CPT, Plugin::TAX
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-08
+  -------------
+    Reguła techniczna           : Zmiana reguł przepisywania adresów wymaga jednorazowego
+                                  przeładowania, nie przeładowania przy każdym żądaniu
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Istnieje znacznik aifaq_flush_needed, czyli przeładowanie jest
+                                  warunkowe.
+    Kotwica                     : Core\Settings::FLUSH_FLAG
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-09
+  -------------
+    Reguła techniczna           : Wtyczka nie tworzy pozycji w menu motywu bez zgody właściciela
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Strażnik menu nigdy nie tworzy menu; przy braku menu zgłasza stan
+                                  i milczy. Uzasadnienie w kodzie: przypięcie gasi mechanizm
+                                  zastępczy motywu.
+    Kotwica                     : PublicUi\MenuGuard::STATE_NO_MENU
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-10
+  -------------
+    Reguła techniczna           : Szablon wtyczki ustępuje szablonowi motywu
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : template_include podstawia szablon wtyczki wyłącznie wtedy, gdy
+                                  motyw własnego nie ma.
+    Kotwica                     : Portal::TEMPLATE_DIR
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-11
+  -------------
+    Reguła techniczna           : Nagłówki wysyłane przez wtyczkę są uzupełniające, nigdy
+                                  nadpisujące cudze
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Obie sprawdzają, czy nagłówek już istnieje. Wtyczka 2 daje filtr i
+                                  stałą wyłączającą.
+    Kotwica                     : Security::FILTER, Security::CONST_OFF; PublicUi\SecurityHeaders
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-12
+  -------------
+    Reguła techniczna           : Katalogi wtyczki są chronione przed listowaniem
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : 16 plików index.php w katalogach obu wtyczek.
+    Kotwica                     : src/**/index.php
+    Stan                        : REALIZOWANE
+    Waga                        : MAŁY
+
+  ID: TECH-13
+  -------------
+    Reguła techniczna           : Odinstalowanie usuwa wszystkie dane wtyczki i nie dotyka danych
+                                  innych wtyczek
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Osobny uninstall.php w każdej wtyczce, rozłączne prefiksy aifaq_ i
+                                  ainp_.
+    Kotwica                     : oba uninstall.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-14
+  -------------
+    Reguła techniczna           : Wtyczka nie wykonuje płatnych operacji zewnętrznych bez zgody
+                                  właściciela
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Kod wprost odnotowuje tę zasadę przy uruchamianiu indeksowania.
+    Kotwica                     : src/Core/Plugin.php (komentarz przy inicjalizacji)
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+
+✅ TECH-01..14 — 13 REALIZOWANE, 1 BRAK
+
+
+____________________________________________________________________________________________________
+
+
+2 · Baza danych
+===============
+
+
+  ID: TECH-15
+  -------------
+    Reguła techniczna           : Wartości pochodzące z zewnątrz trafiają do zapytania wyłącznie
+                                  przez $wpdb->prepare()
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Wzorzec w całym kodzie: nazwa tabeli interpolowana (pochodzi ze
+                                  stałej i prefiksu, nie z wejścia), wartości przez prepare(). Pełny
+                                  przegląd wszystkich ~60 zapytań to zadanie audytu, nie
+                                  dokumentacji.
+    Kotwica                     : src/Data/*.php; ai-news-portal/src/Runner.php
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-16
+  -------------
+    Reguła techniczna           : Nazwa tabeli używa prefiksu z $wpdb, nie wartości zapisanej na
+                                  sztywno
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : $wpdb->prefix + stała nazwy.
+    Kotwica                     : Data\Schema::T_*; Plugin::TABLE
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-17
+  -------------
+    Reguła techniczna           : Wyciszenie reguły analizatora (phpcs:ignore) występuje tylko tam,
+                                  gdzie interpolacja jest bezpieczna
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Znaczniki stoją przy zapytaniach z interpolowaną nazwą tabeli. Czy
+                                  każdy z nich jest uzasadniony — do zweryfikowania sztuka po
+                                  sztuce.
+    Kotwica                     : src/Data/KnowledgeRepository.php i pozostałe repozytoria
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : ŚREDNI
+
+  ID: TECH-18
+  -------------
+    Reguła techniczna           : Operacja wielokrokowa na bazie jest objęta transakcją albo jest
+                                  idempotentna
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Zapis fragmentów indeksu chodzi w transakcji z jawnym ROLLBACK na
+                                  ścieżce błędu.
+    Kotwica                     : Data\KnowledgeRepository (START TRANSACTION / COMMIT / ROLLBACK)
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-19
+  -------------
+    Reguła techniczna           : Publikacja wpisu jest idempotentna — powtórka nie tworzy duplikatu
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Meta _ainp_item_id wiąże wpis z pozycją kolejki i blokuje drugi
+                                  zapis.
+    Kotwica                     : Plugin::META_ITEM; src/Publisher.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-20
+  -------------
+    Reguła techniczna           : Wersja schematu jest podnoszona dopiero po udanej migracji
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Do zweryfikowania: nie prześledziłem kolejności zapisu wersji
+                                  względem wykonania migracji.
+    Kotwica                     : src/Data/Migrator.php
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-21
+  -------------
+    Reguła techniczna           : Kasowanie dużych zbiorów odbywa się partiami, nie jednym
+                                  zapytaniem bez granicy
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Czyszczenie dziennika działa dwuwymiarowo: po dacie i po liczbie
+                                  wierszy, z wyliczoną granicą.
+    Kotwica                     : Data\QaLogRepository::prune()
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-22
+  -------------
+    Reguła techniczna           : Zachowanie w instalacji wielowitrynowej jest świadomie
+                                  rozstrzygnięte
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Rozstrzygnięte: OBA uninstall.php obsługują instalację
+                                  wielowitrynową i sprzątają KAŻDĄ witrynę sieci. Wspólny wzorzec:
+                                  bramka `is_multisite()`, pętla `switch_to_blog()` /
+                                  `restore_current_blog()` wokół funkcji sprzątającej jedną witrynę,
+                                  a lista witryn pobierana STRONICOWANIEM (`number` + `offset`,
+                                  strona 500, `fields => ids`) — pojedyncze wywołanie `get_sites()`
+                                  zostawiałoby w większej sieci część witryn nieposprzątanych po cichu.
+                                  Nazwy tabel powstają wewnątrz pętli, bo `switch_to_blog()`
+                                  podmienia prefiks.
+                                  HISTORIA: do przebiegu 2 pozycja mówiła, że multisite nie jest
+                                  obsługiwany. Było to nieprawdą wobec wtyczki 1, która obsługę miała
+                                  od początku (RAU-R15-003), i prawdą wobec wtyczki 2, która dostała
+                                  ją dopiero w naprawie RAU-R15-001.
+    Kotwica                     : oba uninstall.php — aifaq_uninstall_cleanup_site(),
+                                  ainp_uninstall_cleanup_site()
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-23
+  -------------
+    Reguła techniczna           : Kolumny tekstowe mają granicę długości egzekwowaną przed zapisem
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Twarde granice na adres i tekst przed wstawieniem wiersza.
+    Kotwica                     : Runner::MAX_URL_BYTES, MAX_TEXT_BYTES
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-24
+  -------------
+    Reguła techniczna           : Odczyt dużego zbioru jest stronicowany
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Wyszukiwanie wektorowe czyta stronami po 200; ostrzeżenie o skali
+                                  od 5000 fragmentów.
+    Kotwica                     : Rag\Retriever::PAGE_SIZE, SCALE_WARN_CHUNKS
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+
+✅ TECH-15..24 — 7 REALIZOWANE, 3 DO ROZSTRZYGNIĘCIA
+
+
+____________________________________________________________________________________________________
+
+
+3 · PHP 8.1+ oraz parsowanie XML i HTML
+=======================================
+
+
+Podstawa: podręcznik PHP (stałe libxml) oraz OWASP XXE Prevention — dokument stwierdza, że PHP 8.0 i
+nowsze domyślnie zapobiegają XXE, bo ładowanie encji zewnętrznych jest wyłączone. To nie zwalnia z
+jawnego hartowania parsera.
+
+  ID: TECH-25
+  -------------
+    Reguła techniczna           : Parser XML nie dostaje LIBXML_NOENT — to ta flaga podstawia encje
+                                  i otwiera XXE
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Jawnie pominięta, z komentarzem w kodzie nazywającym powód. Parser
+                                  dostaje wyłącznie LIBXML_NOCDATA \
+    Kotwica                     : LIBXML_NONET.
+    Stan                        : src/Feed.php (simplexml_load_string)
+    Waga                        : REALIZOWANE
+
+  ID: TECH-26
+  -------------
+    Reguła techniczna           : Parser XML dostaje LIBXML_NONET — zakaz sięgania po zasoby
+                                  sieciowe w trakcie parsowania
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Ustawione przy parsowaniu kanału i przy parsowaniu HTML strony
+                                  źródłowej.
+    Kotwica                     : src/Feed.php; Article::loadHTML(...)
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-27
+  -------------
+    Reguła techniczna           : Parser nie dostaje LIBXML_PARSEHUGE — flaga podnosi limity
+                                  głębokości i rekurencji, a podręcznik zastrzega ją wyłącznie do
+                                  danych zaufanych
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Nieużywana w żadnym z dwóch miejsc parsowania.
+    Kotwica                     : src/Feed.php; src/Article.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-28
+  -------------
+    Reguła techniczna           : Parser nie dostaje LIBXML_DTDLOAD ani LIBXML_DTDATTR — obie
+                                  powodują pobranie encji zewnętrznych
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Nieużywane.
+    Kotwica                     : src/Feed.php; src/Article.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-29
+  -------------
+    Reguła techniczna           : Błędy parsera są przechwytywane, a stan globalny przywracany po
+                                  pracy
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : libxml_use_internal_errors(true) przed, odczyt błędów,
+                                  libxml_clear_errors() i przywrócenie poprzedniej wartości po.
+                                  Wzorzec powtórzony w każdym miejscu parsowania.
+    Kotwica                     : src/Feed.php; src/Article.php (trzy miejsca)
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-30
+  -------------
+    Reguła techniczna           : loadHTML() dostaje jawną deklarację kodowania, bo bez niej libxml
+                                  zakłada ISO-8859-1
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Deklaracja doklejana przed treścią, z komentarzem wyjaśniającym
+                                  kolejność.
+    Kotwica                     : src/Article.php (loadHTML)
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-31
+  -------------
+    Reguła techniczna           : Głębokie zagnieżdżenie dokumentu nie wywraca procesu
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Kod odnotowuje zmierzoną granicę libxml (drzewo urywane na 255.
+                                  poziomie) i się do niej stosuje.
+    Kotwica                     : src/Article.php
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-32
+  -------------
+    Reguła techniczna           : Praca na dużym dokumencie respektuje granicę pamięci
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Ekstrakcja odpuszcza powyżej 0,8 dostępnej pamięci.
+    Kotwica                     : Article::MEMORY_FRACTION
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-33
+  -------------
+    Reguła techniczna           : Odpowiedź sieciowa jest ograniczona rozmiarowo przed wczytaniem do
+                                  pamięci
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : limit_response_size na każdym żądaniu: 4 MB kanał, 1 MB strona, 64
+                                  KB robots.txt.
+    Kotwica                     : Http::LIMIT_FEED, LIMIT_ARTICLE, ROBOTS_LIMIT
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-34
+  -------------
+    Reguła techniczna           : Kodowanie znaków jest obsłużone jawnie, nie zostawione domyślnym
+                                  ustawieniom
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Deklaracja kodowania przy loadHTML, żądania z Accept-Encoding:
+                                  identity (bez kompresji).
+    Kotwica                     : Http::ENCODING; src/Article.php
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-35
+  -------------
+    Reguła techniczna           : Dekodowanie JSON z zewnątrz sprawdza wynik, zamiast zakładać
+                                  poprawność
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Niepoprawny JSON ma własną klasyfikację błędu (bad_json) i osobną
+                                  ścieżkę ponowienia.
+    Kotwica                     : src/Gemini.php; Runner::AI_JSON_RETRIES
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-36
+  -------------
+    Reguła techniczna           : Kod nie polega na wyciszaniu błędów jako mechanizmie sterowania
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Wyciszenia (LIBXML_NOWARNING, LIBXML_NOERROR) występują wyłącznie
+                                  przy parsowaniu HTML, gdzie realny HTML nie jest poprawnym XML-em
+                                  — z uzasadnieniem w kodzie.
+    Kotwica                     : src/Article.php
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+
+✅ TECH-25..36 — 12 REALIZOWANE
+
+
+____________________________________________________________________________________________________
+
+
+4 · Bezpieczeństwo aplikacji webowej
+====================================
+
+
+  ID: TECH-37
+  -------------
+    Reguła techniczna           : Adres pochodzący z zewnątrz jest pobierany klientem, który odrzuca
+                                  adresy prywatne, pętli zwrotnej i lokalne — OWASP SSRF Prevention
+                                  wymienia 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16,
+                                  ::1/128 i 169.254.169.254
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Używany jest wp_safe_remote_get(), nie wp_remote_get() — czyli
+                                  rdzeń WordPressa waliduje adres i odrzuca zakresy prywatne. Kod
+                                  odnotowuje to jako świadome odchylenie od planu, który przewidywał
+                                  wariant niebezpieczny.
+    Kotwica                     : Http::fetch() (dwa wywołania wp_safe_remote_get); komentarz
+                                  nagłówkowy src/Http.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-38
+  -------------
+    Reguła techniczna           : Schemat adresu jest sprawdzany wobec listy dopuszczalnej
+                                  http/https przed jakimkolwiek żądaniem
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Własna kontrola schematu przed wywołaniem, niezależna od walidacji
+                                  rdzenia.
+    Kotwica                     : Http::is_http_url()
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-39
+  -------------
+    Reguła techniczna           : Przekierowania są ograniczone, a cel przekierowania podlega tej
+                                  samej walidacji co adres pierwotny
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Limit 3 przekierowań; walidację celu wykonuje rdzeń, bo żądanie
+                                  idzie wariantem bezpiecznym. Zastrzeżenie: OWASP zaleca wyłączenie
+                                  obsługi przekierowań w kliencie, a tu są dopuszczone.
+    Kotwica                     : Http::REDIRECTS; wp_safe_remote_get
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : DUŻY
+
+  ID: TECH-40
+  -------------
+    Reguła techniczna           : Adres pobierany przez pełzanie po własnej witrynie też przechodzi
+                                  walidację
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Używany jest wp_remote_get(), czyli wariant bez walidacji rdzenia.
+                                  Adresy pochodzą z własnej witryny, ale czy pełzanie nie może wyjść
+                                  poza nią — do rozstrzygnięcia.
+    Kotwica                     : Index\CrawlQueue (wp_remote_get); Index\RenderedContentSource
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-41
+  -------------
+    Reguła techniczna           : Weryfikacja certyfikatu TLS jest wyłączana wyłącznie tam, gdzie
+                                  jest to uzasadnione i wąsko zakresowane
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : sslverify jest wyłączane tylko dla adresów lokalnych i prywatnych
+                                  (certyfikaty samopodpisane w środowisku deweloperskim); dla
+                                  adresów publicznych pozostaje włączone.
+    Kotwica                     : Index\CrawlQueue ('sslverify' => ! $this->is_local_url( $url ))
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-42
+  -------------
+    Reguła techniczna           : Uprawnienie jest sprawdzane przed jakąkolwiek zmianą stanu
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Wspólna bramka: najpierw current_user_can(), potem nonce, potem
+                                  praca. Jedna funkcja obsługuje wszystkie pięć akcji.
+    Kotwica                     : Admin (funkcja strażnika, ~w. 621)
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-43
+  -------------
+    Reguła techniczna           : Nonce nie zastępuje sprawdzenia uprawnień — podręcznik WordPressa
+                                  mówi wprost: „Nonces should never be relied on for authentication,
+                                  authorization, or access control"
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Sprawdzane są oba: capability i check_admin_referer(), w tej
+                                  kolejności.
+    Kotwica                     : Admin::CAP, Admin::NONCE_FIELD
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-44
+  -------------
+    Reguła techniczna           : Niepowodzenie weryfikacji nonce kończy przetwarzanie odpowiedzią
+                                  odmowną
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : check_admin_referer() przerywa przetwarzanie; przy braku
+                                  uprawnienia wp_die() z komunikatem.
+    Kotwica                     : Admin (bramka)
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-45
+  -------------
+    Reguła techniczna           : Trasy REST mają permission_callback — a trasa publiczna deklaruje
+                                  to jawnie, nie przez pominięcie
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : 15 tras: jedna z __return_true (publiczna, świadomie), 14 z
+                                  bramkami rolowymi.
+    Kotwica                     : src/Rest/RouteRegistrar.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-46
+  -------------
+    Reguła techniczna           : Bramka roli nie wystarcza tam, gdzie zasób ma właściciela
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Trzy trasy dotykające cudzych generacji sprawdzają rolę, nie
+                                  własność zasobu. Dziura tej klasy była już raz naprawiona w Kroku
+                                  21.
+    Kotwica                     : RestController::require_admin(); trasy /admin/generations*
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-47
+  -------------
+    Reguła techniczna           : Wejście jest sanityzowane funkcją właściwą dla typu danych
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Pytanie gościa przez sanitize_textarea_field plus własny
+                                  walidator; osobny zestaw testów na sanityzację REST.
+    Kotwica                     : RouteRegistrar (sanitize_callback);
+                                  tests/krok23-etap1-rest-sanityzacja-test.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-48
+  -------------
+    Reguła techniczna           : Wyjście ucieka funkcją właściwą dla kontekstu — esc_html,
+                                  esc_attr, esc_url, esc_textarea — a nie jedną uniwersalną
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Szablony konsekwentnie rozdzielają konteksty: esc_html_e,
+                                  esc_attr_e, esc_url, esc_attr przy dacie.
+    Kotwica                     : src/templates/*.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-49
+  -------------
+    Reguła techniczna           : Ucieczka następuje możliwie późno, przy wypisywaniu
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : W szablonach ucieczka jest w miejscu wypisania, nie przy budowie
+                                  danych.
+    Kotwica                     : src/templates/single.php, archive.php, card.php
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-50
+  -------------
+    Reguła techniczna           : Adres w atrybucie href ucieka przez esc_url, nie esc_attr
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : esc_url() przy linku źródłowym, kategorii i paginacji.
+    Kotwica                     : src/templates/single.php, archive.php
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-51
+  -------------
+    Reguła techniczna           : Treść pochodząca od modelu jest ograniczona do listy dozwolonych
+                                  znaczników
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Prompt wymienia dopuszczalne znaczniki, ale walidacja tego nie
+                                  egzekwuje — sprawdza cztery pola, ich długości i kategorię.
+                                  Filtrowanie zależy więc od tego, co zrobi WordPress przy zapisie
+                                  wpisu.
+    Kotwica                     : Validator::check(); src/Settings.php klucz prompt
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-52
+  -------------
+    Reguła techniczna           : Nagłówek CSP z nonce nie zawiera równocześnie unsafe-inline w tej
+                                  samej dyrektywie w sposób, który znosiłby ochronę
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Podstrona generatora ma CSP z nonce bez unsafe-inline, pilnowane
+                                  osobnym zestawem testów. Zgodnie z MDN obecność nonce i tak
+                                  unieważniłaby unsafe-inline, ale tu go po prostu nie ma.
+    Kotwica                     : PublicUi\SecurityHeaders; tests/krok21-csp-inline-guard-test.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-53
+  -------------
+    Reguła techniczna           : Nonce CSP jest losowy i unikalny dla każdego żądania
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Do potwierdzenia: nie prześledziłem źródła losowości ani zasięgu
+                                  życia wartości.
+    Kotwica                     : PublicUi\SecurityHeaders
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-54
+  -------------
+    Reguła techniczna           : Klucz API nie jest ładowany przy każdym żądaniu i nie trafia do
+                                  dziennika ani komunikatu błędu — OWASP Secrets Management: sekret
+                                  nigdy nie może być logowany
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Istnieje mechanizm zdejmowania autoładowania z opcji klucza
+                                  (znacznik hartowania), wprowadzony po audycie bezpieczeństwa. Czy
+                                  klucz nie wycieka do żadnego logu — do przeglądu.
+    Kotwica                     : Core\Plugin::HARDEN_FLAG (aifaq_autoload_hardened)
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-55
+  -------------
+    Reguła techniczna           : Klucz API jest maskowany przy wyświetlaniu w interfejsie
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Nie sprawdzone w tej rundzie dla żadnej z wtyczek.
+    Kotwica                     : src/Admin/views/settings.php; ai-news-portal/src/Admin_Screen.php
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : DUŻY
+
+  ID: TECH-56
+  -------------
+    Reguła techniczna           : Materiał z zewnątrz nie steruje modelem — jest oddzielony od
+                                  instrukcji
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Wtyczka 2: ogrodzenie <<<MATERIAL_ZRODLOWY … >>> plus zdanie w
+                                  prompcie nakazujące ignorować polecenia z materiału. Wtyczka 1:
+                                  reguły w systemInstruction, kontekst jako dane.
+    Kotwica                     : Gemini::FENCE_OPEN; Rag\Answerer (system_text, format_context,
+                                  harden_question)
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+
+✅ TECH-37..56 — 13 REALIZOWANE, 7 DO ROZSTRZYGNIĘCIA
+
+
+____________________________________________________________________________________________________
+
+
+5 · Integracja HTTP i model językowy
+====================================
+
+
+Podstawa: RFC 9110 (żądania warunkowe), dokumentacja Gemini API (kody błędów i generationConfig).
+
+  ID: TECH-57
+  -------------
+    Reguła techniczna           : Każde żądanie wychodzące ma jawny limit czasu
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Kanał 10 s, strona 15 s, robots.txt 5 s, model 8–30 s; wtyczka 1 —
+                                  60 s do dostawcy, klient HTTP 15 s domyślnie i 120 s maksymalnie.
+    Kotwica                     : Http::TIMEOUT_*; Gemini::TIMEOUT_MIN/MAX;
+                                  GeminiProvider::REQUEST_TIMEOUT
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-58
+  -------------
+    Reguła techniczna           : Odpowiedź modelu ma limit rozmiaru
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : 1 MB; powyżej — odrzucenie.
+    Kotwica                     : Gemini::LIMIT_RESPONSE
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-59
+  -------------
+    Reguła techniczna           : Klient rozróżnia błąd przejściowy od trwałego zgodnie z tym, co
+                                  mówi dostawca: 429, 500, 503 i 504 są przejściowe, 400, 403 i 404
+                                  trwałe
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Wtyczka 2 klasyfikuje 429 i całą rodzinę 5xx jako przejściowe, 4xx
+                                  poza 429 jako trwałe. Zgodne ze wskazaniem dostawcy.
+    Kotwica                     : src/Http.php (klasyfikacja); src/Gemini.php
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-60
+  -------------
+    Reguła techniczna           : 429 od dostawcy nie jest mylone z awarią treści
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Osobny opis: „Model odmówił: wyczerpany limit po stronie Google
+                                  (429)".
+    Kotwica                     : src/Gemini.php
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-61
+  -------------
+    Reguła techniczna           : Ponawianie odbywa się z rosnącym odstępem — dokumentacja dostawcy
+                                  zaleca wykładniczy backoff
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Karencja 60 s po błędzie chwilowym, 3600 s po limicie dobowym,
+                                  minimum 5 s między podejściami, budżet ponowień 100. Zastrzeżenie:
+                                  to odstępy stałe, nie rosnące wykładniczo.
+    Kotwica                     : GeminiProvider::COOLDOWN_SECONDS, COOLDOWN_DAY_SECONDS,
+                                  MIN_ATTEMPT_SECONDS
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : ŚREDNI
+
+  ID: TECH-62
+  -------------
+    Reguła techniczna           : Liczba ponowień jest ograniczona
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Jedno ponowienie przy złej odpowiedzi, potem stan terminalny;
+                                  sufit 3 podejść na pozycję.
+    Kotwica                     : Runner::AI_JSON_RETRIES, MAX_ATTEMPTS
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-63
+  -------------
+    Reguła techniczna           : Odpowiedź modelu jest wymuszona schematem, nie proszona o format w
+                                  treści promptu
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : generationConfig.responseSchema na v1beta, zgodnie z dokumentacją
+                                  dostawcy.
+    Kotwica                     : Gemini::ENDPOINT; budowa generationConfig
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-64
+  -------------
+    Reguła techniczna           : Klucz API idzie do dostawcy w sposób zgodny z jego dokumentacją
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Dokumentacja Gemini przewiduje klucz jako parametr zapytania. Czy
+                                  kod robi to tak — i czy adres z kluczem nie trafia do logu — do
+                                  sprawdzenia.
+    Kotwica                     : src/Gemini.php; Providers\GeminiProvider::API_BASE
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-65
+  -------------
+    Reguła techniczna           : Cyklicznie pobierany zasób korzysta z żądań warunkowych — RFC 9110
+                                  zaleca If-Modified-Since z Last-Modified albo If-None-Match z
+                                  ETag, a 304 oznacza „lokalna kopia jest aktualna"
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Nie jest używane. Żądanie kanału wysyła Accept i Accept-Encoding,
+                                  żadnego nagłówka warunkowego. Każdy przebieg godzinny pobiera
+                                  pełny kanał od nowa.
+    Kotwica                     : Http::fetch() (tablica headers)
+    Stan                        : BRAK
+    Waga                        : DUŻY
+
+  ID: TECH-66
+  -------------
+    Reguła techniczna           : Klient przedstawia się własnym identyfikatorem
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Wtyczka 2 ma własny user_agent(); wtyczka 1 wysyła
+                                  AIFAQ-Indexer/<wersja>.
+    Kotwica                     : Http::user_agent(); Index\CrawlQueue
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-67
+  -------------
+    Reguła techniczna           : Żądanie do własnej witryny jest odróżnialne od żądania obcego
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Pełzanie dokłada nagłówek z tokenem witryny, nieodgadywalnym dla
+                                  gościa — nie stałą wartością 1.
+    Kotwica                     : Index\CrawlQueue::crawl_header();
+                                  Core\Plugin::guard_crawl_request()
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-68
+  -------------
+    Reguła techniczna           : Kompresja odpowiedzi jest świadomie wyłączona albo świadomie
+                                  obsłużona
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Accept-Encoding: identity — z uzasadnieniem w kodzie: limit
+                                  rozmiaru liczony na strumieniu skompresowanym mylił jednostki.
+    Kotwica                     : Http::ENCODING
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-69
+  -------------
+    Reguła techniczna           : Wywołanie modelu nie następuje, gdy wiadomo, że wynik i tak
+                                  zostanie odrzucony
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Bramka tematu kończy obsługę przed sięgnięciem po fragmenty i
+                                  przed wywołaniem dostawcy.
+    Kotwica                     : RagService (warunek na decyzji bramki)
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-70
+  -------------
+    Reguła techniczna           : Wywołanie modelu nie startuje, jeśli w przebiegu nie zostało dość
+                                  czasu, by je dokończyć
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Sprawdzenie pozostałego budżetu przed wywołaniem; notatka „Za mało
+                                  czasu w tym przebiegu".
+    Kotwica                     : Gemini::NOTE_TIME; Runner::PUBLISH_BUDGET
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+
+✅ TECH-57..70 — 11 REALIZOWANE, 1 BRAK, 2 DO ROZSTRZYGNIĘCIA
+
+
+____________________________________________________________________________________________________
+
+
+6 · Wydajność i niezawodność
+============================
+
+
+  ID: TECH-71
+  -------------
+    Reguła techniczna           : Praca w tle nie blokuje żądania odwiedzającego
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Cały automat chodzi z crona — żadne pobieranie, generowanie ani
+                                  publikowanie nie zachodzi na żądanie odwiedzającego.
+                                  UŚCIŚLENIE (przebieg 2, RAU-R13-004): front nie jest jednak
+                                  „bez żadnej pracy”. Szablon karty pyta dysk o obecność zdjęcia
+                                  kategorii przez `Portal::category_image_url()`, a rotacja
+                                  wariantów robiła to po CZTERY razy na każdą kartę listy — koszt
+                                  rósł liniowo z liczbą kart. Wynik jest teraz pamiętany w obrębie
+                                  żądania: pierwsza karta kategorii pyta dysk najwyżej raz na wariant,
+                                  każda kolejna zero razy. Praca frontu jest więc OGRANICZONA I STAŁA,
+                                  nie żadna.
+    Kotwica                     : Plugin::CRON_HOOK; Portal::category_image_url(),
+                                  Portal::category_variant(); src/templates/card.php
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-72
+  -------------
+    Reguła techniczna           : Przebieg jest ograniczony budżetem czasu, a jego przekroczenie
+                                  kończy fazę czysto
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Trzy budżety: tick 25 s, przygotowanie 15 s, publikacja 30 s.
+    Kotwica                     : Runner::TICK_BUDGET, PREPARE_BUDGET, PUBLISH_BUDGET
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-73
+  -------------
+    Reguła techniczna           : Dwie wartości, których nierówność jest mechanizmem, nie mogą się
+                                  zrównać
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : TICK_BUDGET (25) ≠ PUBLISH_BUDGET (30) jest strażnikiem regresji z
+                                  etapu 8.7. Nierówność obowiązuje na budżetach EFEKTYWNYCH,
+                                  czyli po przycięciu do max_execution_time: przycinany jest
+                                  budżet publikacji, a budżet ticku wyprowadzany z niego
+                                  w proporcji stałych. Pilnowane asercjami dla limitów
+                                  10/15/20/30/31/40 s, nie tylko dla limitu 0.
+    Kotwica                     : Runner::TICK_BUDGET, PUBLISH_BUDGET, Runner::tick_budget()
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-74
+  -------------
+    Reguła techniczna           : Praca odbywa się partiami o stałym górnym rozmiarze
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : 3 pozycje do modelu, 10 do przygotowania, 100 z kanału, 50 na
+                                  ekranie panelu.
+    Kotwica                     : Runner::AI_BATCH, PREPARE_BATCH, MAX_ITEMS_PER_SOURCE;
+                                  Admin::ITEMS_LIMIT
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-75
+  -------------
+    Reguła techniczna           : Operacja, która nie znosi równoległości, jest objęta atomowym
+                                  zamkiem z czasem życia
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : Sześć zamków: przebieg automatu 120 s, indeksowanie 15 min,
+                                  publiczne FAQ 30 s, menu 30 s, podstrona 30 s, pełzanie.
+    Kotwica                     : Admin::OPTION_LOCK, LOCK_TTL; IndexController::LOCK_TTL;
+                                  Faq\PublicFaq::LOCK_TTL
+    Stan                        : REALIZOWANE
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-76
+  -------------
+    Reguła techniczna           : Zamek jest zdejmowany także na ścieżce błędu
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Do potwierdzenia: nie prześledziłem wszystkich wyjść z przebiegu
+                                  pod kątem zdjęcia zamka.
+    Kotwica                     : src/Runner.php; Admin::OPTION_LOCK
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : KRYTYCZNY
+
+  ID: TECH-77
+  -------------
+    Reguła techniczna           : Zadanie przerwane w połowie da się wznowić bez utraty danych
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Pozycja w stanie processing starsza niż 900 s wraca do new;
+                                  licznik podejść świadomie nie rośnie.
+    Kotwica                     : Runner::STALE_SECONDS
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-78
+  -------------
+    Reguła techniczna           : Długa operacja ma punkt wznowienia, a nie musi zaczynać od zera
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Indeksowanie falami po 500 z budżetem 45 s i dalszym ciągiem z
+                                  crona; stan pełzania w opcji.
+    Kotwica                     : Index\Indexer::WAVE_SIZE, BUDGET_SECONDS; Index\CrawlQueue::OPTION
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-79
+  -------------
+    Reguła techniczna           : Regres w danych jest wykrywany, nie przemilczany
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Spadek liczby fragmentów o ponad 30% podnosi alarm.
+    Kotwica                     : Index\Indexer::DROP_ALERT
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
+
+  ID: TECH-80
+  -------------
+    Reguła techniczna           : Wyniki kosztownych operacji są zapamiętywane, żeby nie liczyć ich
+                                  dwa razy
+    Wtyczka                     : A
+    Realizacja w projekcieAUDYT : Odmowy trafiają do pamięci podręcznej na godzinę; osobna tabela
+                                  pamięci podręcznej odpowiedzi.
+    Kotwica                     : RagService::REFUSAL_CACHE_TTL; Data\CacheRepository
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+
+✅ TECH-71..80 — 9 REALIZOWANE, 1 DO ROZSTRZYGNIĘCIA
+
+
+____________________________________________________________________________________________________
+
+
+7 · Dostępność frontu i dystrybucja
+===================================
+
+
+Podstawa: WCAG 2.2 (poziom A i AA) oraz wytyczne dla paczki wtyczki.
+
+  ID: TECH-81
+  -------------
+    Reguła techniczna           : Nawigacja i punkty orientacyjne mają nazwy dostępne (WCAG 1.3.1,
+                                  poziom A)
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Szablony mają aria-label na nawigacji kategorii i paginacji,
+                                  przetłumaczalne.
+    Kotwica                     : src/templates/archive.php
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-82
+  -------------
+    Reguła techniczna           : Pole wyszukiwania ma etykietę albo instrukcję (WCAG 3.3.2, poziom
+                                  A)
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Etykieta „Szukaj w Centrum Wiedzy" plus placeholder z przykładem.
+    Kotwica                     : src/templates/archive.php
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-83
+  -------------
+    Reguła techniczna           : Cel linku wynika z jego treści (WCAG 2.4.4, poziom A)
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Link źródłowy ma etykietę „Źródło:" i nazwę hosta jako treść;
+                                  linki powrotne opisane słownie.
+    Kotwica                     : src/templates/single.php
+    Stan                        : REALIZOWANE
+    Waga                        : MAŁY
+
+  ID: TECH-84
+  -------------
+    Reguła techniczna           : Treść nietekstowa ma alternatywę tekstową (WCAG 1.1.1, poziom A)
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Karty archiwum używają zdjęć w trzech wariantach na kategorię. Czy
+                                  każde ma sensowny alt — nie sprawdzone.
+    Kotwica                     : src/templates/card.php; Portal::IMAGE_VARIANTS
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : DUŻY
+
+  ID: TECH-85
+  -------------
+    Reguła techniczna           : Kontrast tekstu wobec tła spełnia 4,5:1 (WCAG 1.4.3, poziom AA)
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Wymaga pomiaru na renderowanej stronie, nie da się orzec z kodu.
+                                  Motyw ma pierwszeństwo, więc wynik zależy też od niego.
+    Kotwica                     : assets/ (arkusz stylów wtyczki)
+    Stan                        : DO ROZSTRZYGNIĘCIA
+    Waga                        : DUŻY
+
+  ID: TECH-86
+  -------------
+    Reguła techniczna           : Paczka zawiera licencję i nagłówek wtyczki zgodny z wymaganiami
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : LICENSE w obu, GPLv2 bez „or later", readme.txt dla klienta.
+    Kotwica                     : LICENSE; readme.txt; nagłówki plików głównych
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-87
+  -------------
+    Reguła techniczna           : Wersja w nagłówku wtyczki zgadza się z Stable tag i z wersją w
+                                  kodzie
+    Wtyczka                     : B
+    Realizacja w projekcieAUDYT : Pilnowane testem: Stable tag musi równać się AINP_VERSION, plus
+                                  wpis w changelogu.
+    Kotwica                     : readme.txt; AINP_VERSION; tests/etap85-readme-test.php
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+  ID: TECH-88
+  -------------
+    Reguła techniczna           : Paczka nie zawiera plików deweloperskich ani zależności
+                                  zewnętrznych
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : ZIP budowany z białej listy, a builder pilnuje, by folder wtyczki
+                                  2 nie trafił do paczki wtyczki 1. Zero zależności zewnętrznych —
+                                  brak composer.json i vendor/.
+    Kotwica                     : zasoby/skrypty/paczka/zbuduj-zip.py
+    Stan                        : REALIZOWANE
+    Waga                        : ŚREDNI
+
+
+✅ TECH-81..88 — 6 REALIZOWANE, 2 DO ROZSTRZYGNIĘCIA
+
+
+____________________________________________________________________________________________________
+
+
+==================
+POZYCJE DLA AUDYTU
+==================
+
+
+KRYTYCZNY — 9 pozycji
+=====================
+
+
+  ID: TECH-40
+  -------------
+    Rzecz   : Pełzanie po witrynie używa wp_remote_get(), czyli wariantu bez walidacji adresu przez
+              rdzeń
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A
+
+  ID: TECH-46
+  -------------
+    Rzecz   : Trasy dotykające cudzych generacji sprawdzają rolę, nie własność zasobu
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A
+
+  ID: TECH-51
+  -------------
+    Rzecz   : Lista dozwolonych znaczników jest w prompcie, nie w walidacji
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : B
+
+  ID: TECH-53
+  -------------
+    Rzecz   : Nie potwierdzone źródło losowości i unikalność nonce CSP per żądanie
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A
+
+  ID: TECH-54
+  -------------
+    Rzecz   : Nie potwierdzone, że klucz API nie trafia do żadnego dziennika
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A
+
+  ID: TECH-64
+  -------------
+    Rzecz   : Nie potwierdzone, że adres z kluczem API nie trafia do logu
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A+B
+
+  ID: TECH-15
+  -------------
+    Rzecz   : Pełny przegląd zapytań pod kątem prepare() niewykonany
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A+B
+
+  ID: TECH-20
+  -------------
+    Rzecz   : Nie potwierdzone, że wersja schematu rośnie dopiero po udanej migracji
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A
+
+  ID: TECH-76
+  -------------
+    Rzecz   : Nie potwierdzone zdjęcie zamka na każdej ścieżce błędu
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : B
+
+
+DUŻY — 6 pozycji
+================
+
+
+  ID: TECH-04
+  -------------
+    Rzecz   : Brak ostrzeżenia, że automat zależy od ruchu na stronie i przy martwym ruchu nie
+              zadziała
+    Stan    : BRAK
+    Wtyczka : B
+
+  ID: TECH-65
+  -------------
+    Rzecz   : Brak żądań warunkowych — każdy przebieg godzinny pobiera cały kanał od nowa
+    Stan    : BRAK
+    Wtyczka : B
+
+  ID: TECH-39
+  -------------
+    Rzecz   : Przekierowania dopuszczone, choć OWASP zaleca ich wyłączenie
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : B
+
+  ID: TECH-55
+  -------------
+    Rzecz   : Nie sprawdzone maskowanie klucza API w interfejsie
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A+B
+
+  ID: TECH-84
+  -------------
+    Rzecz   : Nie sprawdzony tekst alternatywny zdjęć na kartach
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : B
+
+  ID: TECH-85
+  -------------
+    Rzecz   : Kontrast wymaga pomiaru na renderowanej stronie
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : B
+
+
+ŚREDNI — 2 pozycje
+==================
+
+
+  ID: TECH-17
+  -------------
+    Rzecz   : Uzasadnienie każdego phpcs:ignore niezweryfikowane sztuka po sztuce
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A
+
+  ID: TECH-61
+  -------------
+    Rzecz   : Odstępy ponowień są stałe, nie rosnące wykładniczo jak zaleca dostawca
+    Stan    : DO ROZSTRZYGNIĘCIA
+    Wtyczka : A
+
+
+____________________________________________________________________________________________________
+
+
+============================
+UWAGI DO WARSTWY TECHNICZNEJ
+============================
+
+
+  1. Parsowanie XML jest zrobione wzorcowo i to zasługuje na odnotowanie. Wszystkie cztery reguły z
+     OWASP XXE Prevention i podręcznika PHP są spełnione, a kod nazywa powód przy każdej:
+     LIBXML_NOENT jest jawnie pominięte z komentarzem, LIBXML_NONET ustawione w obu miejscach
+     parsowania, LIBXML_PARSEHUGE nieużywane. To nie jest przypadek — to świadoma decyzja zapisana w
+     kodzie.
+
+  2. SSRF: kod jest bezpieczniejszy niż plan, który go opisywał. Plan budowy wymieniał
+     wp_remote_get(); kod używa wp_safe_remote_get(), czyli wariantu, w którym rdzeń WordPressa
+     odrzuca adresy prywatne i pętli zwrotnej — dokładnie te zakresy, które wylicza OWASP.
+     Odchylenie jest w kodzie odnotowane jako świadome. Gdyby audyt szedł według planu zamiast
+     według kodu, zgłosiłby błąd, którego nie ma.
+
+  3. Asymetria między wtyczkami przy pobieraniu adresów. Wtyczka 2, która pobiera adresy obce, używa
+     wariantu bezpiecznego. Wtyczka 1, która pobiera adresy własne, używa wariantu zwykłego.
+     Kierunek jest logiczny, ale wymaga potwierdzenia, że pełzanie faktycznie nie potrafi wyjść poza
+     własną witrynę — stąd TECH-40 jako pozycja krytyczna.
+
+  4. TECH-65 to jedyny czysty brak w obszarze integracji HTTP. Automat pobiera te same kanały co
+     godzinę bez If-Modified-Since i bez ETag. RFC 9110 nie czyni tego obowiązkiem, ale to
+     bezpośrednia odpowiedź na DZIED-13 z dokumentacji dziedzinowej, która wisiała jako DO
+     ROZSTRZYGNIĘCIA: nadmiernego odpytywania nie ogranicza nic poza częstotliwością crona.
+
+  5. Dostępności nie da się domknąć z kodu. TECH-84 i TECH-85 wymagają obejrzenia renderowanej
+     strony, a wynik zależy również od motywu, który ma pierwszeństwo nad szablonami wtyczki.
+
+  6. Obszar 3 nie ma ani jednej pozycji dla audytu. Dwanaście reguł, dwanaście REALIZOWANYCH. Jeżeli
+     audyt czegoś tam szuka, powinien zacząć od podważenia moich ustaleń, a nie od przeglądania kodu
+     od nowa.
+
+
+____________________________________________________________________________________________________
+
+
+=======================================
+SPRAWDZENIA WYMAGAJĄCE ŻYWEJ INSTALACJI
+=======================================
+
+
+  Co                                                 Dlaczego nie z kodu
+  ------------------------------------------------   ------------------------------------------------------------
+  TECH-84, TECH-85 — tekst alternatywny i kontrast   wymaga obejrzenia renderowanej strony wraz z motywem
+  TECH-53 — unikalność nonce CSP per żądanie         wymaga dwóch żądań i porównania nagłówków
+  TECH-04 — zachowanie automatu przy braku ruchu     wymaga witryny bez odwiedzin przez kilka godzin
+  TECH-65 — skutek braku żądań warunkowych           wymaga pomiaru ruchu wychodzącego przy kolejnych przebiegach

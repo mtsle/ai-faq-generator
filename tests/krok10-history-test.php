@@ -73,6 +73,7 @@ class SpyWpdb {
 	public $queries = array();
 	public $rows    = array();
 	public $total   = 0;
+	public $boundary = null;   // wiersz graniczny dla prune(); null = zachowanie jak dla stats()
 	public $deleted = 0;
 
 	public function prepare( $q, ...$a ) {
@@ -84,6 +85,9 @@ class SpyWpdb {
 	public function get_var( $q ) { $this->queries[] = $q; return $this->total; }
 	public function get_row( $q, $o = null ) {
 		$this->queries[] = $q;
+		if ( null !== $this->boundary ) {
+			return $this->boundary;
+		}
 		return array(
 			'total' => 9, 'today' => 2, 'week' => 5, 'answered' => 6,
 			'refused' => 2, 'errors' => 1, 'cached' => 3, 'avg_score' => 0.8123,
@@ -178,6 +182,50 @@ check( 0 === strpos( $wpdb->last(), 'DELETE FROM' ), 'purge() wykonuje DELETE' )
 $wpdb->deleted = false;
 check( 0 === $repo->purge(), 'błąd zapytania → 0 (nie false)' );
 $wpdb->deleted = 0;
+
+echo "
+== prune(): retencja liczona po DACIE, nie po kluczu głównym (audyt przebieg-2, RAU-R07-004) ==
+";
+//
+// STRAŻNIK. Przed naprawą granicę wyznaczało `ORDER BY id DESC`, a `id` kłamie
+// o wieku wpisu wszędzie tam, gdzie `created_at` przychodzi z zewnątrz: `log()`
+// przyjmuje własną datę, a `Migrator` wstawia historię z datami sprzed lat na
+// świeżych AUTO_INCREMENT. Na takiej instalacji `prune()` zachowywał zmigrowaną
+// prehistorię i kasował realnie NAJNOWSZE pytania gości — bezpowrotnie, bo dziennik
+// jest jedyną kopią tych danych.
+$wpdb->reset();
+$wpdb->boundary = array( 'created_at' => '2026-01-10 08:00:00', 'id' => 500 );
+$wpdb->deleted  = 4;
+
+$usuniete    = $repo->prune( 3, 0 );
+$granica_sql = isset( $wpdb->queries[0] ) ? (string) $wpdb->queries[0] : '';
+$delete_sql  = (string) $wpdb->last();
+
+check( 4 === $usuniete, 'prune() zwraca liczbę skasowanych wierszy' );
+check( false !== strpos( $granica_sql, 'ORDER BY created_at DESC' ), 'granica retencji wybierana po created_at (najnowsze najpierw)' );
+check( false === strpos( $granica_sql, 'ORDER BY id DESC' ), 'granica retencji NIE jest wybierana po kluczu głównym' );
+check( false !== strpos( $granica_sql, 'SELECT created_at, id' ), 'granica pobiera DATĘ oraz id (id wyłącznie do remisu)' );
+check( false !== strpos( $granica_sql, 'OFFSET 3' ), 'granicą jest wiersz N+1 od najnowszego' );
+check( 0 === strpos( $delete_sql, 'DELETE FROM' ), 'kasowanie to dokładnie jedno DELETE' );
+check( false !== strpos( $delete_sql, "created_at < '2026-01-10 08:00:00'" ), 'DELETE tnie po DACIE wiersza granicznego' );
+check( false !== strpos( $delete_sql, "created_at = '2026-01-10 08:00:00'" ) && false !== strpos( $delete_sql, 'id <= 500' ), 'remis równych dat rozstrzygany po id wiersza granicznego' );
+check( false !== strpos( $delete_sql, 'DELETE FROM' ) && 0 === preg_match( '/WHERE\s+id\s*<=/i', $delete_sql ), 'DELETE NIE tnie po samym id — to kasowało wpisy NOWSZE niż zachowane' );
+
+//
+// ZABEZPIECZENIE. W tej klasie „najnowszy" ma znaczyć jedno. Przed naprawą
+// `prune()` liczył po `id`, a `recent()` i `page()` po dacie — dwa pojęcia w jednym
+// pliku i nikt ich nie zderzał. Warunek pilnuje CAŁEJ klasy, nie jednej metody,
+// więc przyszłe zapytanie też nie wprowadzi drugiego porządku.
+$qa_src = (string) file_get_contents( dirname( __DIR__ ) . '/src/Data/QaLogRepository.php' );
+preg_match_all( '/ORDER BY\s+([a-z_]+)/i', $qa_src, $qa_ord );
+$qa_kolumny = array_values( array_unique( array_map( 'strtolower', $qa_ord[1] ) ) );
+
+check( 4 === count( $qa_ord[1] ), 'KONTROLA POZYTYWNA: wzorzec znalazł wszystkie 4 klauzule ORDER BY w klasie' );
+check( array( 'created_at' ) === $qa_kolumny, 'ZABEZPIECZENIE: KAŻDE sortowanie w klasie idzie po created_at (znaleziono: ' . implode( ', ', $qa_kolumny ) . ')' );
+
+$wpdb->boundary = null;
+$wpdb->deleted  = 0;
+$wpdb->reset();
 
 echo "\n== REST /admin/history ==\n";
 $wpdb->rows = array(

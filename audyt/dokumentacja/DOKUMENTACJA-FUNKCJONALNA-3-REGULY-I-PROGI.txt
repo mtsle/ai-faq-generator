@@ -1,0 +1,822 @@
+﻿==========================================
+PROJEKTAUDYT — DOKUMENTACJA FUNKCJONALNA 3
+==========================================
+
+Rejestr reguł biznesowych i progów
+==================================
+
+
+Zakres: wtyczka 1 „AI FAQ Generator" + wtyczka 2 „AI News Portal"
+Wersja kodu: gałąź main. Tryb demo poza zakresem.
+Do czego służy: każda liczba, od której zależy zachowanie projektuAUDYT, z miejscem w kodzie i wagą
+naruszenia. Najtańszy w audycie typ dowodu — porównanie jest mechaniczne.
+
+Jak audytor używa tego dokumentu: wartość w kolumnie „wartość" musi zgadzać się z kodem co do znaku.
+Rozbieżność jest zgłoszeniem, a nie tematem do dyskusji. Reguły oznaczone STRAŻNIK mają dodatkowy
+warunek opisany w uwadze — sama wartość nie wystarcza.
+
+
+____________________________________________________________________________________________________
+
+
+W2 · Zbieranie i filtrowanie
+============================
+
+
+  ID: REG-W2-01
+  ---------------
+    Reguła  : Maksimum pozycji z jednego kanału na przebieg
+    Wartość : 100
+    Kotwica : Runner::MAX_ITEMS_PER_SOURCE
+    Waga    : ŚREDNI
+
+  ID: REG-W2-02
+  ---------------
+    Reguła  : Parametry śledzące zdejmowane przed porównaniem adresów
+    Wartość : prefiks utm_ + lista własna
+    Kotwica : Dedup::TRACKING, TRACKING_PREFIXES
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-03
+  ---------------
+    Reguła  : Długość materiału branego do odcisku treści
+    Wartość : 8192 bajty
+    Kotwica : Dedup::CONTENT_BYTES
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-04
+  ---------------
+    Reguła  : Maksymalny przeszukiwany fragment pola
+    Wartość : 131 072 bajty (128 KB)
+    Kotwica : Filter::MAX_HAYSTACK_BYTES
+    Waga    : ŚREDNI
+
+  ID: REG-W2-05
+  ---------------
+    Reguła  : Pola sprawdzane przez filtr wykluczający
+    Wartość : title, summary, excerpt, content
+    Kotwica : Filter::FIELDS_ALL
+    Waga    : ŚREDNI
+
+  ID: REG-W2-06
+  ---------------
+    Reguła  : Pola sprawdzane przez bramkę słów wymaganych
+    Wartość : title, summary, excerpt — bez content
+    Kotwica : Filter::FIELDS_HEAD
+    Waga    : DUŻY
+
+
+W2 · Treść
+==========
+
+
+  ID: REG-W2-07
+  ---------------
+    Reguła  : Próg, poniżej którego treść z kanału uznaje się za niewystarczającą
+    Wartość : 1200 znaków
+    Kotwica : Article::MIN_FEED_CHARS
+    Waga    : ŚREDNI
+
+  ID: REG-W2-08
+  ---------------
+    Reguła  : Próg, poniżej którego tekst po ekstrakcji odrzuca pozycję
+    Wartość : 500 znaków
+    Kotwica : Article::MIN_TEXT_CHARS
+    Waga    : DUŻY
+
+  ID: REG-W2-09
+  ---------------
+    Reguła  : Górne ograniczenie treści po ekstrakcji
+    Wartość : 20 000 znaków
+    Kotwica : Article::MAX_CONTENT_CHARS
+    Waga    : ŚREDNI
+
+  ID: REG-W2-10
+  ---------------
+    Reguła  : Udział pamięci, powyżej którego ekstrakcja odpuszcza
+    Wartość : 0,8
+    Kotwica : Article::MEMORY_FRACTION
+    Waga    : DUŻY
+
+  ID: REG-W2-11
+  ---------------
+    Reguła  : Maksymalna długość adresu pozycji
+    Wartość : 2048 bajty
+    Kotwica : Runner::MAX_URL_BYTES
+    Waga    : ŚREDNI
+
+  ID: REG-W2-12
+  ---------------
+    Reguła  : Maksymalna długość tekstu w kolumnie
+    Wartość : 65 000 bajtów
+    Kotwica : Runner::MAX_TEXT_BYTES
+    Waga    : DUŻY
+
+
+W2 · Ruch sieciowy
+==================
+
+
+  ID: REG-W2-13
+  ---------------
+    Reguła  : Limit czasu pobrania kanału
+    Wartość : 10 s
+    Kotwica : Http::TIMEOUT_FEED
+    Waga    : ŚREDNI
+
+  ID: REG-W2-14
+  ---------------
+    Reguła  : Limit rozmiaru kanału
+    Wartość : 4 194 304 B (4 MB)
+    Kotwica : Http::LIMIT_FEED
+    Waga    : DUŻY
+
+  ID: REG-W2-15
+  ---------------
+    Reguła  : Limit czasu pobrania strony
+    Wartość : 15 s
+    Kotwica : Http::TIMEOUT_ARTICLE
+    Waga    : ŚREDNI
+
+  ID: REG-W2-16
+  ---------------
+    Reguła  : Limit rozmiaru strony
+    Wartość : 1 048 576 B (1 MB)
+    Kotwica : Http::LIMIT_ARTICLE
+    Waga    : DUŻY
+
+  ID: REG-W2-17
+  ---------------
+    Reguła  : Liczba przekierowań
+    Wartość : 3
+    Kotwica : Http::REDIRECTS
+    Waga    : ŚREDNI
+
+  ID: REG-W2-18
+  ---------------
+    Reguła  : Minimalny odstęp między żądaniami do hosta
+    Wartość : 3 s
+    Kotwica : Http::MIN_HOST_GAP
+    Waga    : ŚREDNI
+
+  ID: REG-W2-19
+  ---------------
+    Reguła  : Ważność wyniku robots.txt
+    Wartość : 43 200 s (12 h)
+    Kotwica : Http::ROBOTS_TTL
+    Waga    : ŚREDNI
+
+  ID: REG-W2-20
+  ---------------
+    Reguła  : Limit czasu i rozmiaru robots.txt
+    Wartość : 5 s · 65 536 B
+    Kotwica : Http::ROBOTS_TIMEOUT, ROBOTS_LIMIT
+    Waga    : MAŁY
+
+  ID: REG-W2-21
+  ---------------
+    Reguła  : Kodowanie żądań
+    Wartość : identity — bez kompresji
+    Kotwica : Http::ENCODING
+    Waga    : MAŁY
+
+
+W2 · Model
+==========
+
+
+  ID: REG-W2-22
+  ---------------
+    Reguła  : Maksymalny materiał wysyłany do modelu
+    Wartość : 12 000 znaków
+    Kotwica : Gemini::MATERIAL_MAX
+    Waga    : DUŻY
+
+  ID: REG-W2-23
+  ---------------
+    Reguła  : Materiał zamknięty w ogrodzeniu, żeby nie sterował modelem
+    Wartość : <<<MATERIAL_ZRODLOWY / MATERIAL_ZRODLOWY>>>
+    Kotwica : Gemini::FENCE_OPEN, FENCE_CLOSE
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-24
+  ---------------
+    Reguła  : Limit czasu wywołania
+    Wartość : 8–30 s
+    Kotwica : Gemini::TIMEOUT_MIN, TIMEOUT_MAX
+    Waga    : DUŻY
+
+  ID: REG-W2-25
+  ---------------
+    Reguła  : Maksymalny rozmiar przyjmowanej odpowiedzi
+    Wartość : 1 048 576 B
+    Kotwica : Gemini::LIMIT_RESPONSE
+    Waga    : DUŻY
+
+  ID: REG-W2-26
+  ---------------
+    Reguła  : Maksimum tokenów wyjścia
+    Wartość : 8192
+    Kotwica : Gemini::MAX_OUTPUT_TOKENS
+    Waga    : ŚREDNI
+
+  ID: REG-W2-27
+  ---------------
+    Reguła  : Temperatura
+    Wartość : 0,4
+    Kotwica : Gemini::TEMPERATURE
+    Waga    : ŚREDNI
+
+  ID: REG-W2-28
+  ---------------
+    Reguła  : Model zapasowy
+    Wartość : gemini-2.5-flash
+    Kotwica : Gemini::FALLBACK_MODEL
+    Waga    : ŚREDNI
+
+  ID: REG-W2-29
+  ---------------
+    Reguła  : Powtórzenia przegranej rezerwacji slotu (CAS)
+    Wartość : 5
+    Kotwica : Gemini::CAS_ATTEMPTS
+    Waga    : ŚREDNI
+    Uwaga   : Poprawione po audycie przebieg-2 (RAU-R13-002). Poprzednie brzmienie
+              („Rezerwa podejść utrzymywana w puli") opisywało mechanizm, którego
+              w kodzie nie ma: pula dobowa jest zużywalna w całości, nic nie jest
+              w niej odkładane. Ta liczba dotyczy wyłącznie powtórzeń zapisu
+              warunkowego, gdy inny proces był szybszy. Nazwę stałej zmieniono
+              z RESERVE_ATTEMPTS na CAS_ATTEMPTS, żeby kotwica opisywała samą siebie.
+
+  ID: REG-W2-30
+  ---------------
+    Reguła  : Ucięcie tytułu i adresu w materiale
+    Wartość : 300 / 500 znaków
+    Kotwica : Gemini::TITLE_MAX, URL_MAX
+    Waga    : MAŁY
+
+
+W2 · Walidacja odpowiedzi — kontrakt artykułu
+=============================================
+
+
+  ID: REG-W2-31
+  ---------------
+    Reguła  : Długość tytułu
+    Wartość : 5–140 znaków
+    Kotwica : Validator::MIN_TITLE, MAX_TITLE
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-32
+  ---------------
+    Reguła  : Długość zajawki
+    Wartość : 20–400 znaków
+    Kotwica : Validator::MIN_LEAD, MAX_LEAD
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-33
+  ---------------
+    Reguła  : Minimalna długość treści
+    Wartość : 800 znaków
+    Kotwica : Validator::MIN_CONTENT
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-34
+  ---------------
+    Reguła  : Link do źródła obowiązkowy
+    Wartość : zawsze
+    Kotwica : Publisher::NOTE_NO_SOURCE
+    Waga    : DUŻY
+
+
+W2 · Automat i budżety
+======================
+
+
+  ID: REG-W2-35
+  ---------------
+    Reguła  : Częstotliwość automatu
+    Wartość : hourly
+    Kotwica : Plugin::CRON_RECURRENCE
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-36
+  ---------------
+    Reguła  : Czas życia zamka przebiegu
+    Wartość : 120 s
+    Kotwica : Admin::LOCK_TTL
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-37
+  ---------------
+    Reguła  : STRAŻNIK Budżet ticku
+    Wartość : 25 s
+    Kotwica : Runner::TICK_BUDGET
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-38
+  ---------------
+    Reguła  : STRAŻNIK Budżet publikacji
+    Wartość : 30 s
+    Kotwica : Runner::PUBLISH_BUDGET
+    Waga    : KRYTYCZNY
+
+  ID: REG-W2-39
+  ---------------
+    Reguła  : Budżet przygotowania
+    Wartość : 15 s
+    Kotwica : Runner::PREPARE_BUDGET
+    Waga    : DUŻY
+
+  ID: REG-W2-40
+  ---------------
+    Reguła  : Udział ticku
+    Wartość : 0,25
+    Kotwica : Runner::TICK_SHARE
+    Waga    : ŚREDNI
+
+  ID: REG-W2-41
+  ---------------
+    Reguła  : Wielkość partii do modelu
+    Wartość : 3
+    Kotwica : Runner::AI_BATCH
+    Waga    : ŚREDNI
+
+  ID: REG-W2-42
+  ---------------
+    Reguła  : Wielkość partii do przygotowania
+    Wartość : 10
+    Kotwica : Runner::PREPARE_BATCH
+    Waga    : ŚREDNI
+
+  ID: REG-W2-43
+  ---------------
+    Reguła  : Zasięg i liczba rund skanowania kolejki
+    Wartość : 25 · 4 rundy
+    Kotwica : Runner::AI_SCAN, AI_SCAN_ROUNDS
+    Waga    : ŚREDNI
+
+  ID: REG-W2-44
+  ---------------
+    Reguła  : Ponowienia przy złej odpowiedzi
+    Wartość : 1
+    Kotwica : Runner::AI_JSON_RETRIES
+    Waga    : DUŻY
+
+  ID: REG-W2-45
+  ---------------
+    Reguła  : Maksimum podejść do pozycji
+    Wartość : 3
+    Kotwica : Runner::MAX_ATTEMPTS
+    Waga    : ŚREDNI
+
+  ID: REG-W2-46
+  ---------------
+    Reguła  : Wiek, po którym pozycja processing jest przejmowana
+    Wartość : 900 s
+    Kotwica : Runner::STALE_SECONDS
+    Waga    : DUŻY
+
+  ID: REG-W2-47
+  ---------------
+    Reguła  : Ważność dziennika przebiegu
+    Wartość : 86 400 s
+    Kotwica : Runner::TICK_LOG_TTL
+    Waga    : MAŁY
+
+  ID: REG-W2-48
+  ---------------
+    Reguła  : Okno pierwszego uruchomienia
+    Wartość : 600 s
+    Kotwica : Admin::FIRST_RUN_WINDOW
+    Waga    : MAŁY
+
+  ID: REG-W2-49
+  ---------------
+    Reguła  : Liczba pozycji na ekranie panelu
+    Wartość : 50
+    Kotwica : Admin::ITEMS_LIMIT
+    Waga    : MAŁY
+
+
+  | Uwaga do REG-W2-37 i REG-W2-38: te dwie wartości muszą pozostać różne. Asercja publish_budget()
+    !== tick_budget() jest strażnikiem regresji z etapu 8.7 — zrównanie ich przywraca naprawiony
+    błąd przepustowości. Sprawdzenie samych liczb nie wystarcza: audytor musi potwierdzić, że
+    nierówność jest zapewniona przez test.
+
+W2 · Front
+==========
+
+
+  ID: REG-W2-50
+  ---------------
+    Reguła  : Artykułów na stronę
+    Wartość : 10
+    Kotwica : Portal::PER_PAGE
+    Waga    : DUŻY
+
+  ID: REG-W2-51
+  ---------------
+    Reguła  : Maksymalna długość frazy wyszukiwania
+    Wartość : 120 znaków
+    Kotwica : Portal::SEARCH_MAX
+    Waga    : ŚREDNI
+
+  ID: REG-W2-52
+  ---------------
+    Reguła  : Nazwa zmiennej wyszukiwania
+    Wartość : ainp_s
+    Kotwica : Portal::SEARCH_VAR
+    Waga    : ŚREDNI
+
+  ID: REG-W2-53
+  ---------------
+    Reguła  : Warianty zdjęcia na kategorię
+    Wartość : 3
+    Kotwica : Portal::IMAGE_VARIANTS
+    Waga    : MAŁY
+
+  ID: REG-W2-54
+  ---------------
+    Reguła  : Człon adresu kategorii
+    Wartość : kategoria
+    Kotwica : Portal::TAX_BASE
+    Waga    : ŚREDNI
+
+  ID: REG-W2-55
+  ---------------
+    Reguła  : Człon archiwum
+    Wartość : centrum-wiedzy
+    Kotwica : Plugin::ARCHIVE_SLUG
+    Waga    : DUŻY
+
+
+W1 · Odpowiadanie
+=================
+
+
+  ID: REG-W1-01
+  ---------------
+    Reguła  : Maksymalna długość pytania
+    Wartość : 2000 znaków
+    Kotwica : RagService::MAX_QUESTION_LEN
+    Waga    : DUŻY
+
+  ID: REG-W1-02
+  ---------------
+    Reguła  : Próg trafności, poniżej którego następuje odmowa (twardy)
+    Wartość : 0,65 na dworku · 0,55 domyślnie w kodzie
+    Kotwica : ustawienie rag_threshold_hard; TopicGuard::evaluate()
+    Waga    : KRYTYCZNY
+
+  ID: REG-W1-02b
+  ----------------
+    Reguła  : Podłoga progu miękkiego — wyznacza etykietę pokrycia, NIE powoduje odmowy
+    Wartość : 0,70
+    Kotwica : RagService::ASK_MIN_THRESHOLD, soft_threshold()
+    Waga    : ŚREDNI
+
+  ID: REG-W1-03
+  ---------------
+    Reguła  : Ważność zapamiętanej odmowy
+    Wartość : 3600 s
+    Kotwica : RagService::REFUSAL_CACHE_TTL
+    Waga    : ŚREDNI
+
+  ID: REG-W1-04
+  ---------------
+    Reguła  : Okno limitera pytań
+    Wartość : 3600 s
+    Kotwica : RateLimiter::WINDOW
+    Waga    : KRYTYCZNY
+
+  ID: REG-W1-05
+  ---------------
+    Reguła  : Minimalny przydział tokenów odpowiedzi
+    Wartość : 800 / 2048 przy myśleniu
+    Kotwica : Answerer::ASK_MIN_TOKENS, ASK_MIN_TOKENS_THINK
+    Waga    : DUŻY
+
+  ID: REG-W1-06
+  ---------------
+    Reguła  : Strona wyników wyszukiwania wektorowego
+    Wartość : 200
+    Kotwica : Retriever::PAGE_SIZE
+    Waga    : ŚREDNI
+
+  ID: REG-W1-07
+  ---------------
+    Reguła  : Próg ostrzeżenia o rozmiarze indeksu
+    Wartość : 5000 fragmentów
+    Kotwica : Retriever::SCALE_WARN_CHUNKS
+    Waga    : ŚREDNI
+
+  ID: REG-W1-08
+  ---------------
+    Reguła  : Próg ostrzeżenia o rozmiarze dziennika
+    Wartość : 50 000 wierszy
+    Kotwica : QaLogRepository::SIZE_WARN_ROWS
+    Waga    : MAŁY
+
+
+W1 · Indeksowanie
+=================
+
+
+  ID: REG-W1-09
+  ---------------
+    Reguła  : Wielkość fali indeksowania
+    Wartość : 500
+    Kotwica : Indexer::WAVE_SIZE
+    Waga    : DUŻY
+
+  ID: REG-W1-10
+  ---------------
+    Reguła  : Budżet czasu jednego przebiegu
+    Wartość : 45 s
+    Kotwica : Indexer::BUDGET_SECONDS
+    Waga    : DUŻY
+
+  ID: REG-W1-11
+  ---------------
+    Reguła  : Tempo indeksowania
+    Wartość : 13 s
+    Kotwica : Indexer::INDEX_PACE_SECONDS
+    Waga    : ŚREDNI
+
+  ID: REG-W1-12
+  ---------------
+    Reguła  : Spadek liczby fragmentów podnoszący alarm
+    Wartość : 0,30
+    Kotwica : Indexer::DROP_ALERT
+    Waga    : DUŻY
+
+  ID: REG-W1-13
+  ---------------
+    Reguła  : Wielkość partii embeddingów
+    Wartość : 100
+    Kotwica : EmbeddingBatcher::MAX_BATCH
+    Waga    : DUŻY
+
+  ID: REG-W1-14
+  ---------------
+    Reguła  : Wymiar wektora
+    Wartość : 768
+    Kotwica : GeminiProvider::EMBED_DIMENSIONS
+    Waga    : KRYTYCZNY
+
+  ID: REG-W1-15
+  ---------------
+    Reguła  : Minimum dokumentów dla filtru powtarzalnych
+    Wartość : 5
+    Kotwica : BoilerplateFilter::MIN_DOCS
+    Waga    : ŚREDNI
+
+  ID: REG-W1-16
+  ---------------
+    Reguła  : Udział dokumentów uznający fragment za powtarzalny
+    Wartość : 0,30
+    Kotwica : BoilerplateFilter::DF_RATIO
+    Waga    : ŚREDNI
+
+  ID: REG-W1-17
+  ---------------
+    Reguła  : Dolna granica udziału dokumentu
+    Wartość : 0,60
+    Kotwica : BoilerplateFilter::DOC_FLOOR
+    Waga    : ŚREDNI
+
+  ID: REG-W1-18
+  ---------------
+    Reguła  : Czas życia zamka indeksowania
+    Wartość : 900 s (15 min)
+    Kotwica : IndexController::LOCK_TTL
+    Waga    : DUŻY
+
+
+W1 · Generator i eksport
+========================
+
+
+  ID: REG-W1-19
+  ---------------
+    Reguła  : Limit wywołań generatora
+    Wartość : 10 na godzinę
+    Kotwica : RestController::GENERATE_FAQ_HOURLY_LIMIT
+    Waga    : DUŻY
+
+  ID: REG-W1-20
+  ---------------
+    Reguła  : Dopuszczalna liczba par — usługa
+    Wartość : 1–50
+    Kotwica : FaqGenerator::MIN_COUNT, MAX_COUNT
+    Waga    : ŚREDNI
+
+  ID: REG-W1-21
+  ---------------
+    Reguła  : Dopuszczalna liczba par — metabox
+    Wartość : 5–20, domyślnie 10
+    Kotwica : PostMetaBox::MIN_COUNT, MAX_COUNT, DEFAULT_COUNT
+    Waga    : ŚREDNI
+
+  ID: REG-W1-22
+  ---------------
+    Reguła  : Treść wpisu ucinana w metaboksie
+    Wartość : 6000 znaków
+    Kotwica : PostMetaBox::MAX_CONTENT_CHARS
+    Waga    : ŚREDNI
+
+  ID: REG-W1-23
+  ---------------
+    Reguła  : Opis ucinany w generatorze
+    Wartość : 8000 znaków
+    Kotwica : FaqGenerator::MAX_DESC_CHARS
+    Waga    : ŚREDNI
+
+  ID: REG-W1-24
+  ---------------
+    Reguła  : Temat ucinany
+    Wartość : 500 znaków
+    Kotwica : FaqGenerator::MAX_TOPIC_CHARS
+    Waga    : MAŁY
+
+  ID: REG-W1-25
+  ---------------
+    Reguła  : Maksimum par w eksporcie i publicznym FAQ
+    Wartość : 50
+    Kotwica : Exporter::MAX_PAIRS, PublicFaq::MAX_PAIRS
+    Waga    : ŚREDNI
+
+  ID: REG-W1-26
+  ---------------
+    Reguła  : Ucięcie pytania i odpowiedzi w eksporcie
+    Wartość : 400 / 4000 znaków
+    Kotwica : Exporter::MAX_QUESTION_CHARS, MAX_ANSWER_CHARS
+    Waga    : MAŁY
+
+  ID: REG-W1-27
+  ---------------
+    Reguła  : Czas życia zamka publicznego FAQ
+    Wartość : 30 s
+    Kotwica : PublicFaq::LOCK_TTL
+    Waga    : DUŻY
+
+  ID: REG-W1-28
+  ---------------
+    Reguła  : Strona historii i generacji
+    Wartość : 20
+    Kotwica : HistoryPanel::PER_PAGE, GenerationsPanel::PER_PAGE
+    Waga    : MAŁY
+
+
+W1 · Dostawca i strażnicy
+=========================
+
+
+  ID: REG-W1-29
+  ---------------
+    Reguła  : Limit czasu wywołania dostawcy
+    Wartość : 60 s
+    Kotwica : GeminiProvider::REQUEST_TIMEOUT
+    Waga    : DUŻY
+
+  ID: REG-W1-30
+  ---------------
+    Reguła  : Domyślna temperatura
+    Wartość : 0,7
+    Kotwica : GeminiProvider::DEFAULT_TEMPERATURE
+    Waga    : ŚREDNI
+
+  ID: REG-W1-31
+  ---------------
+    Reguła  : Karencja po błędzie chwilowym
+    Wartość : 60 s
+    Kotwica : GeminiProvider::COOLDOWN_SECONDS
+    Waga    : DUŻY
+
+  ID: REG-W1-32
+  ---------------
+    Reguła  : Karencja po wyczerpaniu puli dobowej
+    Wartość : 3600 s
+    Kotwica : GeminiProvider::COOLDOWN_DAY_SECONDS
+    Waga    : DUŻY
+
+  ID: REG-W1-33
+  ---------------
+    Reguła  : Odstęp przed ponowieniem, gdy dostawca nie podał wskazówki
+    Wartość : 5 s przed pierwszym ponowieniem, 15 s przed drugim
+    Kotwica : GeminiProvider::retry_delay() — backoff własny (punkt 4 metody)
+    Waga    : ŚREDNI
+    Uwaga   : odstęp między próbami powstaje WYŁĄCZNIE w retry_delay(). Wskazówka
+              od dostawcy (RetryInfo, treść błędu, nagłówek Retry-After) ma
+              pierwszeństwo przed tymi dwiema wartościami. MIN_ATTEMPT_SECONDS to
+              inny mechanizm i ma własną pozycję REG-W1-41.
+
+  ID: REG-W1-34
+  ---------------
+    Reguła  : Globalny budżet czasu jednego wywołania generate() / embed()
+    Wartość : 100 s (zawężany do max_execution_time PHP minus 5 s, nie niżej niż 20 s)
+    Kotwica : GeminiProvider::REQUEST_RETRY_BUDGET
+    Waga    : ŚREDNI
+    Uwaga   : to NIE jest liczba ponowień. Ta stała jest budżetem CZASU w sekundach:
+              kaskada 400 i ponowienia 429/503 sumują się w tym samym budżecie,
+              liczonym od pierwszej linii generate()/embed(). Zmiana tej wartości
+              przestawia limit czasu całego wywołania, a nie liczbę prób — sufit
+              liczby prób ma własną pozycję REG-W1-40.
+
+  ID: REG-W1-35
+  ---------------
+    Reguła  : Domyślny i maksymalny limit czasu klienta HTTP
+    Wartość : 15 s / 120 s
+    Kotwica : WpHttpClient::DEFAULT_TIMEOUT, MAX_TIMEOUT
+    Waga    : ŚREDNI
+    Uwaga   : progi obronne klienta HTTP bez skutku na ścieżce produkcyjnej wtyczki 1.
+              Obaj produkcyjni wołający request() podają timeout jawnie: 60 s
+              (REQUEST_TIMEOUT) oraz min(60, pozostały budżet), gdzie bramka
+              MIN_ATTEMPT_SECONDS utrzymuje pozostały budżet na co najmniej 5 s.
+              Żadna z tych wartości nie jest zerowa ani większa od 120, więc ani
+              podstawienie 15 s, ani przycięcie do 120 s nigdy tam nie zachodzi.
+              Progi żyją dla wywołań spoza tej pary.
+
+  ID: REG-W1-36
+  ---------------
+    Reguła  : Próby i przerwa strażnika menu
+    Wartość : 3 próby · 21 600 s (6 h)
+    Kotwica : MenuGuard::MAX_TRIES, RETRY_DELAY
+    Waga    : ŚREDNI
+
+  ID: REG-W1-37
+  ---------------
+    Reguła  : Próby i przerwa strażnika podstrony
+    Wartość : 3 próby · 300 s
+    Kotwica : PageGuard::MAX_TRIES, RETRY_DELAY
+    Waga    : ŚREDNI
+
+  ID: REG-W1-38
+  ---------------
+    Reguła  : Kolejność preferowanych położeń menu
+    Wartość : primary, main, header, menu-1, top
+    Kotwica : MenuGuard::LOCATION_PREFERENCE
+    Waga    : ŚREDNI
+
+  ID: REG-W1-39
+  ---------------
+    Reguła  : Wersja schematu bazy
+    Wartość : 6
+    Kotwica : opcja aifaq_db_version
+    Waga    : KRYTYCZNY
+
+  ID: REG-W1-40
+  ---------------
+    Reguła  : Sufit prób jednego żądania do dostawcy
+    Wartość : 3 próby = pierwsza i najwyżej 2 ponowienia (1 próba, gdy filtr
+              aifaq_http_retry wyłączy ponawianie)
+    Kotwica : GeminiProvider::MAX_ATTEMPTS
+    Waga    : ŚREDNI
+
+  ID: REG-W1-41
+  ---------------
+    Reguła  : Próg pozostałego budżetu, poniżej którego kolejna próba nie startuje
+    Wartość : 5 s
+    Kotwica : GeminiProvider::MIN_ATTEMPT_SECONDS
+    Waga    : ŚREDNI
+    Uwaga   : to nie jest odstęp między próbami (ten opisuje REG-W1-33), tylko
+              warunek wejścia: próba startująca tuż przed końcem budżetu i tak
+              trwałaby własne 60 s, a raz rozpoczętej próby w PHP nie da się przerwać.
+
+
+Reguły ponad wtyczkami
+======================
+
+
+  ID: REG-AUD-01
+  ----------------
+    Reguła : Pule wywołań i embeddingów u dostawcy są rozdzielne — wyczerpanie jednej nie blokuje
+             drugiej
+    Waga   : DUŻY
+
+  ID: REG-AUD-02
+  ----------------
+    Reguła : Odrzucenie żądania po stronie dostawcy kodem 400 nie zużywa puli dobowej
+    Waga   : ŚREDNI
+
+  ID: REG-AUD-03
+  ----------------
+    Reguła : Prefiksy aifaq_ i ainp_ są rozłączne — zero wspólnych opcji, tabel i meta
+    Waga   : KRYTYCZNY
+
+  ID: REG-AUD-04
+  ----------------
+    Reguła : Klucz API nie jest autoładowany przy każdym żądaniu
+    Waga   : KRYTYCZNY
+
+  ID: REG-AUD-05
+  ----------------
+    Reguła : Nagłówki bezpieczeństwa obu wtyczek są uzupełniające, nigdy nadpisujące
+    Waga   : DUŻY
+
+
+____________________________________________________________________________________________________
+
+
+Czego ten dokument NIE daje audytowi: nie mówi nic o uprawnieniach ani o tym, co system robi, gdy
+coś padnie. To rejestr liczb, nie opis zachowania.

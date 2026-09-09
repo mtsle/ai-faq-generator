@@ -354,9 +354,38 @@ n5_check(
 	'SQL page() w ogole nie pobiera kolumny `pairs_json`'
 );
 // Komplet kolumn, ktorych faktycznie uzywa konsument (GeneratorService::generation_item()).
-foreach ( array( 'id', 'created_at', 'topic', 'extra_desc', 'num_questions', 'language', 'user_id' ) as $col ) {
-	n5_check( false !== strpos( $page_sql, $col ), "SQL page() pobiera kolumne `{$col}` (uzywana przez generation_item())" );
+//
+// RAU-R09-003: pytanie szlo `strpos()`, czyli po PODCIAGU, wiec kolumna `id` byla
+// spelniona przez `user_id` stojace na tej samej liscie — usuniecie `id` z SELECT-a
+// nie zaczerwienialo niczego.
+//
+// DRUGA WARSTWA, wykryta WLASNA MUTACJA przy naprawie: sama granica slowa NIE
+// wystarcza, bo to samo zapytanie konczy sie `ORDER BY created_at DESC, id DESC`.
+// Po wycieciu `id` z listy kolumn wzorzec dalej trafial — tyle ze w klauzuli
+// sortowania. Pytamy wiec o LISTE KOLUMN miedzy SELECT a FROM, nie o cale zapytanie.
+$page_kolumny = '';
+if ( preg_match( '/SELECT\s+(.*?)\s+FROM/is', $page_sql, $m_kol ) ) {
+	$page_kolumny = $m_kol[1];
 }
+n5_check( '' !== $page_kolumny, 'wyciagnieto sama LISTE KOLUMN z SELECT-a page()' );
+n5_check( false === stripos( $page_kolumny, 'ORDER BY' ), 'lista kolumn nie obejmuje klauzuli sortowania' );
+
+foreach ( array( 'id', 'created_at', 'topic', 'extra_desc', 'num_questions', 'language', 'user_id' ) as $col ) {
+	n5_check(
+		1 === preg_match( '/\b' . preg_quote( $col, '/' ) . '\b/', $page_kolumny ),
+		"SQL page() pobiera kolumne `{$col}` (uzywana przez generation_item())"
+	);
+}
+// Kontrola samego narzedzia: bez niej „granica slowa" moglaby byc wzorcem, ktory
+// nigdy nie trafia, i cala petla wyzej swiecilaby na zielono z innego powodu.
+n5_check( 0 === preg_match( '/\bid\b/', 'SELECT user_id FROM x' ), 'granica slowa: `user_id` NIE spelnia pytania o `id`' );
+n5_check( 1 === preg_match( '/\bid\b/', 'SELECT id, user_id FROM x' ), 'granica slowa: samodzielne `id` pytanie spelnia' );
+// Kontrola drugiej warstwy: `id` z ORDER BY nie moze zaliczac kolumny za SELECT.
+$probka_kolumn = '';
+if ( preg_match( '/SELECT\s+(.*?)\s+FROM/is', 'SELECT user_id FROM x ORDER BY id DESC', $m_probka ) ) {
+	$probka_kolumn = $m_probka[1];
+}
+n5_check( 0 === preg_match( '/\bid\b/', $probka_kolumn ), 'zawezenie: `id` z ORDER BY NIE zalicza kolumny w SELECT' );
 // `find()` — sciezka szczegolu — MUSI nadal dawac pary.
 n5_check(
 	1 === preg_match( "/function\s+find\(.*?pairs_json.*?\n\t\}/s", $gen_src ),
@@ -431,8 +460,48 @@ n5_check(
 	'komunikat dziennika mowi WPROST, ze wtyczka nic nie kasuje sama (retencja zostaje opt-in)'
 );
 
+// ---------------------------------------------------------------------------
+echo "\n=== RAU-R03-002: wyjatek z ponowienia pobran NIE ginie po cichu ===\n";
+// ---------------------------------------------------------------------------
+/*
+ * `catch` w Dashboardzie robil `unset( $aifaq_e )` i nic wiecej: wyjatek znikal
+ * bez sladu — bez potwierdzenia, bez bledu i bez wpisu w dzienniku serwera.
+ * Wlasciciel klikal „Ponow", ekran przeladowywal sie niezmieniony i nic nie
+ * mowilo, ze cos poszlo nie tak. To JEDYNA sciezka w tym pliku, ktora zmienia
+ * stan, wiec cisza byla tam najdrozsza.
+ */
+n5_check(
+	false !== strpos( $dash_src, '$aifaq_retry_error = $aifaq_e->getMessage();' ),
+	'RAU-R03-002: komunikat wyjatku ZAPISANY do zmiennej, nie polkniety'
+);
+n5_check(
+	false !== strpos( $dash_src, "'' !== \$aifaq_retry_error" ),
+	'RAU-R03-002: widok sprawdza, czy jest co pokazac'
+);
+n5_check(
+	false !== strpos( $dash_src, 'notice-error' ),
+	'RAU-R03-002: i rysuje go jako BLAD, nie jako potwierdzenie'
+);
+n5_check(
+	false !== strpos( $dash_src, 'Nie udało się zwolnić stron do ponownego pobrania' ),
+	'RAU-R03-002: komunikat mowi wprost, czego nie udalo sie zrobic'
+);
+
+// Kontrola negatywna: `unset()` bez zapisu bylby powrotem do ciszy.
+$poz_catch = strpos( $dash_src, 'catch ( \Throwable $aifaq_e )' );
+// Okno 900 BAJTOW, nie 400: miedzy `catch` a zapisem stoi komentarz
+// z uzasadnieniem, a polskie znaki waza w UTF-8 po dwa bajty.
+$fragment  = ( false === $poz_catch ) ? '' : substr( $dash_src, $poz_catch, 900 );
+n5_check(
+	'' !== $fragment && false !== strpos( $fragment, 'aifaq_retry_error' ),
+	'RAU-R03-002: zapis stoi WEWNATRZ tego samego bloku catch'
+);
+
 // Podloga licznika.
-n5_check( $ran >= 30, "wykonano komplet asercji (asercji: {$ran})" );
+// F10: podloga podniesiona 30 -> 47. Asercja ZMIENIONA, nie usunieta: plik
+// wykonywal juz 46 asercji, wiec prog 30 przepuszczal wyciecie jednej trzeciej
+// zestawu. Nowa liczba to stan po naprawie RAU-R09-003.
+n5_check( $ran >= 50, "wykonano komplet asercji (asercji: {$ran})" );
 
 echo "\n=== " . ( 0 === $fail ? 'WSZYSTKIE OK' : "BLEDOW: {$fail}" ) . " (asercji: {$ran}) ===\n";
 exit( $fail > 0 ? 1 : 0 );

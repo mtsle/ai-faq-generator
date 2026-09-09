@@ -818,11 +818,208 @@ if ( $has_wphttp ) {
 	check( false, 'NOWE — sekcja I pominięta: brak klasy AIFAQ\Http\WpHttpClient' );
 }
 
+
+// ===========================================================================
+echo "\n=== J. F8 — kotwice dokumentacyjne dostawcy (RAU-R12-001/002/003) ===\n";
+// ===========================================================================
+//
+// Trzy pozycje audytu, w których KOD JEST POPRAWNY, a rozjeżdża się jego opis.
+// Tryb awarii, który tu zamykamy, brzmi: „dokument nazywa liczbę inaczej niż
+// robi to kod, a nikt się o tym nie dowiaduje". Strażnik musi więc trzymać OBA
+// końce naraz — zachowanie kodu ORAZ zdanie dokumentu, które je opisuje.
+// Zerwanie któregokolwiek z nich zapala tę sekcję.
+
+$sciezka_reg = dirname( __DIR__ ) . '/audyt/dokumentacja/DOKUMENTACJA-FUNKCJONALNA-3-REGULY-I-PROGI.txt';
+/**
+ * Zderza kopie dokumentu w repozytorium z kanonem w `projektAUDYT/dokumentacja/`.
+ *
+ * PO CO: straznicy dokumentacyjni czytali dotad WYLACZNIE kanon, ktory lezy POZA
+ * repozytorium. Lokalnie bylo zielono, a pierwsze zderzenie z GitHub Actions
+ * przewrocilo cztery zestawy naraz — CI tego katalogu nie widzi. Dokument jest
+ * teraz kopiowany do repo i to kopie czytaja asercje, wiec straznik chodzi
+ * takze w CI. Ta funkcja pilnuje, zeby kopia nie rozjechala sie z kanonem.
+ *
+ * Asercja wykonuje sie w OBU galeziach, takze gdy kanonu nie ma. Liczba asercji
+ * musi byc identyczna w kazdym srodowisku, bo runner wtyczki 2 zalicza zestaw
+ * dopiero przy DOKLADNEJ rownosci liczby wykonanych asercji.
+ *
+ * @param string $w_repo Sciezka kopii w repozytorium.
+ * @param string $nazwa  Nazwa pliku dokumentu.
+ *
+ * @return void
+ */
+function aifaq_doc_zgodna( $w_repo, $nazwa ) {
+	$kanon = dirname( dirname( dirname( __DIR__ ) ) ) . '/projektAUDYT/dokumentacja/' . $nazwa;
+	if ( ! is_file( $kanon ) ) {
+		check( is_file( $w_repo ), 'kopia ' . $nazwa . ' jest w repo (kanon spoza repo niedostepny w tym srodowisku)' );
+		return;
+	}
+	// Porownanie idzie po tresci ZNORMALIZOWANEJ na konce wierszy, nie po bajtach.
+	// Git zamienia CRLF na LF przy pobraniu, wiec swiezy klon mialby inne bajty niz
+	// kanon na maszynie autora i kontrola zapalilaby sie na roznicy, ktora nie jest
+	// rozjazdem tresci.
+	$norm = static function ( $sciezka ) {
+		return str_replace( "
+", "
+", (string) file_get_contents( $sciezka ) );
+	};
+	check(
+		is_file( $w_repo ) && $norm( $kanon ) === $norm( $w_repo ),
+		'kopia ' . $nazwa . ' w repo zgodna z kanonem w projektAUDYT (konce wierszy pominiete)'
+	);
+}
+aifaq_doc_zgodna( $sciezka_reg, 'DOKUMENTACJA-FUNKCJONALNA-3-REGULY-I-PROGI.txt' );
+$doc_reg     = is_readable( $sciezka_reg ) ? (string) file_get_contents( $sciezka_reg ) : '';
+
+// --- J1. RAU-R12-002 — REG-W1-34 to budżet CZASU, a sufit prób ma własną kotwicę ---
+//
+// BEHAWIORALNIE: przy 429 bez wskazówki dostawca wykonuje DOKŁADNIE 3 żądania.
+// Ta liczba nie ma nic wspólnego z REQUEST_RETRY_BUDGET (100) — właśnie mylenie
+// tych dwóch limitów było treścią zgłoszenia.
+k19_reset_env();
+$sl_j  = new K19_Sleeper();
+$seq_j = new K19_HttpSeq( array( k19_resp( 429, k19_err_body( 'bez wskazowki' ) ) ) );
+$p_j   = k19_provider( $seq_j, 'gemini-2.5-flash', '', $sl_j );
+$p_j->generate( 'x', array( 'max_tokens' => 500 ) );
+check( 3 === $seq_j->calls, 'F8/R12-002: sufit prób to 3 żądania, nie 100 (jest: ' . $seq_j->calls . ')' );
+
+$refl_gp = new \ReflectionClass( '\AIFAQ\Providers\GeminiProvider' );
+check(
+	3 === $refl_gp->getConstant( 'MAX_ATTEMPTS' ),
+	'F8/R12-002: sufit prób ma WŁASNĄ stałą MAX_ATTEMPTS = 3 (kotwica REG-W1-40)'
+);
+check(
+	100 === $refl_gp->getConstant( 'REQUEST_RETRY_BUDGET' ),
+	'F8/R12-002: REQUEST_RETRY_BUDGET dalej 100 — to druga, NIEZALEŻNA liczba'
+);
+
+$zrodlo_gp = (string) file_get_contents( dirname( __DIR__ ) . '/src/Providers/GeminiProvider.php' );
+check(
+	false !== strpos( $zrodlo_gp, '$max_attempts = $retry_on ? self::MAX_ATTEMPTS : 1;' ),
+	'F8/R12-002: pętla prób czyta stałą, nie goły literał'
+);
+check(
+	false === strpos( $zrodlo_gp, '$max_attempts = $retry_on ? 3 : 1;' ),
+	'F8/R12-002: literał 3 zniknął z pętli — inaczej kotwica REG-W1-40 nie miałaby czego wskazywać'
+);
+
+// --- J2. RAU-R12-001 — odstęp między próbami powstaje w retry_delay(), nie w MIN_ATTEMPT_SECONDS ---
+//
+// BEHAWIORALNIE: ten sam przebieg co wyżej usypia 5 s, potem 15 s. Obie liczby
+// pochodzą z punktu 4 retry_delay(). MIN_ATTEMPT_SECONDS (też 5) nie usypia
+// niczego — jest progiem wejścia. Równość obu piątek ukrywała rozjazd.
+check(
+	array( 5, 15 ) === $sl_j->slept,
+	'F8/R12-001: backoff własny to 5 s, potem 15 s (jest: ' . json_encode( $sl_j->slept ) . ')'
+);
+check(
+	5 === $refl_gp->getConstant( 'MIN_ATTEMPT_SECONDS' ),
+	'F8/R12-001: MIN_ATTEMPT_SECONDS dalej 5 — ale jako próg budżetu (REG-W1-41)'
+);
+check(
+	false !== strpos( $zrodlo_gp, 'if ( $remaining < self::MIN_ATTEMPT_SECONDS ) {' ),
+	'F8/R12-001: MIN_ATTEMPT_SECONDS użyty jako PORÓWNANIE z pozostałym budżetem'
+);
+check(
+	false !== strpos( $zrodlo_gp, 'return ( 1 === $attempts ) ? 5 : 15;' ),
+	'F8/R12-001: wartości 5/15 stoją w retry_delay(), gdzie wskazuje kotwica REG-W1-33'
+);
+
+// --- J3. RAU-R12-003 — progi WpHttpClient nie mają skutku na ścieżce produkcyjnej ---
+//
+// ZABEZPIECZENIE, nie komentarz: dokument twierdzi, że KAŻDY produkcyjny wołający
+// podaje `timeout` jawnie. Gdyby ktoś dołożył wywołanie bez timeoutu, zdanie
+// dokumentu stałoby się fałszywe po cichu. Ta bramka skanuje CAŁE src/ i przewraca
+// się zarówno na wywołaniu bez timeoutu, jak i na pojawieniu się nowego wołającego.
+$pliki_src = array();
+$iter_src  = new \RecursiveIteratorIterator( new \RecursiveDirectoryIterator( dirname( __DIR__ ) . '/src' ) );
+foreach ( $iter_src as $plik_src ) {
+	if ( $plik_src->isFile() && 'php' === strtolower( $plik_src->getExtension() ) ) {
+		$pliki_src[] = $plik_src->getPathname();
+	}
+}
+$wolania_all  = 0;
+$wolania_ok   = 0;
+$wolania_gdzie = array();
+foreach ( $pliki_src as $plik_src ) {
+	$tresc_src = (string) file_get_contents( $plik_src );
+	$poz       = 0;
+	while ( false !== ( $poz = strpos( $tresc_src, '->request(', $poz ) ) ) {
+		++$wolania_all;
+		$wolania_gdzie[] = basename( $plik_src );
+		// Argumenty jednego wywołania nigdy nie przekraczają tu 600 znaków.
+		if ( false !== strpos( substr( $tresc_src, $poz, 600 ), "'timeout'" ) ) {
+			++$wolania_ok;
+		}
+		$poz += 10;
+	}
+}
+check(
+	$wolania_all > 0 && $wolania_all === $wolania_ok,
+	'F8/R12-003: KAŻDE produkcyjne ->request() podaje timeout jawnie ('
+		. $wolania_ok . '/' . $wolania_all . ', pliki: ' . implode( ',', array_unique( $wolania_gdzie ) ) . ')'
+);
+check(
+	2 === $wolania_all,
+	'F8/R12-003: produkcyjnych wołających jest DWÓCH — trzeci unieważnia zdanie REG-W1-35 (jest: ' . $wolania_all . ')'
+);
+check(
+	false !== strpos( $zrodlo_gp, "'timeout' => self::REQUEST_TIMEOUT," ),
+	'F8/R12-003: pierwszy wołający podaje 60 s'
+);
+check(
+	false !== strpos( $zrodlo_gp, "'timeout' => (int) min( (float) self::REQUEST_TIMEOUT, " . chr(36) . "remaining )," ),
+	'F8/R12-003: drugi wołający podaje min(60, pozostały budżet) — nigdy 0 i nigdy powyżej 120'
+);
+
+// --- J4. Dokument MUSI opisywać te trzy mechanizmy tak, jak działają ---
+if ( '' !== $doc_reg ) {
+	// REG-W1-33 przypięta do miejsca, gdzie odstęp naprawdę powstaje.
+	check(
+		false !== strpos( $doc_reg, 'Kotwica : GeminiProvider::retry_delay()' ),
+		'F8/R12-001: REG-W1-33 wskazuje retry_delay(), nie MIN_ATTEMPT_SECONDS'
+	);
+	check(
+		false !== strpos( $doc_reg, '5 s przed pierwszym ponowieniem, 15 s przed drugim' ),
+		'F8/R12-001: REG-W1-33 podaje OBIE wartości backoffu'
+	);
+	// REG-W1-34 nazwana budżetem czasu, z jednostką.
+	check(
+		false !== strpos( $doc_reg, 'Globalny budżet czasu jednego wywołania generate() / embed()' ),
+		'F8/R12-002: REG-W1-34 nazywa REQUEST_RETRY_BUDGET budżetem CZASU'
+	);
+	check(
+		false === strpos( $doc_reg, 'Reguła  : Budżet ponowień' ),
+		'F8/R12-002: dawna nazwa „Budżet ponowień" zniknęła — to ona myliła'
+	);
+	// Sufit prób i próg budżetu mają własne pozycje.
+	check(
+		false !== strpos( $doc_reg, 'ID: REG-W1-40' )
+			&& false !== strpos( $doc_reg, 'Kotwica : GeminiProvider::MAX_ATTEMPTS' ),
+		'F8/R12-002: sufit prób ma własną pozycję REG-W1-40'
+	);
+	check(
+		false !== strpos( $doc_reg, 'ID: REG-W1-41' )
+			&& false !== strpos( $doc_reg, 'Próg pozostałego budżetu, poniżej którego kolejna próba nie startuje' ),
+		'F8/R12-001: MIN_ATTEMPT_SECONDS opisany jako próg budżetu w REG-W1-41'
+	);
+	// REG-W1-35 mówi wprost, że progi nie działają w produkcji.
+	check(
+		false !== strpos( $doc_reg, 'progi obronne klienta HTTP bez skutku na ścieżce produkcyjnej wtyczki 1.' ),
+		'F8/R12-003: REG-W1-35 stwierdza brak skutku produkcyjnego'
+	);
+} else {
+	check( false, 'F8: rejestr reguł i progów nieczytelny z testu (' . $sciezka_reg . ')' );
+}
+
 // ===========================================================================
 echo "\n=== Z. Podłoga pokrycia i wartownik ===\n";
 // ===========================================================================
 $floor = $ran;
-check( $floor >= 48, 'NOWE — wykonano co najmniej 48 asercji (było ' . $floor . ')' );
+// F8: podłoga podniesiona 48 → 118. Wartość 48 pochodziła z K19 i przy 98 realnie
+// wykonywanych asercjach nie pilnowała już niczego — można było wyciąć połowę pliku
+// i nadal ją zaliczyć. Asercja ZMIENIONA, nie usunięta; nowa liczba to stan po F8.
+check( $floor >= 118, 'NOWE — wykonano co najmniej 118 asercji (było ' . $floor . ')' );
 
 echo "\nplik dobiegł końca\n";
 echo 'Asercje: ' . $ran . ', niezaliczone: ' . $fail . "\n";

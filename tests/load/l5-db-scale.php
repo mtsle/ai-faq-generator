@@ -39,6 +39,9 @@ class RealWpdb {
 	public function __construct( mysqli $mysqli, string $prefix ) {
 		$this->mysqli = $mysqli;
 		$this->prefix = $prefix;
+		// RAU-R14-002: `$wpdb->posts` czyta KnowledgeRepository:181, a ten skrypt
+		// te klase laduje. Pole bez wartosci bylo deklaracja bez pokrycia.
+		$this->posts = $prefix . 'posts';
 	}
 
 	public function prepare( $sql, ...$args ) {
@@ -139,6 +142,79 @@ class RealWpdb {
 		}
 		return implode( ' | ', $out );
 	}
+
+	/*
+	 * RAU-R14-002 — CZTERY BRAKUJACE SKLADOWE KONTRAKTU.
+	 *
+	 * Docblock klasy obiecuje, ze „repozytoria produkcyjne dzialaja BEZ ZADNYCH
+	 * zmian". Nie dzialaly: klasy ladowane przez TEN SAM skrypt uzywaja jeszcze
+	 * czterech skladowych, ktorych adapter nie mial —
+	 *   `update`                 (KnowledgeRepository::153),
+	 *   `get_col`                (KnowledgeRepository::400 i 414),
+	 *   `get_charset_collate`    (Schema::72),
+	 *   pole `posts`             (KnowledgeRepository::181).
+	 * Obecne sekcje A-D ich nie wolaja, wiec wada byla USPIONA — budzilo ja
+	 * pierwsze rozszerzenie pomiaru, i to bledem krytycznym zamiast wynikiem.
+	 */
+
+	/** Nazwa tabeli wpisow — `$wpdb->posts` w produkcji. */
+	public $posts;
+
+	/**
+	 * Aktualizacja wiersza — odpowiednik `$wpdb->update()`.
+	 *
+	 * @param string     $table Tabela.
+	 * @param array      $data  Kolumny do ustawienia.
+	 * @param array      $where Warunki.
+	 * @param array|null $fmt   Formaty (ignorowane — mysqli escapuje sam).
+	 *
+	 * @return int Liczba zmienionych wierszy.
+	 */
+	public function update( $table, array $data, array $where, $fmt = null, $where_fmt = null ) {
+		$sets = array();
+		foreach ( $data as $k => $v ) {
+			$sets[] = "{$k} = '" . $this->mysqli->real_escape_string( (string) $v ) . "'";
+		}
+		$conds = array();
+		foreach ( $where as $k => $v ) {
+			$conds[] = "{$k} = '" . $this->mysqli->real_escape_string( (string) $v ) . "'";
+		}
+		$this->timed_query( "UPDATE {$table} SET " . implode( ', ', $sets ) . ' WHERE ' . implode( ' AND ', $conds ) );
+
+		return $this->mysqli->affected_rows;
+	}
+
+	/**
+	 * Pierwsza kolumna wszystkich wierszy — odpowiednik `$wpdb->get_col()`.
+	 *
+	 * @param string $sql    Zapytanie.
+	 * @param int    $column Indeks kolumny.
+	 *
+	 * @return array
+	 */
+	public function get_col( $sql, $column = 0 ) {
+		$out = array();
+		foreach ( (array) $this->get_results( $sql, ARRAY_A ) as $row ) {
+			$wartosci = array_values( (array) $row );
+			if ( array_key_exists( $column, $wartosci ) ) {
+				$out[] = $wartosci[ $column ];
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Klauzula kodowania tabeli — odpowiednik `$wpdb->get_charset_collate()`.
+	 *
+	 * Stała treść: harness stawia tabele jawnie z `utf8mb4`, więc zwracamy
+	 * dokładnie to, co i tak stoi w każdym `CREATE TABLE` tego pliku.
+	 *
+	 * @return string
+	 */
+	public function get_charset_collate() {
+		return 'DEFAULT CHARSET=utf8mb4';
+	}
 }
 
 // --- Połączenie z realnym MySQL Local (ai-faq-dev, 127.0.0.1:10011) ---
@@ -215,7 +291,17 @@ try {
 		user_id bigint(20) unsigned NOT NULL DEFAULT 0,
 		pairs_json longtext NULL,
 		PRIMARY KEY (id),
-		KEY created_at (created_at)
+		KEY created_at (created_at),
+		/*
+		 * RAU-R14-003: indeksu zlozonego TU NIE BYLO, a produkcyjny Schema.php
+		 * deklaruje go dla tej tabeli (Schema.php:177) i ma go tez l6, ktory
+		 * tworzy TE SAMA fizyczna tabele pod TA SAMA nazwa. Skutek: uruchomienie
+		 * obu skryptow na jednej instancji MySQL dawalo pomiar na strukturze,
+		 * ktorej produkcja nie ma — bo drugi skrypt przedefiniowywal tabele
+		 * pierwszego. Definicje musza byc IDENTYCZNE albo nazwy rozne; wybrano
+		 * pierwsze, bo nazwe wspoldzieli dzialajacy pomiar l6.
+		 */
+		KEY created_id (created_at,id)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4" ) or die( $mysqli->error );
 
 	global $wpdb;

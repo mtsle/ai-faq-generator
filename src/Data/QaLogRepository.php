@@ -125,17 +125,31 @@ class QaLogRepository extends Repository {
 			}
 		}
 
-		// 2) Liczba wierszy — „trzymaj N najnowszych" po kluczu głównym. Dwa zapytania
-		//    (granica → DELETE), bo MySQL nie pozwala na DELETE z podzapytaniem do tej
-		//    samej tabeli.
+		// 2) Liczba wierszy — „trzymaj N najnowszych". Porządek jest TEN SAM co
+		//    w `recent()` i `page()`: po `created_at`. Klucz główny kłamie o wieku
+		//    wpisu wszędzie tam, gdzie data przychodzi z zewnątrz — `log()` przyjmuje
+		//    własne `created_at`, a `Migrator` wstawia historię z datami sprzed lat
+		//    na świeżych AUTO_INCREMENT. Sortowanie po `id` kasowało wtedy wpisy
+		//    NOWSZE i zostawiało starsze (audyt przebieg-2, RAU-R07-004).
+		//    `id` zostaje wyłącznie jako rozstrzygnięcie remisu przy równych datach,
+		//    żeby granica była jednoznaczna. Dwa zapytania (granica → DELETE), bo
+		//    MySQL nie pozwala na DELETE z podzapytaniem do tej samej tabeli.
 		if ( $keep_rows > 0 ) {
-			$boundary = (int) $wpdb->get_var(
-				$wpdb->prepare( "SELECT id FROM {$table} ORDER BY id DESC LIMIT 1 OFFSET %d", $keep_rows ) // phpcs:ignore WordPress.DB
+			$granica = $wpdb->get_row(
+				$wpdb->prepare( "SELECT created_at, id FROM {$table} ORDER BY created_at DESC, id DESC LIMIT 1 OFFSET %d", $keep_rows ), // phpcs:ignore WordPress.DB
+				ARRAY_A
 			);
 
-			if ( $boundary > 0 ) {
+			if ( is_array( $granica ) && isset( $granica['created_at'], $granica['id'] ) ) {
+				$data_granicy = (string) $granica['created_at'];
+
 				$n = $wpdb->query(
-					$wpdb->prepare( "DELETE FROM {$table} WHERE id <= %d", $boundary ) // phpcs:ignore WordPress.DB
+					$wpdb->prepare(
+						"DELETE FROM {$table} WHERE created_at < %s OR ( created_at = %s AND id <= %d )", // phpcs:ignore WordPress.DB
+						$data_granicy,
+						$data_granicy,
+						(int) $granica['id']
+					)
 				);
 				$deleted += max( 0, (int) $n );
 			}

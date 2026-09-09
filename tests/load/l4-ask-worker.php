@@ -63,7 +63,20 @@ $provider_latency_ms = (float) ( $argv[1] ?? 400 );
 $db_latency_ms       = (float) ( $argv[2] ?? 2 );
 $fail_mode           = (string) ( $argv[3] ?? 'none' );
 
-$TIME = array( 'db' => 0.0 ); // µs skumulowane przez repozytoria (referencja przez use (&$TIME)).
+/*
+ * Akumulator czasu bazy, µs skumulowane przez repozytoria.
+ *
+ * RAU-R14-005: komentarz opisywał tu współdzielenie jako domknięcie po zmiennej, a w całym
+ * pliku NIE MA ani jednej funkcji anonimowej. Akumulator jest wpinany INACZEJ:
+ * przez przypisanie REFERENCJI do publicznego pola `time_ref` trzech atrap
+ * (`$knowledge->time_ref = &$TIME;` i analogicznie dla `$cache` i `$qa_log`,
+ * niżej w tym pliku), a atrapy dopisują do niego przez `$this->time_ref['db']`.
+ *
+ * Różnica nie jest kosmetyczna: kto przerobiłby atrapy zgodnie z dawnym opisem —
+ * na domknięcia — rozłączyłby akumulator, a kolumna `db_ms` w wyniku CSV cicho
+ * spadłaby do zera. Mechanizm jest spójny w trzech miejscach i opis ma to mówić.
+ */
+$TIME = array( 'db' => 0.0 );
 
 /** N_CHUNKS fragmentów, wektor pytania trafia dokładnie w id=1 (score=1.0, na pewno "pass" bramki tematu). */
 const N_CHUNKS = 800;

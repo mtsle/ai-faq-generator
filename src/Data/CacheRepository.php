@@ -58,7 +58,7 @@ class CacheRepository extends Repository {
 		global $wpdb;
 		$table = static::table();
 
-		$wpdb->query( // phpcs:ignore WordPress.DB
+		$wynik = $wpdb->query( // phpcs:ignore WordPress.DB
 			$wpdb->prepare(
 				"INSERT INTO {$table} (question_hash, question, answer, score, hits, created_at)
 				 VALUES (%s, %s, %s, %f, 0, %s)
@@ -70,6 +70,22 @@ class CacheRepository extends Repository {
 				current_time( 'mysql' )
 			)
 		);
+
+		/*
+		 * Wynik SPRAWDZANY. Do wersji 1.0.0 metoda oddawała `insert_id` bez
+		 * względu na to, czy zapytanie się powiodło — a docblock obiecuje
+		 * „0, gdy nie udało się ustalić ID". `$wpdb->query()` zwraca `false`
+		 * przy błędzie, natomiast `insert_id` trzyma wtedy wartość z
+		 * POPRZEDNIEGO wstawienia w tym samym połączeniu, więc nieudany zapis
+		 * oddawał cudze, istniejące ID.
+		 *
+		 * Na gałęzi `ON DUPLICATE KEY UPDATE` silnik i tak nie ustawia nowego
+		 * `insert_id` — zwrócone 0 znaczy tam „wiersz zaktualizowany, nowego
+		 * ID nie ma", i to jest zgodne z kontraktem docbloka.
+		 */
+		if ( false === $wynik ) {
+			return 0;
+		}
 
 		return (int) $wpdb->insert_id;
 	}

@@ -275,7 +275,7 @@ if ( class_exists( 'AIFAQ\Data\KnowledgeRepository' ) ) {
 		public function delete_missing( array $keep_post_ids ): int { ++$this->delete_missing_calls; return 0; }
 		public function replace_for_post( int $post_id, array $chunks ): int { $this->replaced[ $post_id ] = $chunks; return count( $chunks ); }
 		public function hashes_for_post( int $post_id ): array { return array(); }
-		public function delete_by_post( int $post_id ): int { return 0; }
+		public function delete_by_post( int $post_id ) { return 0; }
 		/**
 		 * PRZED przebiegiem raportuje `before_chunks`, PO — liczbę realnie zapisanych fragmentów.
 		 * Bez tego DROP_ALERT (porównanie „ile było” vs „ile jest”) nie ma czego porównać
@@ -535,6 +535,38 @@ if ( $has_idx && class_exists( 'K19_Batcher' ) && class_exists( 'K19_Source' ) &
 	$rep  = k19_indexer( $src27, $b27, $k27 )->run();
 	check( 3 === $b27->calls, 'NOWE — C27: aifaq_index_budget=0 → WSZYSTKIE 3 fale przetworzone (1100 fragmentów / WAVE 500; jest: ' . $b27->calls . ' przy ' . (int) ( $rep['chunks'] ?? 0 ) . ' fragmentach)' );
 
+	// C27b (RAU-R09-002) — DOMYŚLNY budżet przebiegu ma asercję.
+	//
+	// Do tej pory każdy test budżetu PODMIENIAŁ go filtrem, więc zmiana stałej
+	// `Indexer::BUDGET_SECONDS` przechodziła cały komplet na zielono, choć
+	// dokumentowane zachowanie 45 s przestawało obowiązywać (teza ZACH-W1-09,
+	// drugi człon — „fale po 500" — był pokryty asercją `=== 3` wyżej).
+	//
+	// Metoda: filtr nie podmienia wartości, tylko ją PODGLĄDA. `apply_filters()`
+	// dostaje jako pierwszy argument dokładnie to, od czego kod zaczyna, więc
+	// zapisanie tego argumentu jest odczytem domyślnej wartości NA ŚCIEŻCE
+	// WYKONANIA — nie odczytem stałej obok niej.
+	k19_reset_env();
+	$widziany_budzet = null;
+	$GLOBALS['__filters']['aifaq_index_budget'] = static function ( $b ) use ( &$widziany_budzet ) {
+		$widziany_budzet = $b;
+		return 0;   // Po podejrzeniu wyłączamy, żeby przebieg się domknął.
+	};
+	$GLOBALS['__filters']['aifaq_index_pace'] = static function () { return 0; };
+	$src27b        = new K19_Source();
+	$src27b->docs  = k19_corpus( 10 );
+	k19_indexer( $src27b, new K19_Batcher(), new K19_Knowledge() )->run();
+
+	check( 45 === \AIFAQ\Index\Indexer::BUDGET_SECONDS, 'NOWE — C27b: \AIFAQ\Index\Indexer::BUDGET_SECONDS wynosi 45 s (ZACH-W1-09)' );
+	check(
+		45 === $widziany_budzet,
+		'NOWE — C27b: przebieg BEZ podmiany startuje od tej właśnie liczby (jest: ' . var_export( $widziany_budzet, true ) . ')'
+	);
+	check(
+		\AIFAQ\Index\Indexer::BUDGET_SECONDS === $widziany_budzet,
+		'NOWE — C27b: wartość na ścieżce wykonania to TA SAMA stała, nie jej kopia'
+	);
+
 	// C31b — kształt raportu.
 	check( 14 === count( $rep ), 'NOWE — C31b: raport ma DOKŁADNIE 14 kluczy (10 istniejących + 4 nowe; jest: ' . count( $rep ) . ' → ' . implode( ',', array_keys( $rep ) ) . ')' );
 	foreach ( array( 'incomplete', 'budget_hit', 'skipped_no_vector', 'chunks_missing_vector' ) as $key ) {
@@ -591,8 +623,44 @@ if ( $has_idx && class_exists( 'K19_Batcher' ) && class_exists( 'K19_Source' ) &
 	};
 	$d_budget = $drop( true, 1 );
 	$d_crawl  = $drop( false, 0 );
-	check( array() === $d_budget, 'NOWE — C28b: budget_hit + źródło KOMPLETNE → DROP_ALERT NIEOBECNE (jest: ' . json_encode( $d_budget, JSON_UNESCAPED_UNICODE ) . ')' );
+	/*
+	 * RAU-R09-004 + UZUP-08. Asercja poniżej ZOSTAJE, ale przestaje być
+	 * odstępstwem, którego nikt nie nazwał: teza ZACH-W1-10 ma teraz jawny
+	 * człon WYJĄTEK opisujący dokładnie ten przypadek. Audyt miał rację, że
+	 * dokument i kod się rozjeżdżały — rozstrzygnięcie brzmi: rację ma KOD.
+	 *
+	 * Dlaczego kod: przy przerwaniu budżetem spadek liczby fragmentów jest
+	 * NORMALNY, bo przebieg nie zdążył dopisać reszty. Alarm zapalałby się przy
+	 * każdym dużym reindeksie na wolnym hostingu i nauczyłby administratora go
+	 * ignorować — czyli zabiłby bezpiecznik dokładnie tam, gdzie ma działać.
+	 * Uzasadnienie stoi w komentarzu przy warunku w `Indexer`, a od teraz także
+	 * w samej tezie.
+	 *
+	 * Kontrola negatywna niżej pilnuje, że wyciszenie NIE rozlało się szerzej:
+	 * źródło niekompletne BEZ budżetu nadal musi dać alarm.
+	 */
+	check( array() === $d_budget, 'NOWE — C28b: budget_hit + źródło KOMPLETNE → DROP_ALERT NIEOBECNE (WYJĄTEK opisany w ZACH-W1-10) (jest: ' . json_encode( $d_budget, JSON_UNESCAPED_UNICODE ) . ')' );
 	check( array() !== $d_crawl, 'NOWE — C28b: źródło NIEKOMPLETNE → DROP_ALERT OBECNE — K19 nie gasi bezpiecznika z Kroku 5 (jest: ' . json_encode( $d_crawl, JSON_UNESCAPED_UNICODE ) . ')' );
+
+	/*
+	 * UZUP-08 — kontrola, której NIE BYŁO: wyciszenie ma należeć WYŁĄCZNIE do
+	 * flagi budżetu. Bez tej asercji rozszerzenie warunku o kolejny człon
+	 * (np. „albo źródło niekompletne") przeszłoby niezauważone, a alarm zgasłby
+	 * w scenariuszu, dla którego teza go żąda.
+	 */
+	$zrodlo_ix = (string) file_get_contents( dirname( __DIR__ ) . '/src/Index/Indexer.php' );
+	$poz_drop  = strpos( $zrodlo_ix, 'self::DROP_ALERT' );
+	$linia_ix  = ( false === $poz_drop ) ? '' : substr( $zrodlo_ix, max( 0, $poz_drop - 220 ), 320 );
+
+	check( false !== $poz_drop, 'UZUP-08: warunek DROP_ALERT odnaleziony w źródle' );
+	check(
+		false !== strpos( $linia_ix, 'budget_hit' ) || false !== strpos( $linia_ix, '$budget' ),
+		'UZUP-08: alarm wyciszany flagą budżetu — tą, którą opisuje wyjątek tezy'
+	);
+	check(
+		1 === substr_count( $zrodlo_ix, 'self::DROP_ALERT' ),
+		'UZUP-08: DROP_ALERT ma DOKŁADNIE JEDNO użycie — innej ścieżki alarmu nie ma (jest: ' . substr_count( $zrodlo_ix, 'self::DROP_ALERT' ) . ')'
+	);
 } else {
 	check( false, 'NOWE — sekcja G pominięta: brak klasy Indexer/Chunker albo atrap K19_Batcher/K19_Source/K19_Knowledge' );
 }

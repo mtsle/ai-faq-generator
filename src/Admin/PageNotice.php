@@ -161,9 +161,19 @@ class PageNotice {
 				: strtolower( (string) preg_replace( '/[^a-z0-9_\-]/i', '', (string) $raw ) );
 		}
 
-		// 4. Każda akcja właściciela otwiera tanią bramkę frontu, żeby stan przeliczył
-		// się natychmiast. Literał, nie stała — działa też bez klasy PageGuard.
-		if ( function_exists( 'update_option' ) ) {
+		/*
+		 * 4. Whitelista akcji STOI PRZED zapisem stanu. Do wersji 1.0.0 było
+		 * odwrotnie: `update_option()` wykonywało się bezwarunkowo, więc żądanie
+		 * z nieznaną wartością parametru — albo bez parametru w ogóle — zmieniało
+		 * stan witryny, choć żadna akcja nie zostawała wykonana. Odrzucenie
+		 * żądania kosztowało wtedy dokładnie tyle co przyjęcie. Bliźniacza
+		 * `MenuGuard` ma tę kolejność poprawnie od początku.
+		 */
+		$znana_akcja = in_array( $fix, array( 'dismiss', 'create', 'restore', 'publish' ), true );
+
+		// Każda ZNANA akcja właściciela otwiera tanią bramkę frontu, żeby stan
+		// przeliczył się natychmiast. Literał, nie stała — działa też bez klasy PageGuard.
+		if ( $znana_akcja && function_exists( 'update_option' ) ) {
 			update_option( 'aifaq_page_ok', '', true );
 		}
 

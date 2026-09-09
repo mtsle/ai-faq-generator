@@ -56,6 +56,9 @@ class GeminiProvider implements ProviderInterface {
 	 * Kaskada 400 (§3.1d) i retry 429/503 (§4.8) sumują się w TYM SAMYM budżecie, liczonym
 	 * od pierwszej linii `generate()`/`embed()`, nie od wejścia do `request_json()`.
 	 * W samej metodzie budżet jest dodatkowo zawężany do `max_execution_time` PHP.
+	 *
+	 * Kotwica REG-W1-34. To budżet CZASU, nie liczba ponowień — sufit prób ma własną
+	 * stałą `MAX_ATTEMPTS` i własną pozycję REG-W1-40.
 	 */
 	const REQUEST_RETRY_BUDGET = 100;
 
@@ -64,8 +67,21 @@ class GeminiProvider implements ProviderInterface {
 	 *
 	 * Samo „czy mieszczę się w budżecie" przepuszczałoby próbę startującą w 89. sekundzie,
 	 * która trwa własne 60 s. Próba już rozpoczęta nigdy nie jest przerywana (w PHP się nie da).
+	 *
+	 * Kotwica REG-W1-41. To PRÓG WEJŚCIA kolejnej próby, nie odstęp między próbami —
+	 * odstęp powstaje wyłącznie w `retry_delay()` (REG-W1-33).
 	 */
 	private const MIN_ATTEMPT_SECONDS = 5;
+
+	/**
+	 * Sufit prób JEDNEGO żądania do dostawcy: pierwsza plus najwyżej dwa ponowienia.
+	 *
+	 * Kotwica REG-W1-40. Stała, a nie literał w `request_json()`, bo liczba prób
+	 * i budżet czasu (`REQUEST_RETRY_BUDGET`) to dwa RÓŻNE limity — mylenie ich
+	 * było treścią zgłoszenia RAU-R12-002. Gdy filtr `aifaq_http_retry` wyłączy
+	 * ponawianie, sufit spada do 1 i ta stała nie bierze udziału.
+	 */
+	private const MAX_ATTEMPTS = 3;
 
 	/**
 	 * Modele, którym NIE wysyłamy budżetu myślenia równego 0.
@@ -506,7 +522,7 @@ class GeminiProvider implements ProviderInterface {
 			$retry_on = (bool) apply_filters( 'aifaq_http_retry', $retry_on );
 		}
 
-		$max_attempts = $retry_on ? 3 : 1;   // maksymalnie 2 ponowienia.
+		$max_attempts = $retry_on ? self::MAX_ATTEMPTS : 1;   // maksymalnie 2 ponowienia (REG-W1-40).
 		$attempts     = 0;
 		$last_error   = null;
 
@@ -693,6 +709,10 @@ class GeminiProvider implements ProviderInterface {
 	 * Gemini nie zwraca `Retry-After` jako nagłówka HTTP; wymagane opóźnienie oddaje w ciele.
 	 * Kolejność źródeł jest częścią kontraktu; wartość spoza zakresu 1..60 s przechodzi
 	 * do NASTĘPNEGO źródła, a nie „na granicę".
+	 *
+	 * Kotwica REG-W1-33: odstęp między próbami powstaje W TEJ metodzie i nigdzie indziej.
+	 * Punkt 4 (backoff własny, 5 s i 15 s) działa dopiero wtedy, gdy dostawca nie podał
+	 * żadnej wskazówki. `MIN_ATTEMPT_SECONDS` to inny mechanizm — REG-W1-41.
 	 *
 	 * @param array<string,mixed> $data     Zdekodowane ciało odpowiedzi.
 	 * @param array<string,mixed> $resp     Surowa odpowiedź transportu (klucz `headers` opcjonalny).

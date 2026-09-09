@@ -185,6 +185,35 @@ namespace {
 	 *
 	 * @return int|WP_Error
 	 */
+	/**
+	 * Slug z tytulu — uproszczony `sanitize_title()`.
+	 *
+	 * @param string $tytul Tytul.
+	 *
+	 * @return string
+	 */
+	function sanitize_title( $tytul ) {
+		$s = function_exists( 'mb_strtolower' ) ? mb_strtolower( (string) $tytul, 'UTF-8' ) : strtolower( (string) $tytul );
+		$s = strtr( $s, array( 'ą' => 'a', 'ć' => 'c', 'ę' => 'e', 'ł' => 'l', 'ń' => 'n', 'ó' => 'o', 'ś' => 's', 'ź' => 'z', 'ż' => 'z' ) );
+		$s = (string) preg_replace( '/[^a-z0-9]+/u', '-', $s );
+
+		return trim( $s, '-' );
+	}
+
+	/**
+	 * Pole wpisu z atrapy.
+	 *
+	 * @param string $pole    Nazwa pola.
+	 * @param int    $post_id Identyfikator.
+	 *
+	 * @return string
+	 */
+	function get_post_field( $pole, $post_id ) {
+		$id = (int) $post_id;
+
+		return isset( $GLOBALS['__posts'][ $id ]->$pole ) ? (string) $GLOBALS['__posts'][ $id ]->$pole : '';
+	}
+
 	function wp_insert_post( $dane, $wp_error = false ) {
 		if ( in_array( 'insert', $GLOBALS['__psuj'], true ) ) {
 			// Tak jak w WordPressie: BEZ drugiego argumentu porazka to `0`.
@@ -193,8 +222,39 @@ namespace {
 
 		$id                      = $GLOBALS['__next_id']++;
 		$data                    = $dane['post_date'] ?? '2026-08-07 12:00:00';
+
+		/*
+		 * SLUG NADAWANY JAK W RDZENIU — `wp_unique_post_slug()` doklada
+		 * przyrostek liczbowy, gdy adres jest zajety. Bez tego atrapa nie umiala
+		 * odtworzyc kolizji z RAU-R07-006 i cala ta sciezka byla niesprawdzalna.
+		 */
+		$slug = sanitize_title( (string) ( $dane['post_title'] ?? '' ) );
+
+		// Rdzen przycina slug do 200 znakow — TO NIE JEST kolizja, tylko
+		// skrocenie. Bez tego w atrapie warunek odrozniajacy oba przypadki
+		// nie mial scenariusza.
+		if ( strlen( $slug ) > 200 ) {
+			$slug = rtrim( substr( $slug, 0, 200 ), '-' );
+		}
+
+		if ( '' !== $slug ) {
+			$zajete = array();
+			foreach ( $GLOBALS['__posts'] as $istniejacy ) {
+				$zajete[] = (string) ( $istniejacy->post_name ?? '' );
+			}
+
+			if ( in_array( $slug, $zajete, true ) ) {
+				$licznik = 2;
+				while ( in_array( $slug . '-' . $licznik, $zajete, true ) ) {
+					$licznik++;
+				}
+				$slug .= '-' . $licznik;
+			}
+		}
+
 		$GLOBALS['__posts'][ $id ] = (object) array(
 			'ID'            => $id,
+			'post_name'     => $slug,
 			'post_type'     => $dane['post_type'] ?? 'post',
 			'post_status'   => $dane['post_status'] ?? 'draft',
 			'post_title'    => $dane['post_title'] ?? '',
@@ -214,6 +274,17 @@ namespace {
 
 	function wp_update_post( $dane, $wp_error = false ) {
 		$id = (int) ( $dane['ID'] ?? 0 );
+
+		/*
+		 * Sterowana porazka AKTUALIZACJI (RAU-R07-005). Bez niej nie da sie
+		 * odegrac scenariusza, w ktorym przypisanie kategorii pada, a nastepujace
+		 * po nim cofniecie wpisu do szkicu TEZ pada — a wlasnie tam wynik
+		 * `wp_update_post()` stal bez sprawdzenia.
+		 */
+		if ( in_array( 'update', $GLOBALS['__psuj'], true ) ) {
+			return $wp_error ? new WP_Error( 'db_update_error', 'Nie udało się zapisać zmiany' ) : 0;
+		}
+
 		if ( ! isset( $GLOBALS['__posts'][ $id ] ) ) {
 			return $wp_error ? new WP_Error( 'invalid_post', 'Brak wpisu' ) : 0;
 		}
@@ -950,6 +1021,127 @@ namespace {
 	k4x_check( 'failed' === $los, 'U5: nieudany scraping konczy pozycje na `failed`' );
 	k4x_check( 'failed' === $db->wiersze[9]->status, 'U5: status zapisany w tabeli' );
 	k4x_check( 'Za krótka treść z kanału.' === $db->wiersze[9]->content, 'U5: tresc ZOSTAJE — obie sciezki `failed` zachowuja sie tak samo' );
+
+	// ------------------------------------------------------------------
+	echo "\n-- RAU-R07-005: nieudane cofniecie do szkicu NIE jest meldowane jako `draft` --\n";
+	// ------------------------------------------------------------------
+	/*
+	 * Zakaz AWA-W2-25 brzmi wprost: „nie wolno uznac zapis za udany". Wynik
+	 * `wp_update_post()` z galezi ratunkowej stal bez przypisania, mimo drugiego
+	 * argumentu `true`. Gdy przypisanie kategorii padlo, a cofniecie do szkicu
+	 * TEZ padlo, artykul zostawal PUBLICZNY i bez kategorii — a metoda meldowala
+	 * stan `draft`. Raportowany stan nie odpowiadal danym w bazie.
+	 */
+	$db                = k4x_reset();
+	$GLOBALS['__psuj'] = array( 'terms', 'update' );
+	$r                 = Publisher::publish( k4x_wiersz(), k4x_dane() );
+
+	k4x_check( false === $r['ok'], 'podwojna awaria zapisu to porazka' );
+	k4x_check( 'terms' === $r['reason'], 'powod nadal wskazuje na kategorie' );
+	k4x_check(
+		'draft' !== $r['status'],
+		'status NIE klamie o szkicu, skoro cofniecie sie nie udalo (jest: ' . $r['status'] . ')'
+	);
+	k4x_check(
+		'publish' === $r['status'],
+		'status mowi, co NAPRAWDE jest w bazie — wpis zostal publiczny'
+	);
+	k4x_check(
+		1 === k4x_ile( 'publish' ),
+		'i faktycznie: wpis jest publiczny (jest publish: ' . k4x_ile( 'publish' ) . ')'
+	);
+	k4x_check(
+		false !== strpos( $r['error'], 'NIE udało się cofnąć do szkicu' ),
+		'komunikat mowi o obu awariach, nie tylko o kategorii'
+	);
+
+	// Kontrola pozytywna: gdy cofniecie SIE UDA, status to nadal `draft`.
+	$db                = k4x_reset();
+	$GLOBALS['__psuj'] = array( 'terms' );
+	$r                 = Publisher::publish( k4x_wiersz(), k4x_dane() );
+
+	k4x_check( 'draft' === $r['status'], 'udane cofniecie: status `draft` jak dotad' );
+	k4x_check( 1 === k4x_ile( 'draft' ), 'i wpis naprawde jest szkicem' );
+
+	// ------------------------------------------------------------------
+	echo "\n-- RAU-R07-006: slad po artykule z adresem z przyrostkiem --\n";
+	// ------------------------------------------------------------------
+	/*
+	 * Rdzen rozstrzyga kolizje sam (`wp_unique_post_slug()`), wiec zakaz
+	 * AWA-W2-23 jest dotrzymany i wpis publikuje sie poprawnie. Brakowalo
+	 * SLADU: wlasciciel nie dostawal sygnalu, ze artykul mieszka pod adresem
+	 * `tytul-2`. Opcja `ainp_slug_collision` istniala, ale byla zapisywana
+	 * wylacznie przy aktywacji i wylacznie dla slugu archiwum.
+	 */
+	$db                = k4x_reset();
+	$GLOBALS['__psuj'] = array();
+
+	$r1 = Publisher::publish( k4x_wiersz(), k4x_dane() );
+	k4x_check( true === $r1['ok'], 'pierwszy artykul opublikowany' );
+
+	$sygnal_po_pierwszym = get_option( Plugin::OPTION_SLUG_COLLISION );
+	k4x_check(
+		false === $sygnal_po_pierwszym || array() === ( $sygnal_po_pierwszym['articles'] ?? array() ),
+		'pierwszy artykul NIE zglasza kolizji — adres byl wolny'
+	);
+
+	// Drugi artykul o TYM SAMYM tytule: rdzen doklada przyrostek.
+	$wiersz2     = k4x_wiersz();
+	$wiersz2->id = 77;
+	$r2          = Publisher::publish( $wiersz2, k4x_dane() );
+
+	k4x_check( true === $r2['ok'], 'drugi artykul TEZ sie publikuje — kolizja nie jest bledem' );
+	k4x_check( 2 === count( $GLOBALS['__posts'] ), 'powstaly dwa osobne wpisy' );
+
+	$slug2 = (string) ( $GLOBALS['__posts'][ $r2['post_id'] ]->post_name ?? '' );
+	k4x_check( '' !== $slug2, 'drugi wpis ma adres' );
+	k4x_check(
+		$slug2 !== (string) ( $GLOBALS['__posts'][ $r1['post_id'] ]->post_name ?? '' ),
+		'i jest to adres INNY niz pierwszego (jest: ' . $slug2 . ')'
+	);
+
+	$sygnal = get_option( Plugin::OPTION_SLUG_COLLISION );
+	k4x_check( is_array( $sygnal ), 'sygnal kolizji zapisany jako tablica' );
+	k4x_check(
+		1 === count( $sygnal['articles'] ?? array() ),
+		'DOKLADNIE jedna kolizja odnotowana (jest: ' . count( $sygnal['articles'] ?? array() ) . ')'
+	);
+	k4x_check(
+		$r2['post_id'] === (int) ( $sygnal['articles'][0]['post_id'] ?? 0 ),
+		'slad wskazuje TEN wpis, ktory dostal przyrostek'
+	);
+	k4x_check(
+		$slug2 === (string) ( $sygnal['articles'][0]['slug'] ?? '' ),
+		'slad niesie faktyczny adres, nie oczekiwany'
+	);
+
+	/*
+	 * KONTROLA NEGATYWNA — sam brak zgodnosci slugu NIE jest kolizja. Rdzen
+	 * przycina slug do 200 znakow, wiec dlugi tytul daje adres KROTSZY od
+	 * wyliczonego z tytulu. Gdyby wykrywanie opieralo sie na samej roznicy,
+	 * kazdy taki artykul melodowalby falszywa kolizje.
+	 */
+	$db                = k4x_reset();
+	$GLOBALS['__psuj'] = array();
+
+	$dane_dlugie          = k4x_dane();
+	$dane_dlugie['title'] = str_repeat( 'Bardzo dlugi tytul artykulu o psach ', 12 );
+
+	$rd = Publisher::publish( k4x_wiersz(), $dane_dlugie );
+	k4x_check( true === $rd['ok'], 'artykul o bardzo dlugim tytule publikuje sie' );
+
+	$slug_dl = (string) ( $GLOBALS['__posts'][ $rd['post_id'] ]->post_name ?? '' );
+	k4x_check( 200 >= strlen( $slug_dl ), 'jego adres jest przyciety do 200 znakow (jest: ' . strlen( $slug_dl ) . ')' );
+	k4x_check(
+		$slug_dl !== sanitize_title( $dane_dlugie['title'] ),
+		'adres ROZNI sie od wyliczonego z tytulu'
+	);
+
+	$sygnal_dl = get_option( Plugin::OPTION_SLUG_COLLISION );
+	k4x_check(
+		false === $sygnal_dl || array() === ( $sygnal_dl['articles'] ?? array() ),
+		'a mimo to NIE jest to zglaszane jako kolizja — skrocenie to nie przyrostek'
+	);
 
 	echo '=== Asercji: ' . $ran . ' | bledow: ' . $fail . " ===\n";
 	if ( 0 === $fail ) {

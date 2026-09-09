@@ -112,6 +112,13 @@ final class Publisher {
 			return self::result( false, 0, false, '', 'WordPress nie utworzył wpisu', 'insert' );
 		}
 
+		/*
+		 * Slad po kolizji adresu (RAU-R07-006). Wpis JEST poprawny — rdzen nadal
+		 * slug unikalny sam — ale wlasciciel ma sie o tym dowiedziec, zamiast
+		 * szukac artykulu pod adresem, ktorego ten nie ma.
+		 */
+		Plugin::note_article_slug_collision( $post_id, (string) ( $data['title'] ?? '' ) );
+
 		$blad = self::assign_topic( $post_id, (string) ( $data['topic'] ?? '' ) );
 
 		if ( '' !== $blad ) {
@@ -121,13 +128,36 @@ final class Publisher {
 			 * czlowieka, ale nie jest publiczny. Idempotencja sie nie psuje,
 			 * bo `existing_post()` pyta o `any`.
 			 */
-			wp_update_post(
+			$cofniety = wp_update_post(
 				array(
 					'ID'          => $post_id,
 					'post_status' => 'draft',
 				),
 				true
 			);
+
+			/*
+			 * WYNIK SPRAWDZANY — zakaz AWA-W2-25 brzmi wprost: „nie wolno uznac
+			 * zapis za udany". Ten sam plik sprawdza wynik `wp_insert_post()`,
+			 * `wp_insert_term()` i `wp_set_object_terms()`; wynik TEGO wywolania
+			 * stal bez przypisania, mimo drugiego argumentu `true`. Skutek:
+			 * artykul zostawal PUBLICZNY i bez kategorii, a metoda meldowala
+			 * stan `draft` — raportowany stan nie odpowiadal danym w bazie.
+			 *
+			 * Zwracany status mowi teraz, co NAPRAWDE jest w bazie.
+			 */
+			if ( is_wp_error( $cofniety ) || 0 === (int) $cofniety ) {
+				$powod = is_wp_error( $cofniety ) ? $cofniety->get_error_message() : 'WordPress nie zapisał zmiany statusu';
+
+				return self::result(
+					false,
+					$post_id,
+					true,
+					$status,
+					$blad . ' — a wpisu NIE udało się cofnąć do szkicu: ' . $powod,
+					'terms'
+				);
+			}
 
 			return self::result( false, $post_id, true, 'draft', $blad, 'terms' );
 		}

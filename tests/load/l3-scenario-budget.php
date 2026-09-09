@@ -7,7 +7,7 @@
  *
  * @package AI_FAQ_Generator
  */
-require __DIR__ . '/l3-shared-state-shim.php';
+require_once __DIR__ . '/l3-shared-state-shim.php';
 
 $limit = (int) ( $argv[1] ?? 10 );
 $count = (int) get_option( 'budget_count', 0 );

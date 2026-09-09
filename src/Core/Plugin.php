@@ -17,6 +17,7 @@ use AIFAQ\Admin\PostMetaBox;
 use AIFAQ\Rest\RestController;
 use AIFAQ\PublicUi\Shortcode;
 use AIFAQ\Data\Schema;
+use AIFAQ\Data\Migrator;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -176,7 +177,19 @@ final class Plugin {
 
 		if ( version_compare( $stored, AIFAQ_DB_VERSION, '<' ) ) {
 			Schema::install();
-			update_option( 'aifaq_db_version', AIFAQ_DB_VERSION );
+
+			// Struktura to dopiero połowa podniesienia schematu — druga to DANE.
+			// `Migrator::run()` miał w produkcji jednego wywołującego (`Activator`),
+			// a aktywacja NIE odpala się przy aktualizacji podmianą plików, czyli
+			// przy najczęstszej drodze u klienta (docblock tej metody sam to mówi).
+			// Baza dostawała wtedy znacznik „podniesiona" bez przeniesienia ani
+			// jednego wiersza historii — dokładnie to, czego zakazuje AWA-W1-16.
+			// Wersja idzie w górę WYŁĄCZNIE po udanej migracji (audyt przebieg-2,
+			// RAU-R05-002 + RAU-R07-002). Nieudana migracja zostawia starą wersję,
+			// więc następne żądanie spróbuje jeszcze raz.
+			if ( Migrator::run() ) {
+				update_option( 'aifaq_db_version', AIFAQ_DB_VERSION );
+			}
 		}
 	}
 

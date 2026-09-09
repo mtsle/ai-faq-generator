@@ -1,0 +1,462 @@
+﻿==========================================
+PROJEKTAUDYT — DOKUMENTACJA FUNKCJONALNA 2
+==========================================
+
+Macierz uprawnień i dostępu
+===========================
+
+
+Zakres: wtyczka 1 „AI FAQ Generator" + wtyczka 2 „AI News Portal"
+Wersja kodu: gałąź main. Tryb demo poza zakresem.
+Do czego służy: jedyne pełne wejście dla działu bezpieczeństwa — wylicza każdą powierzchnię, którą
+da się wywołać z zewnątrz, i mówi, kto ma prawo to zrobić.
+
+Role WordPressa w skrócie: subskrybent < współpracownik < autor (publish_posts) < redaktor
+(edit_others_posts) < administrator (manage_options).
+
+
+____________________________________________________________________________________________________
+
+
+Poziomy uprawnień zadeklarowane w kodzie
+========================================
+
+
+  Poziom: Administracja
+  -----------------------
+    Stała         : RestController::CAPABILITY = manage_options
+    Kto ma        : administrator
+    Używany przez : 11 tras REST, 2 akcje AJAX, wszystkie ekrany obu wtyczek
+
+  Poziom: Narzędzie
+  -------------------
+    Stała         : RestController::CAPABILITY_TOOL = publish_posts
+    Kto ma        : autor i wyżej
+    Używany przez : generowanie FAQ, eksport
+
+  Poziom: Publikacja
+  --------------------
+    Stała         : RestController::CAPABILITY_PUBLISH = edit_others_posts
+    Kto ma        : redaktor i wyżej
+    Używany przez : publikacja i cofnięcie publicznego FAQ
+
+  Poziom: Brak
+  --------------
+    Stała         : __return_true
+    Kto ma        : każdy, także niezalogowany
+    Używany przez : /ask, front obu wtyczek, shortcode
+
+
+W wtyczce 2 istnieje jeden poziom: Admin::CAP = manage_options.
+
+
+____________________________________________________________________________________________________
+
+
+W1 · REST, przestrzeń aifaq/v1 — 15 tras
+========================================
+
+
+  ID: UPR-W1-01
+  ---------------
+    Trasa                   : /ask
+    Metoda                  : POST
+    Bramka                  : żadna
+    Nonce                   : nie dotyczy
+    Ryzyko przy złej bramce : gość steruje modelem i zapisem do dziennika
+    Waga                    : KRYTYCZNY
+
+  ID: UPR-W1-02
+  ---------------
+    Trasa                   : /admin/status
+    Metoda                  : GET
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : wyciek stanu indeksu i zużycia puli
+    Waga                    : ŚREDNI
+
+  ID: UPR-W1-03
+  ---------------
+    Trasa                   : /admin/reindex
+    Metoda                  : POST
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : dowolny użytkownik pali pulę embeddingów
+    Waga                    : KRYTYCZNY
+
+  ID: UPR-W1-04
+  ---------------
+    Trasa                   : /admin/clear
+    Metoda                  : POST
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : skasowanie całego indeksu wiedzy
+    Waga                    : KRYTYCZNY
+
+  ID: UPR-W1-05
+  ---------------
+    Trasa                   : /admin/settings
+    Metoda                  : POST
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : podmiana klucza API i modelu
+    Waga                    : KRYTYCZNY
+
+  ID: UPR-W1-06
+  ---------------
+    Trasa                   : /admin/verify
+    Metoda                  : POST
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : wywołania na cudzy koszt
+    Waga                    : DUŻY
+
+  ID: UPR-W1-07
+  ---------------
+    Trasa                   : /admin/history
+    Metoda                  : GET
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : wyciek treści pytań gości
+    Waga                    : KRYTYCZNY
+
+  ID: UPR-W1-08
+  ---------------
+    Trasa                   : /admin/history/clear
+    Metoda                  : POST
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : skasowanie dziennika
+    Waga                    : DUŻY
+
+  ID: UPR-W1-09
+  ---------------
+    Trasa                   : /admin/generate-faq
+    Metoda                  : POST
+    Bramka                  : require_tool_user
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : koszt API na koncie właściciela; limit 10/h
+    Waga                    : DUŻY
+
+  ID: UPR-W1-10
+  ---------------
+    Trasa                   : /admin/generations
+    Metoda                  : GET
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : wyciek cudzych generacji
+    Waga                    : DUŻY
+
+  ID: UPR-W1-11
+  ---------------
+    Trasa                   : /admin/generations/detail
+    Metoda                  : GET
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : pełna treść cudzej generacji — brak sprawdzenia własności zasobu
+    Waga                    : KRYTYCZNY
+
+  ID: UPR-W1-12
+  ---------------
+    Trasa                   : /admin/generations/delete
+    Metoda                  : POST
+    Bramka                  : require_admin
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : kasowanie cudzych generacji
+    Waga                    : DUŻY
+
+  ID: UPR-W1-13
+  ---------------
+    Trasa                   : /admin/export
+    Metoda                  : POST
+    Bramka                  : require_tool_user
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : autor eksportuje dane spoza swojego zakresu
+    Waga                    : DUŻY
+
+  ID: UPR-W1-14
+  ---------------
+    Trasa                   : /admin/faq/publish
+    Metoda                  : POST
+    Bramka                  : require_publish_user (warstwa 1, rejestr tras)
+    Bramka druga            : PublishService — wlasnosc zasobu (warstwa 2)
+    Nonce                   : REST nonce
+    Uwaga                   : bramka jest DWUWARSTWOWA i tak ma zostac. Warstwa 2
+                              powstala jako naprawa IDOR z audytu bezpieczenstwa
+                              K21: bez niej Autor odczytywal CUDZE pary pytanie-
+                              odpowiedz, podajac samo `id` generacji. Jej
+                              usuniecie przywraca dziure — nie jest to nadmiarowe
+                              powtorzenie warstwy 1, tylko inne pytanie
+                              (kto to moze zrobic / czyj to zasob).
+    Ryzyko przy złej bramce : autor publikuje treść na froncie całej witryny
+    Waga                    : KRYTYCZNY
+
+  ID: UPR-W1-15
+  ---------------
+    Trasa                   : /admin/faq/unpublish
+    Metoda                  : POST
+    Bramka                  : require_publish_user
+    Nonce                   : REST nonce
+    Ryzyko przy złej bramce : zdjęcie treści z frontu
+    Waga                    : DUŻY
+
+
+Do rozstrzygnięcia przez audyt: bramki UPR-W1-10..12 sprawdzają rolę, nie własność zasobu. Czy
+administrator jest wystarczającym warunkiem dostępu do cudzej generacji — to pytanie, nie ustalenie.
+Dziura tej samej klasy (faq/publish bez sprawdzenia właściciela) była już raz znaleziona i
+naprawiona w Kroku 21.
+
+W1 · Pozostałe powierzchnie
+===========================
+
+
+  ID: UPR-W1-16
+  ---------------
+    Powierzchnia   : AJAX aifaq_reindex
+    Bramka         : manage_options
+    Zabezpieczenie : nonce aifaq_index
+    Waga           : KRYTYCZNY
+
+  ID: UPR-W1-17
+  ---------------
+    Powierzchnia   : AJAX aifaq_clear_index
+    Bramka         : manage_options
+    Zabezpieczenie : nonce aifaq_index
+    Waga           : KRYTYCZNY
+
+  ID: UPR-W1-18
+  ---------------
+    Powierzchnia   : AJAX aifaq_test_connection
+    Bramka         : manage_options
+    Zabezpieczenie : nonce aifaq_test_connection
+    Waga           : DUŻY
+
+  ID: UPR-W1-19
+  ---------------
+    Powierzchnia   : Ekran główny ai-faq-generator
+    Bramka         : manage_options
+    Zabezpieczenie : —
+    Waga           : ŚREDNI
+
+  ID: UPR-W1-20
+  ---------------
+    Powierzchnia   : Ekran …-generator
+    Bramka         : manage_options
+    Zabezpieczenie : —
+    Waga           : ŚREDNI
+
+  ID: UPR-W1-21
+  ---------------
+    Powierzchnia   : Ekran …-faq-tool
+    Bramka         : manage_options
+    Zabezpieczenie : —
+    Waga           : ŚREDNI
+
+  ID: UPR-W1-22
+  ---------------
+    Powierzchnia   : Ekran …-settings
+    Bramka         : manage_options
+    Zabezpieczenie : —
+    Waga           : DUŻY
+
+  ID: UPR-W1-23
+  ---------------
+    Powierzchnia   : Ekran …-history
+    Bramka         : manage_options
+    Zabezpieczenie : —
+    Waga           : DUŻY
+
+  ID: UPR-W1-24
+  ---------------
+    Powierzchnia   : Ekran …-faq-history
+    Bramka         : manage_options
+    Zabezpieczenie : —
+    Waga           : ŚREDNI
+
+  ID: UPR-W1-25
+  ---------------
+    Powierzchnia   : Metabox aifaq_faq przy wpisie
+    Bramka         : prawo edycji wpisu
+    Zabezpieczenie : nonce metaboksu
+    Waga           : DUŻY
+
+  ID: UPR-W1-26
+  ---------------
+    Powierzchnia   : Akcje powiadomień (aifaq_fix)
+    Bramka         : manage_options — DWIE z trzech akcji (MenuNotice, PageNotice)
+    Wyjatek        : EditorNotice (podpowiedz w edytorze) bramkuje sie capem
+                     NARZEDZIA (RestController::CAPABILITY_TOOL = publish_posts).
+                     Jest to swiadome: podpowiedz jest DLA REDAKCJI, nie dla
+                     administratora, a jej skutek nie wychodzi poza dane wlasne
+                     uzytkownika — zapis do jego usermeta. Podniesienie bramki do
+                     manage_options zabiloby funkcje dla tych, dla ktorych powstala.
+    Zabezpieczenie : akcja + nonce
+    Waga           : ŚREDNI
+
+  ID: UPR-W1-27
+  ---------------
+    Powierzchnia   : Shortcode [aifaq_generator]
+    Bramka         : publiczna
+    Zabezpieczenie : —
+    Waga           : DUŻY
+
+  ID: UPR-W1-28
+  ---------------
+    Powierzchnia   : Podstrona /generator-faq
+    Bramka         : publiczna
+    Zabezpieczenie : CSP z nonce, bez unsafe-inline
+    Waga           : KRYTYCZNY
+
+  ID: UPR-W1-29
+  ---------------
+    Powierzchnia   : Cron aifaq_crawl_tick
+    Bramka         : system
+    Zabezpieczenie : —
+    Waga           : DUŻY
+
+
+W2 · Wszystkie powierzchnie
+===========================
+
+
+  ID: UPR-W2-01
+  ---------------
+    Powierzchnia   : Ekran ainp-items
+    Bramka         : manage_options
+    Zabezpieczenie : —
+    Waga           : ŚREDNI
+
+  ID: UPR-W2-02
+  ---------------
+    Powierzchnia   : Ekran ainp-settings
+    Bramka         : manage_options
+    Zabezpieczenie : —
+    Waga           : DUŻY
+
+  ID: UPR-W2-03
+  ---------------
+    Powierzchnia   : admin_post_ainp_fetch
+    Bramka         : manage_options
+    Zabezpieczenie : nonce _ainp_nonce
+    Waga           : DUŻY
+
+  ID: UPR-W2-04
+  ---------------
+    Powierzchnia   : admin_post_ainp_prepare
+    Bramka         : manage_options
+    Zabezpieczenie : nonce _ainp_nonce
+    Waga           : DUŻY
+
+  ID: UPR-W2-05
+  ---------------
+    Powierzchnia   : admin_post_ainp_publish
+    Bramka         : manage_options
+    Zabezpieczenie : nonce _ainp_nonce
+    Waga           : KRYTYCZNY
+
+  ID: UPR-W2-06
+  ---------------
+    Powierzchnia   : admin_post_ainp_retry
+    Bramka         : manage_options
+    Zabezpieczenie : nonce _ainp_nonce
+    Waga           : DUŻY
+
+  ID: UPR-W2-07
+  ---------------
+    Powierzchnia   : admin_post_ainp_save_settings
+    Bramka         : manage_options
+    Zabezpieczenie : nonce _ainp_nonce
+    Waga           : KRYTYCZNY
+
+  ID: UPR-W2-08
+  ---------------
+    Powierzchnia   : Archiwum /centrum-wiedzy/
+    Bramka         : publiczna
+    Zabezpieczenie : —
+    Waga           : DUŻY
+
+  ID: UPR-W2-09
+  ---------------
+    Powierzchnia   : Wyszukiwarka ?ainp_s=
+    Bramka         : publiczna
+    Zabezpieczenie : ucięcie do 120 znaków, oczyszczenie wyjścia
+    Waga           : KRYTYCZNY
+
+  ID: UPR-W2-10
+  ---------------
+    Powierzchnia   : Archiwum kategorii
+    Bramka         : publiczna
+    Zabezpieczenie : —
+    Waga           : ŚREDNI
+
+  ID: UPR-W2-11
+  ---------------
+    Powierzchnia   : Pojedynczy artykuł ainp_article
+    Bramka         : publiczna
+    Zabezpieczenie : —
+    Waga           : ŚREDNI
+
+  ID: UPR-W2-12
+  ---------------
+    Powierzchnia   : Cron ainp_tick
+    Bramka         : system
+    Zabezpieczenie : zamek ainp_run_lock
+    Waga           : KRYTYCZNY
+
+  ID: UPR-W2-13
+  ---------------
+    Powierzchnia   : Filtr ainp_security_headers
+    Bramka         : kod na serwerze
+    Zabezpieczenie : —
+    Waga           : ŚREDNI
+
+
+Wtyczka 2 nie wystawia ani jednej trasy REST i ani jednej akcji AJAX. Cała powierzchnia
+administracyjna to pięć akcji admin_post_ z jednym polem nonce — to ustalenie, które audyt musi
+potwierdzić, bo każda dodatkowa trasa jest niezinwentaryzowanym wejściem.
+
+Trzy pytania kontrolne do każdego wiersza
+=========================================
+
+
+  1. Czy bramka jest sprawdzana przed jakąkolwiek zmianą stanu? Sprawdzenie po zapisie nie jest
+     bramką.
+  2. Czy rola wystarcza, czy potrzebna jest własność zasobu? Rola chroni przed obcym, własność
+     chroni przed swoim.
+  3. Czy odrzucenie żądania jest darmowe? Odrzucenie, które wcześniej zapisało wiersz albo wywołało
+     model, kosztuje tyle co przyjęcie.
+
+Powierzchnie publiczne — zestawienie
+====================================
+
+
+  Wtyczka: W1
+  -------------
+    Powierzchnia publiczna : POST /ask
+    Jedyna obrona          : walidacja wejścia + limiter (okno 3600 s)
+
+  Wtyczka: W1
+  -------------
+    Powierzchnia publiczna : shortcode i podstrona
+    Jedyna obrona          : oczyszczanie wyjścia + CSP z nonce
+
+  Wtyczka: W2
+  -------------
+    Powierzchnia publiczna : archiwum, kategorie, artykuł
+    Jedyna obrona          : oczyszczanie wyjścia
+
+  Wtyczka: W2
+  -------------
+    Powierzchnia publiczna : wyszukiwarka ainp_s
+    Jedyna obrona          : ucięcie do 120 znaków + oczyszczanie wyjścia
+
+
+To cztery miejsca, w których projektAUDYT styka się z osobą niezalogowaną. Każdy błąd tutaj ma
+domyślnie wagę KRYTYCZNĄ, dopóki weryfikacja nie wykaże inaczej.
+
+
+____________________________________________________________________________________________________
+
+
+Czego ten dokument NIE daje audytowi: nic o zachowaniu automatu, budżetach i odporności na awarie.
+Opisuje, kto może wejść — nie, co się stanie po wejściu.

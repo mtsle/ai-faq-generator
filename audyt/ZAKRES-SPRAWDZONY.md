@@ -35,7 +35,7 @@ nie oświadczenie w rozmowie.
 Poza zakresem. Kotwicą kodu był wyłącznie `main` na commicie `66e5ad4`.
 
 Ślad wykonawczy tej decyzji jest widoczny do dziś: uruchomienie pełnego runnera
-wtyczki 1 daje 61 zestawów przy 1 niezaliczonym, i jest nim `demo-tryb-test.php`
+wtyczki 1 daje 63 zestawy przy 1 niezaliczonym, i jest nim `demo-tryb-test.php`
 — plik żyjący wyłącznie na gałęzi `demo`. Kopia runnera wersjonowana w repo
 tego zestawu nie zawiera i jest zielona.
 

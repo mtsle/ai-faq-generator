@@ -55,6 +55,9 @@ class S5Wpdb {
 	public $show_tables_calls = 0;
 	public $select_calls      = 0;
 	public $inserts           = array();
+	public $queries           = array();   // START TRANSACTION / ROLLBACK / COMMIT
+	public $read_fails        = false;     // get_results() oddaje null (padnięte zapytanie)
+	public $insert_fails_at   = 0;         // 0 = nigdy; N = N-ty insert zwraca false
 
 	public function __construct( bool $old_table_exists, array $rows = array() ) {
 		$this->old_table_exists = $old_table_exists;
@@ -71,10 +74,19 @@ class S5Wpdb {
 	}
 	public function get_results( $query, $output = null ) {
 		$this->select_calls++;
-		return $this->rows;
+		return $this->read_fails ? null : $this->rows;
+	}
+	public function query( $sql ) {
+		$this->queries[] = (string) $sql;
+		return true;
 	}
 	public function insert( $table, array $data ) {
 		$this->inserts[] = array( 'table' => $table, 'data' => $data );
+
+		if ( $this->insert_fails_at > 0 && count( $this->inserts ) === $this->insert_fails_at ) {
+			return false;
+		}
+
 		return true;
 	}
 }
@@ -143,6 +155,116 @@ check( 1 === count( $wpdb->inserts ), 'E1: pierwsze wywołanie migruje 1 wiersz'
 Migrator::run(); // drugie wywołanie — flaga już ustawiona.
 check( 1 === count( $wpdb->inserts ), 'E2 (KLUCZOWA): drugie wywołanie NIE dubluje wpisu (nadal dokładnie 1 insert)' );
 check( 1 === $wpdb->select_calls, 'E3: drugie wywołanie nie odpytuje starej tabeli ponownie' );
+
+// ===========================================================================
+echo "
+=== F. Awaria ZAPISU → flaga NIE zapada, migracja da się powtórzyć ===
+";
+// ===========================================================================
+// STRAŻNIK RAU-R07-001. Flagę kasuje dopiero odinstalowanie wtyczki, więc
+// zapisana po nieudanej migracji zamyka drogę powrotną na trwałe.
+$GLOBALS['__opt'] = array();
+$wpdb = new S5Wpdb( true, array(
+	array( 'created_at' => '2026-01-15 09:00:00', 'topic' => 'Pierwszy', 'user_id' => 1 ),
+	array( 'created_at' => '2026-01-16 09:00:00', 'topic' => 'Drugi', 'user_id' => 2 ),
+) );
+$wpdb->insert_fails_at = 2;
+$wynik_f = Migrator::run();
+
+check( false === $wynik_f, 'F1: nieudane wstawienie → run() zwraca false' );
+check( ! isset( $GLOBALS['__opt'][ Migrator::FLAG_HISTORY ] ), 'F2 (KLUCZOWA): flaga NIE zostaje ustawiona — druga próba jest możliwa' );
+check( in_array( 'ROLLBACK', $wpdb->queries, true ), 'F3: wstawienia wycofane — powtórka nie zdubluje wierszy' );
+check( ! in_array( 'COMMIT', $wpdb->queries, true ), 'F4: brak COMMIT po awarii' );
+
+// ===========================================================================
+echo "
+=== G. Awaria ODCZYTU → to nie jest pusta historia ===
+";
+// ===========================================================================
+// STRAŻNIK UZUP-01. `get_results()` oddaje null przy padniętym zapytaniu.
+// Przed naprawą pętla była wtedy pomijana w całości, a flaga i tak zapadała:
+// migracja zamykała się „wykonana", nie przeniosłszy ani jednego wiersza.
+$GLOBALS['__opt'] = array();
+$wpdb = new S5Wpdb( true, array( array( 'created_at' => '2026-01-15 09:00:00', 'topic' => 'x', 'user_id' => 1 ) ) );
+$wpdb->read_fails = true;
+$wynik_g = Migrator::run();
+
+check( false === $wynik_g, 'G1: padnięty odczyt → run() zwraca false' );
+check( ! isset( $GLOBALS['__opt'][ Migrator::FLAG_HISTORY ] ), 'G2 (KLUCZOWA): flaga NIE zostaje ustawiona po awarii odczytu' );
+check( 0 === count( $wpdb->inserts ), 'G3: zero wstawień' );
+
+// ===========================================================================
+echo "
+=== H. Sukces → run() potwierdza przeniesienie danych ===
+";
+// ===========================================================================
+$GLOBALS['__opt'] = array();
+$wpdb = new S5Wpdb( true, array( array( 'created_at' => '2026-01-15 09:00:00', 'topic' => 'x', 'user_id' => 1 ) ) );
+$wynik_h = Migrator::run();
+
+check( true === $wynik_h, 'H1: udana migracja → run() zwraca true' );
+check( in_array( 'COMMIT', $wpdb->queries, true ), 'H2: wstawienia zatwierdzone' );
+check( 1 === (int) ( $GLOBALS['__opt'][ Migrator::FLAG_HISTORY ] ?? 0 ), 'H3: flaga ustawiona' );
+
+$GLOBALS['__opt'] = array();
+$wpdb = new S5Wpdb( false );
+check( true === Migrator::run(), 'H4: świeża instalacja (brak starej tabeli) też zwraca true' );
+
+// ===========================================================================
+echo "
+=== I. ZABEZPIECZENIE: wersja bazy nie ma prawa pójść w górę bez migracji ===
+";
+// ===========================================================================
+// RAU-R05-002 + RAU-R07-002. Zapisy `aifaq_db_version` są DWA — w `Plugin`
+// (aktualizacja podmianą plików) i w `Activator` (aktywacja). Naprawa jednego
+// z nich zostawiłaby drugą drogę otwartą, więc warunek obejmuje CAŁE `src/`.
+$src_dir = dirname( __DIR__ ) . '/src';
+$pliki   = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $src_dir ) );
+$zapisy  = array();
+
+foreach ( $pliki as $plik ) {
+	if ( ! $plik->isFile() || 'php' !== strtolower( $plik->getExtension() ) ) {
+		continue;
+	}
+
+	$tresc = (string) file_get_contents( $plik->getPathname() );
+	$ile   = preg_match_all( "/update_option\(\s*'aifaq_db_version'/", $tresc );
+
+	if ( $ile > 0 ) {
+		$zapisy[ str_replace( DIRECTORY_SEPARATOR, '/', substr( $plik->getPathname(), strlen( $src_dir ) + 1 ) ) ] = $ile;
+	}
+}
+
+// `===` na tablicach porownuje TAKZE kolejnosc kluczy, a ta pochodzi z kolejnosci
+// plikow zwracanej przez system plikow: Windows dawal Activator przed Plugin,
+// Linux odwrotnie. Bez `ksort` asercja przechodzila u autora i czerwieniala na CI,
+// nie majac nic wspolnego z tym, czego pilnuje.
+ksort( $zapisy );
+check( array( 'Core/Activator.php' => 1, 'Core/Plugin.php' => 1 ) === $zapisy, 'I1 (KONTROLA POZYTYWNA): w src/ są DOKŁADNIE dwa zapisy aifaq_db_version — Plugin i Activator (znaleziono: ' . json_encode( $zapisy ) . ')' );
+
+$plugin_src = (string) file_get_contents( $src_dir . '/Core/Plugin.php' );
+$activ_src  = (string) file_get_contents( $src_dir . '/Core/Activator.php' );
+
+check(
+	1 === preg_match( "/if \( Migrator::run\(\) \) \{\s*update_option\( 'aifaq_db_version'/", $plugin_src ),
+	'I2: Plugin zapisuje wersję WYŁĄCZNIE w gałęzi udanej Migrator::run()'
+);
+check(
+	1 === preg_match( '/\$zmigrowano\s*=\s*Migrator::run\(\)/', $activ_src ),
+	'I3: Activator zapamiętuje wynik migracji'
+);
+check(
+	1 === preg_match( '/if \( \$zmigrowano \) \{\s*update_option\( .aifaq_db_version./', $activ_src ),
+	'I4: Activator zapisuje wersję WYŁĄCZNIE w gałęzi udanej migracji'
+);
+
+// RAU-R07-003: nagłówek pliku schematu mówił „v4", a stała — „6".
+$boot   = (string) file_get_contents( dirname( __DIR__ ) . '/ai-faq-generator.php' );
+$schema = (string) file_get_contents( $src_dir . '/Data/Schema.php' );
+
+check( 1 === preg_match( "/AIFAQ_DB_VERSION',\s*'(\d+)'/", $boot, $m_ver ), 'I5 (KONTROLA POZYTYWNA): odczytano AIFAQ_DB_VERSION z pliku głównego' );
+check( 1 === preg_match( '/schema v(\d+)/', $schema, $m_hdr ), 'I6 (KONTROLA POZYTYWNA): odczytano wersję z nagłówka Schema.php' );
+check( ( $m_ver[1] ?? 'a' ) === ( $m_hdr[1] ?? 'b' ), 'I7: nagłówek Schema.php podaje tę samą wersję co AIFAQ_DB_VERSION (nagłówek: v' . ( $m_hdr[1] ?? '?' ) . ', stała: ' . ( $m_ver[1] ?? '?' ) . ')' );
 
 // ===========================================================================
 echo "\n=== PODSUMOWANIE ===\n";

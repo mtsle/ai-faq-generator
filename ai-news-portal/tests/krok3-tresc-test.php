@@ -632,6 +632,30 @@ namespace {
 	$podsumowanie = Runner::prepare_batch( 3 );
 	k3t_check( 3 === (int) $podsumowanie['taken'], 'sufit partii przestrzegany (jest ' . (int) $podsumowanie['taken'] . ')' );
 
+	/*
+	 * RAU-R10-001. Do tej pory KAZDE z 25 wywolan `prepare_batch()` w testach
+	 * podawalo limit jawnie, a jedyny test sufitu uzywal liczby 3 — wiec zmiana
+	 * stalej `Runner::PREPARE_BATCH` przechodzila komplet obu wtyczek na zielono,
+	 * choc automat bralby w fazie przygotowania inna liczbe pozycji, niz podaje
+	 * ZACH-W2-32. Wolamy BEZ ARGUMENTU, zeby zadzialala wartosc domyslna, i przy
+	 * 12 pozycjach czekajacych sufit musi przyciac partie dokladnie do 10.
+	 */
+	$wpdb = k3t_reset();
+	for ( $i = 1; $i <= 12; $i++ ) {
+		k3t_wiersz( $i, 'https://psy.pl/d' . $i . '/', '<p>' . str_repeat( 'Tekst domyslnej partii ' . $i . '. ', 60 ) . '</p>' );
+	}
+
+	$podsumowanie = Runner::prepare_batch();
+	k3t_check( 10 === Runner::PREPARE_BATCH, 'ZACH-W2-32: Runner::PREPARE_BATCH wynosi 10' );
+	k3t_check(
+		10 === (int) $podsumowanie['taken'],
+		'partia BEZ jawnego limitu bierze dokladnie tyle, ile mowi stala (jest ' . (int) $podsumowanie['taken'] . ')'
+	);
+	k3t_check(
+		Runner::PREPARE_BATCH === (int) $podsumowanie['taken'],
+		'i jest to TA SAMA liczba, nie jej kopia — mutacja stalej przewraca ta asercje'
+	);
+
 	// Pozycja polamana nie zatrzymuje partii.
 	$wpdb = k3t_reset();
 	k3t_wiersz( 1, 'https://psy.pl/ok/', '<p>' . str_repeat( 'Poprawna treść artykułu o psach. ', 60 ) . '</p>' );

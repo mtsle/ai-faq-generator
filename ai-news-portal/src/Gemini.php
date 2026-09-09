@@ -70,6 +70,17 @@ final class Gemini {
 	 */
 	public const TIMEOUT_MIN = 8;
 
+	/**
+	 * Powody odmowy wydane PRZED wyjsciem do sieci.
+	 *
+	 * Docblock `generate()` nazywa te trzy bramy kontraktem: klucz, budzet
+	 * czasu i rezerwacja slotu koncza sie odmowa BEZ zuzycia puli i bez
+	 * zadnego zadania HTTP. Lista stoi tutaj, zeby wywolujacy nie musial
+	 * powtarzac tej wiedzy u siebie — `Runner::ask_model()` liczy na niej
+	 * wywolania modelu (audyt przebieg-2, RAU-R08-002).
+	 */
+	public const REASONS_BEFORE_REQUEST = array( 'no_key', 'time', 'cap', 'busy' );
+
 	/** Sufit odpowiedzi w bajtach — artykul to kilkanascie kB, nie megabajty. */
 	public const LIMIT_RESPONSE = 1048576;
 
@@ -79,8 +90,17 @@ final class Gemini {
 	/** Temperatura. Nisko, bo zadaniem jest przepisanie tresci, nie tworczosc. */
 	public const TEMPERATURE = 0.4;
 
-	/** Ile razy powtarzamy przegrana rezerwacje slotu (CAS). */
-	public const RESERVE_ATTEMPTS = 5;
+	/**
+	 * Ile razy powtarzamy PRZEGRANA rezerwacje slotu (CAS).
+	 *
+	 * NIE jest to rezerwa podejsc trzymana w puli dobowej — pula jest
+	 * zuzywalna w calosci, a ta liczba dotyczy wylacznie powtorzen zapisu
+	 * warunkowego, gdy inny proces byl szybszy. Stara nazwa
+	 * (`RESERVE_ATTEMPTS`) sugerowala rezerwe puli i tak tez opisywala ja
+	 * regula REG-W2-29, ktorej w kodzie nic nie odpowiadalo
+	 * (audyt przebieg-2, RAU-R13-002).
+	 */
+	public const CAS_ATTEMPTS = 5;
 
 	/** Domyslny model, gdy w Ustawieniach jest smiec. */
 	public const FALLBACK_MODEL = 'gemini-2.5-flash';
@@ -155,7 +175,7 @@ final class Gemini {
 			return self::reservation( false, 0, 0, 'cap' );
 		}
 
-		for ( $proba = 0; $proba < self::RESERVE_ATTEMPTS; $proba++ ) {
+		for ( $proba = 0; $proba < self::CAS_ATTEMPTS; $proba++ ) {
 			$raw = $wpdb->get_var(
 				$wpdb->prepare(
 					"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",

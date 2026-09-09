@@ -2,15 +2,16 @@
 
 [![Testy](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml/badge.svg)](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml)
 
-To repozytorium zawiera **dwie niezależne wtyczki WordPress**, obie wydane jako **v1.0.0**.
+To repozytorium zawiera **dwie niezależne wtyczki WordPress**, obie wydane jako **v1.1.0** —
+wydanie po audycie całości obu wtyczek.
 Ten plik jest jednocześnie README całego repozytorium i dokumentacją wtyczki 1.
 
 ## Dwie wtyczki w jednym repozytorium
 
 | Wtyczka | Folder | Wersja | Tagi wydań | README |
 |---|---|---|---|---|
-| **AI FAQ Generator** | korzeń repo | 1.0.0 | `v0.1.0`–`v1.0.0` (historyczne); ewentualne kolejne wydania: prefiks `aifaq-` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
-| **AI News Portal** | `ai-news-portal/` | 1.0.0 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.0.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
+| **AI FAQ Generator** | korzeń repo | 1.1.0 | `v0.1.0`–`v1.0.0` (historyczne, bez prefiksu); od 1.1.0 prefiks `aifaq-`, czyli `aifaq-v1.1.0` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
+| **AI News Portal** | `ai-news-portal/` | 1.1.0 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.1.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
 
 ### Dokumentacja poza kodem
 
@@ -74,8 +75,8 @@ PHP 8.2 z `mbstring`) wołają CI-owe kopie runnerów z `.github/ci/`:
 
 | job | runner | kryterium zaliczenia |
 |---|---|---|
-| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **60 zestawów, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
-| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2083 asercje** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
+| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **62 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
+| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2306 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
 
 Te same skrypty działają lokalnie (wymagany PHP CLI z rozszerzeniem `mbstring`):
 
@@ -364,15 +365,17 @@ drugi raz); **realny `score` przy trafieniu cache** (dotąd log zapisywał zmyś
 | 3. Testy segmenty ✅ | 11 segmentów, **157 nowych asercji**; złapany bug produkcyjny: generator nie przycinał świeżo wygenerowanych par przed zapisem |
 | 4. Testy obciążeniowe ✅ | 7 segmentów; lock reindeksu był TOCTOU (**3 z 10** procesów zdobywało go naraz → 1/10), paginacja bez pasującego indeksu (**do 31× szybciej**), `DB_VERSION` 5→6 |
 | 5. Testy while ✅ | przejście całego cyklu życia produktu **na żywo**, 151 asercji; `uninstall.php` zostawiał jeden z dwóch cronów, skutki zapisu ustawień siedziały w `if ( is_admin() )` (nowy slug dawał 404 bezterminowo); wsad 8 napraw, w tym **zamek publikacji FAQ** (HTTP 409 zamiast cichego nadpisania) |
-| 6. Dokumentacja ✅ | pięć dokumentów PDF dla klienta i informatyka (**poza tym repo**, w katalogu `instrukcje/` obok wtyczki) + 37 zrzutów ekranu i 5 diagramów Draw.io |
+| 6. Dokumentacja ✅ | pięć dokumentów PDF dla klienta i informatyka (w katalogu [instrukcje/](instrukcje/) tego repozytorium) + 37 zrzutów ekranu i 5 diagramów Draw.io |
 | 7. Kompatybilność Batch ✅ | całe README zderzone z wykonywalnym kodem: **107 twierdzeń**, z tego 8 mijało się z implementacją — wszystkie naprawione. Najpoważniejsze: tabela uprawnień obiecywała Redaktorowi ekran „Narzędzie FAQ", który wymaga `manage_options`; README zaniżało liczbę filtrów (19 zamiast 24); zdanie „właściciel nie jest blokowany przez sufit" było nieprawdą |
 | 8. LICENSE / readme.txt ✅ | `LICENSE` z dosłownym tekstem GNU GPL v2 (339 linii) i `readme.txt` dla klienta — z ujawnieniem usługi zewnętrznej (Google Gemini), modelu BYOK i dziennika z hashem IP |
 | 9. Audyt ❌ | **NIE WYKONANY — świadomie zdjęty z zakresu** decyzją właściciela projektu (2026-08-03). Nie jest to etap „zaliczony po cichu": osobnego audytu przed v1.0.0 nie było. Warto pamiętać, że pełny audyt bezpieczeństwa całej wtyczki przeszedł wcześniej, w **v0.26.0**, a etapy 1–5 tego Kroku były w praktyce ciągiem audytów (red team, wydajność, architektura, obciążenie, cykl życia na żywo) |
 | 10. Domknięcie ✅ | `AIFAQ_VERSION` → **1.0.0**, tag i release |
 
-**Testy.** W `tests/` leży **60 zestawów** spinanych własnym runnerem (`zasoby/run-tests.sh` —
-**poza tym repo**, w katalogu roboczym projektu obok wtyczki): **60/60 przechodzi**. W repo jest
-jego CI-owa kopia [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) — ta sama lista
+**Testy.** W `tests/` leży **62 zestawy**, spinane runnerem
+[`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh): **62/62 przechodzi**. Kopia robocza
+tego runnera (`zasoby/run-tests.sh`, **poza tym repo**) wymienia jeszcze `demo-tryb-test.php`,
+który żyje wyłącznie na gałęzi `demo` — daje więc 63 zestawy przy 1 niezaliczonym. To znany
+stan, nie regresja. Runner w repo — ta sama lista
 zestawów i to samo kryterium; woła ją workflow „Testy" (sekcja „CI" na górze). Runner nie
 jest PHPUnitem — to zwykłe skrypty PHP z atrapami WordPressa, uruchamiane bez bazy danych.
 Osobno `tests/load/` (**14 plików**, Krok 23 etap 4) wymaga żywego środowiska i **nie wchodzi**
@@ -551,7 +554,7 @@ i `readme.txt`. `License URI` w obu: `https://www.gnu.org/licenses/gpl-2.0.html`
 
 Instrukcje dla odbiorcy (pięć dokumentów PDF: instrukcja wprowadzająca dla klienta, instrukcja
 dla informatyka, wymagania niefunkcjonalne, format danych, instrukcje systemowe) powstały
-w **Kroku 23 etap 6** i leżą **poza tym repozytorium** — w katalogu `instrukcje/` w folderze
-roboczym projektu, razem ze źródłami HTML i diagramami Draw.io. (Inaczej niż przy wtyczce 2,
-której dokumentacja PDF jest wersjonowana w `ai-news-portal/instrukcje/`.) Ten `README.md`
+w **Kroku 23 etap 6** i leżą w katalogu [instrukcje/](instrukcje/) tego repozytorium, razem ze
+źródłami HTML i diagramami Draw.io — symetrycznie do wtyczki 2, której dokumentacja PDF stoi
+w `ai-news-portal/instrukcje/`. Ten `README.md`
 jest dokumentacją **dla programisty**, nie dla klienta.
