@@ -57,9 +57,7 @@ namespace {
 		// kanon na maszynie autora i kontrola zapalilaby sie na roznicy, ktora nie jest
 		// rozjazdem tresci.
 		$norm = static function ( $sciezka ) {
-			return str_replace( "
-", "
-", (string) file_get_contents( $sciezka ) );
+			return str_replace( "\r\n", "\n", (string) file_get_contents( $sciezka ) );
 		};
 		k6k_check(
 			is_file( $w_repo ) && $norm( $kanon ) === $norm( $w_repo ),
