@@ -1,0 +1,1099 @@
+========================================
+RAPORT AUDYTU — PRZEBIEG-2
+========================================
+
+ZAKRES        obie wtyczki: AI FAQ Generator (W1, korzeń repozytorium) i AI News Portal
+              (W2, podkatalog ai-news-portal/)
+REPOZYTORIUM  faq-generator\ai-faq-generator   GAŁĄŹ main   HEAD 66e5ad4 (66e5ad47ee5e646246773df4b9be699be56f46a6)
+DATA          2026-09-07
+ŹRÓDŁO        wyłącznie pozycje sektora `reaudyt` z werdyktem `potwierdzony`
+              z przebieg-2\WYMIANA-AUDYT-REAUDYT.jsonl
+
+POZYCJI W RAPORCIE: 48      KRYTYCZNY 1 · DUŻY 13 · ŚREDNI 27 · MAŁY 7
+   (48 pozycji obejmuje 49 potwierdzonych zgłoszeń re-audytu: RAU-R05-002 i RAU-R07-002 to jedno
+   znalezisko oglądane z dwóch plików i występują jako jedna pozycja — uzasadnienie w sekcji 3.2)
+
+Wagi nadał autor raportu i tylko on; każdy inny agent przebiegu miał w polu `waga` literalne
+„do ustalenia przez audytor-raportu”. Przy każdej pozycji stoi jednozdaniowe uzasadnienie wagi
+odnoszące się do SKUTKU. Napraw, propozycji łatek ani ocen zespołu w tym dokumencie nie ma.
+
+
+========================================
+1. PODSUMOWANIE DLA DECYDENTA
+========================================
+
+Jedna pozycja jest krytyczna i dotyczy nieodwracalnej utraty danych: retencja dziennika Q&A
+wyznacza granicę kasowania po kluczu głównym `id`, a nie po dacie, więc na instalacji, przez
+którą przeszła migracja historii, kasuje wpisy o nowszej dacie i zachowuje starsze (RAU-R07-004).
+
+Drugi ciężar to ścieżka aktualizacji wtyczki 1: opcja `aifaq_db_version` jest podnoszona do
+wartości docelowej bez uruchomienia migracji danych (RAU-R05-002 + RAU-R07-002 — jedna pozycja
+raportu, bo to jeden mechanizm widziany z dwóch plików), a sama migracja
+ustawia flagę zakończenia bez sprawdzenia choćby jednego wyniku wstawienia i tym samym trwale
+zamyka drugą próbę (RAU-R07-001). Dokument zabrania tego wprost (AWA-W1-16, TECH-20).
+
+Trzeci wzorzec to progi, które nie chronią tam, gdzie miały: sufit 20 000 znaków treści jest
+omijany trzema wyjściami awaryjnymi (RAU-R12-004); nierówność `TICK_BUDGET` 25 s i
+`PUBLISH_BUDGET` 30 s, którą TECH-73 nazywa mechanizmem strażniczym, znika na każdym hostingu
+z `max_execution_time` do 31 s, czyli na wartości nazwanej w kodzie typową (RAU-R13-001);
+podział budżetu ticku spycha fazę publikacji poniżej progu wejścia modelu, więc przy limicie
+poniżej 20 s model nie jest wołany ani razu (RAU-R13-003); jeden błąd sieci przy pobraniu
+robots.txt utrwala zgodę na pobieranie na 12 godzin (RAU-R05-001).
+
+Czwarty wzorzec to testy zielone przy zepsutym kodzie. Jedna pozycja jest udowodniona
+wykonawczo: po zepsuciu na kopii poza repozytorium warunku wygaszającego przycisk publikacji
+zestaw dalej dawał 99 asercji i zero błędów (RAU-R08-001). Do tego asercja spełniona podciągiem
+`id` w nazwie `user_id` (RAU-R09-003), asercja wymagająca braku alarmu dokładnie w scenariuszu,
+dla którego teza żąda alarmu (RAU-R09-004), oraz kierunek tezy o wzajemnym nietykaniu danych obu
+wtyczek, którego nie sprawdza żaden z 61 zestawów wtyczki 1 (RAU-R09-005).
+
+Pozostałe 27 pozycji średnich to w większości brak gałęzi błędu (niesprawdzony wynik zapisu,
+cichy przechwyt wyjątku, stan terminalny bez wyjścia) oraz progi, które w kodzie znaczą co
+innego niż mówi ich kotwica. Siedem pozycji małych to rozjazdy bez skutku wykonawczego.
+
+Kod nie został w przebiegu zmieniony: WARTOSCI-KONIEC.json zmierzone 2026-09-07T20:19:13Z na tym
+samym commicie co WARTOSCI-START.json, a weryfikator, który jako jedyny wykonał mutację, robił ją
+na kopii poza repozytorium i odnotował `git status --porcelain` pusty na 66e5ad4.
+
+
+========================================
+2. LICZBY
+========================================
+
+  zgłoszeń w wymianie                     87   (sektor audyt 36 · sektor re-audyt 51)
+  werdyktów weryfikatorów                 87   (komplet, 1:1 do zgłoszeń)
+  sygnałów (tropy między agentami)        75   — nie są zgłoszeniami, nie mają wag
+  ---------------------------------------------------------------------------------
+  sektor RE-AUDYT — wynik ostateczny      51   potwierdzone 49 · odrzucone 1 · otwarte 1
+  sektor AUDYT — materiał wejściowy       36   potwierdzone 33 · odrzucone 2 · otwarte 1
+  ---------------------------------------------------------------------------------
+  POZYCJE TEGO RAPORTU                    48   (wyłącznie re-audyt · potwierdzone)
+
+  Różnica 49 zgłoszeń → 48 pozycji: RAU-R05-002 i RAU-R07-002 zostały scalone w jedną pozycję,
+  bo są jednym znaleziskiem oglądanym z dwóch plików (sekcja 3.2, blok [RAU-R05-002 + RAU-R07-002]).
+  Weryfikatorzy zgłosili w całym przebiegu dokładnie jedną kolizję — grep "KOLIZJA" po katalogu
+  przebieg-2\weryfikacja daje 1 trafienie, w rea-weryfikator-02.jsonl — i jest to właśnie ta para.
+  Pozostałe 47 pozycji przeszedłem pod tym samym kątem, zestawiając je parami wewnątrz plików
+  i wewnątrz mechanizmów: drugiej pary, którą naprawia jedna zmiana, nie ma. Trzy przypadki
+  najbliższe scaleniu i świadomie NIEscalone: (1) RAU-R07-001 — ta sama rodzina (migracja), ale inny
+  łańcuch: nieodczytany wynik $wpdb->insert() przy normalnym zakończeniu, sprawdzone odrębnie przez
+  weryfikatora; (2) RAU-R13-001 i RAU-R13-003 — ten sam plik Runner.php i te same budżety, ale dwa
+  mechanizmy (zrównanie budżetów przez clamp_budget kontra podział działki liczony od budżetu już
+  przyciętego), inne linie i inny skutek; (3) RAU-R14-002 i RAU-R14-003 — ten sam plik
+  l5-db-scale.php, ale niepełny adapter $wpdb kontra kolizja nazwy tabeli z rozbieżnym schematem.
+
+
+========================================
+3. POZYCJE WG WAGI
+========================================
+
+--------------------------------------------------------------------
+3.1  KRYTYCZNY (1)
+--------------------------------------------------------------------
+
+[RAU-R07-004]  KRYTYCZNY
+MIEJSCE   src/Data/QaLogRepository.php:131-141 (W1)
+CO JEST ŹLE  Wymiar liczby wierszy w prune() wyznacza granicę kasowania po kluczu głównym id,
+   a nie po created_at, więc przy wierszach o historycznym created_at i wysokim id (takich,
+   jakie tworzy Migrator) kasowane są wpisy nowsze, a zachowywane starsze.
+DOWÓD   Odczyt QaLogRepository.php 1-287 i Migrator.php 1-81. Grep -n "created_at" w pliku —
+   10 trafień (54, 98, 115, 122, 157, 182, 189, 220, 236, 237), w bloku 131-141 ZERO.
+   Grep -n "ORDER BY" — 4 trafienia (133, 157, 182, 189); tylko 133 sortuje po id. Kod:
+   SELECT id ... ORDER BY id DESC LIMIT 1 OFFSET %d, potem DELETE ... WHERE id <= %d.
+   Rozjazd porządków dowiedziony dwoma miejscami: Migrator.php:65 wstawia historyczne
+   created_at do wiersza z najwyższym id AUTO_INCREMENT, a QaLogRepository.php:54 pozwala
+   podać własne created_at. Weryfikator powtórzył zakres przez git show + cat -A: 11 linii,
+   cytat zgodny znak w znak.
+WPŁYW   Instalacja po migracji historii, przy qa_log_keep_rows > 0: pierwsze prune() zachowuje
+   wiersze zmigrowane (najwyższe id, najstarsza data) i kasuje realnie najnowsze pytania gości.
+   Dziennik jest jedynym miejscem tych danych — skasowanych wierszy nie ma skąd odtworzyć.
+WAGA — DLACZEGO   Bezpośrednia i nieodwracalna utrata danych: mechanizm mający usuwać
+   najstarsze wpisy usuwa najnowsze.
+
+
+--------------------------------------------------------------------
+3.2  DUŻY (13 pozycji, 14 identyfikatorów — pierwsza pozycja niesie dwa scalone)
+--------------------------------------------------------------------
+
+WZORZEC A — ścieżka aktualizacji podnosi wersję bez migracji danych
+
+[RAU-R05-002 + RAU-R07-002]  DUŻY   — jedno znalezisko oglądane z dwóch plików
+MIEJSCE   src/Core/Plugin.php:174-181 (W1)  ORAZ  src/Data/Migrator.php:29-34 (W1)
+SCALENIE  Weryfikator sektora re-audytu zapisał w werdykcie RAU-R05-002
+   (weryfikacja\rea-weryfikator-02.jsonl, jedyna kolizja zgłoszona w całym przebiegu):
+   „KOLIZJA, ktora widze jako jedyna rola: RAU-R07-002 ... opisuje TEN SAM mechanizm z drugiej
+   strony - inny plik i inne linie, ale ten sam lancuch dowodowy (jeden wywolujacy Migrator::run,
+   sciezka maybe_upgrade_db go nie wola) i ta sama poprawka. Wedlug B5 to jedno znalezisko
+   widziane z dwoch miejsc.” Nie mógł go scalić, bo RAU-R07-002 leżało w cudzej paczce, i przekazał
+   decyzję autorowi raportu. ROZSTRZYGAM ZGODNIE Z NIM: to jedna pozycja. Podstawa własna: oba
+   zgłoszenia stoją na tym samym łańcuchu (Migrator::run ma w produkcji dokładnie jednego
+   wywołującego, a maybe_upgrade_db go nie woła), oba mają ten sam warunek wystąpienia i ten sam
+   skutek, a autor RAU-R05-002 sam nazwał drugie zgłoszenie „STYK ZAKRESÓW ... ten sam mechanizm
+   od strony src/Data/Migrator.php:29-34”. Oba identyfikatory zachowane, oba dowody poniżej.
+   NIE scalam z RAU-R07-001: tam łańcuchem jest nieodczytany wynik $wpdb->insert() przy normalnym
+   zakończeniu migracji, czyli inny defekt i osobna decyzja — co weryfikator sprawdził odrębnie.
+CO JEST ŹLE  Migracja danych jest pominięta na ścieżce podnoszenia wersji schematu: Migrator::run()
+   ma w kodzie produkcyjnym jednego wywołującego — Activator::activate() — a
+   Plugin::maybe_upgrade_db(), która obsługuje aktualizację przez podmianę plików, uruchamia
+   Schema::install() i podnosi aifaq_db_version, ale Migratora nie woła.
+DOWÓD   Widok od strony Plugin.php: grep -n "Migrator::" po całym repo — 11 trafień, w kodzie
+   produkcyjnym DOKŁADNIE 1 (Activator.php:36); grep -n "Migrator" w Plugin.php — 0 trafień, klasa
+   nie jest nawet importowana (odczyt 12-20); odczyt Activator.php 31-38 — krok 1 Schema::install(),
+   krok 2 Migrator::run(); odczyt Plugin.php 174-181 — w gałęzi stoją tylko Schema::install()
+   i update_option. Widok od strony Migrator.php: grep -n "AIFAQ_DB_VERSION|Migrator::run" po *.php
+   w repo — 16 trafień; produkcyjne to ai-faq-generator.php:38 (define '6'), Activator.php:36 i :98,
+   Plugin.php:170, 177, 179, pozostałe 10 to pliki testowe; odczyt Plugin.php 162-189 — nazwa
+   Migrator nie pada tam ani razu. Kotwica AWA-W1-16 (AWARIE:353-355): „Czego NIE wolno: zapisać
+   wersję docelową przed migracją”. Weryfikator powtórzył oba cytaty znak w znak (8 linii
+   z Plugin.php, 6 linii z Migrator.php przez cat -A: MATCH) oraz oba grepy z tymi samymi liczbami.
+WPŁYW   Instalacja ze schematem starszym niż 6 i niepustą tabelą wp_aifaq_history, zaktualizowana
+   podmianą plików (aktualizator WordPressa albo FTP) bez deaktywacji i ponownej aktywacji:
+   aifaq_db_version przechodzi na 6, a wiersze historii nie trafiają do wp_aifaq_qa_log. Docblock
+   maybe_upgrade_db (167-169) sam stwierdza, że klient po aktualizacji plików nigdy nie reaktywuje
+   wtyczki, czyli że ścieżka aktywacyjna z Migratorem u niego nie biegnie.
+WAGA — DLACZEGO   Zakaz zapisany wprost w scenariuszu awarii AWA-W1-16 jest łamany w najczęstszej
+   drodze aktualizacji wtyczki u klienta, a baza zostaje oznaczona jako podniesiona bez przeniesienia
+   danych.
+
+[RAU-R07-001]  DUŻY
+MIEJSCE   src/Data/Migrator.php:70-78 (W1)
+CO JEST ŹLE  migrate_history_to_qa_log() ustawia flagę aifaq_history_migrated na 1 bez odczytania
+   wyniku choćby jednego $wpdb->insert(), więc migracja jest oznaczana jako wykonana także wtedy,
+   gdy żaden wiersz nie został przeniesiony.
+DOWÓD   Grep -n "update_option|insert_id|last_error|is_wp_error" w Migrator.php — 2 trafienia,
+   oba update_option (52, 78); zero odczytów wyniku wstawienia. Grep -n
+   "aifaq_history_migrated|FLAG_HISTORY" po *.php w repo — 9 trafień (Migrator 27, 43, 52, 78;
+   uninstall.php 55; test 17, 89, 105, 126): jedyne skasowanie flagi jest w uninstall.php.
+   Grep -n "try|catch|Throwable|ALTER TABLE" w Migrator.php — 0 trafień. Weryfikator powtórzył
+   odczyt 70-78 (9 linii, cat -A): MATCH.
+WPŁYW   Aktywacja na instalacji, gdzie choć jeden wiersz zostaje odrzucony przez bazę (tryb ścisły
+   MySQL, przepełnienie kolumny): flaga i tak zostaje ustawiona, dane nie trafiają do dziennika,
+   a druga próba jest możliwa dopiero po skasowaniu opcji, czyli przy odinstalowaniu wtyczki.
+WAGA — DLACZEGO   Reguła TECH-20 („wersja podnoszona dopiero po udanej migracji”) nie działa,
+   a znacznik zakończenia trwale zamyka drogę powrotną.
+
+WZORZEC B — próg albo ochrona bez skutku tam, gdzie miała chronić
+
+[RAU-R12-004]  DUŻY
+MIEJSCE   ai-news-portal/src/Article.php:731-743 (W2)
+CO JEST ŹLE  Sufit REG-W2-09 (20 000 znaków) jest w Article::cap() omijany trzema bezwarunkowymi
+   wyjściami zwracającymi NIEPRZYCIĘTY HTML, gdy parsowanie dokumentu się nie powiedzie.
+DOWÓD   Wartość dokumentu 20 000 (REGULY-I-PROGI:89-90) = wartość kodu 20000 (Article.php:129).
+   Odczyt 731-761: CZTERY `return $html;` — 733 (zgodne z regułą), 742 (load() zwrócił null),
+   748 (brak węzła //body), 756 (catch \Throwable). Grep "MAX_CONTENT_CHARS" w
+   ai-news-portal/src — 3 trafienia (129, 732, 751), wszystkie w cap(): drugiej bramki nie ma.
+   Kolejny próg na trasie tnie dopiero na MAX_TEXT_BYTES = 65000 (Runner.php:1903).
+   Weryfikator powtórzył zliczenie (4 trafienia) i cytat 13 linii znak w znak.
+WPŁYW   Strona źródłowa, której HTML nie ładuje się do DOMDocument albo nie ma body (urwany
+   dokument, przekroczone zagnieżdżenie libxml), przy treści > 20 000 znaków: do bazy i do
+   promptu trafia treść ponad trzykrotnie dłuższa od udokumentowanego sufitu.
+WAGA — DLACZEGO   Limit chroniący bazę i prompt przestaje obowiązywać dokładnie przy wejściu
+   niepoprawnym, czyli w sytuacji, na którą został założony.
+
+[RAU-R13-001]  DUŻY
+MIEJSCE   ai-news-portal/src/Runner.php:403-411 (W2)
+CO JEST ŹLE  Nierówność TICK_BUDGET (25 s) i PUBLISH_BUDGET (30 s), którą TECH-73 nazywa
+   mechanizmem strażniczym, znika na każdym hostingu z max_execution_time 1-31 s, bo
+   clamp_budget() przycina OBA budżety do tej samej wartości 0,8 * max_execution_time.
+DOWÓD   Grep -nE "const (TICK_BUDGET|PUBLISH_BUDGET)" w Runner.php — 181 (25) i 137 (30), same
+   stałe zgodne z dokumentem. Grep -rnE "publish_budget|tick_budget|clamp_budget" po src/ i tests/
+   wtyczki 2 — 17 trafień; clamp_budget wołają tylko linie 381 i 391. Rachunek na liczbach z kodu:
+   dla max_execution_time = 30 (docblock TICK_BUDGET, Runner.php:167, nazywa tę wartość typową)
+   tick_budget() = min(25;24) = 24 i publish_budget() = min(30;24) = 24. Repozytorium potwierdza:
+   tests/krok5-cron-test.php:998 asertuje 8.0 === tick_budget() i :1013 8.0 === publish_budget()
+   dla limitu 10 s; asercja nierówności z :1017 stoi dopiero po ini_set(max_execution_time,'0').
+WPŁYW   Każda instalacja na hostingu webowym z max_execution_time 1-31 s: strażnik regresji
+   z etapu 8.7 przestaje odróżniać fazę ticku od fazy publikacji, a TECH-73 opisuje ten stan jako
+   REALIZOWANY. Zestaw testów tego nie łapie, bo na CLI limit wynosi 0 i przycięcie nie zachodzi.
+WAGA — DLACZEGO   Mechanizm zabezpieczający znika na wartości nazwanej w kodzie typową, a jedyny
+   test tego obszaru bada wyłącznie przypadek bez limitu.
+
+[RAU-R13-003]  DUŻY
+MIEJSCE   ai-news-portal/src/Runner.php:279-284 (W2)
+CO JEST ŹLE  Podział budżetu ticku 0,25/0,25/reszta liczony jest od budżetu JUŻ przyciętego przez
+   clamp_budget(), więc przy max_execution_time 1-19 s gwarancja z komentarza przy TICK_SHARE daje
+   fazie publikacji mniej niż Gemini::TIMEOUT_MIN = 8 s, a gdy collect i prepare zużyją swoje
+   działki, timeout_for() zwraca 0 i model nie jest wołany ani razu.
+DOWÓD   Grep -nE "const (TICK_SHARE|TICK_BUDGET)" — 193 (0.25) i 181 (25); grep -n "const
+   TIMEOUT_MIN" w Gemini.php — 71 (8). Grep -n "TICK_SHARE" w Runner.php — 2 trafienia: 193
+   definicja, 282 jedyne użycie, liczone RAZ przed pętlą faz. Rachunek: budżet = min(25; 0,8*L),
+   działka = 0,25*budżet, publikacja dostaje od 0,5*budżet do całego budżetu, więc 0,5*budżet >= 8
+   wymaga L >= 20; dla L = 15 (wartość, którą docblock tick_budget() 369-370 podaje jako realną)
+   budżet 12 s, działka 3 s, minimum publikacji 6 s. Skutek: Gemini::timeout_for() zwraca 0 przy
+   remaining < TIMEOUT_MIN (269-271), a generate() odpowiada wynikiem 'time' (466).
+WPŁYW   Hosting z max_execution_time 1-19 s, przebieg automatyczny `ainp_tick`: gdy collect zużyje
+   działkę na jednym niereagującym kanale, a prepare ma choć jeden wiersz, żądanie do modelu nie
+   wychodzi — automat publikuje zero artykułów mimo pełnej kolejki.
+WAGA — DLACZEGO   Główna funkcja wtyczki 2 przestaje działać na całej klasie hostingów, a
+   gwarancja opisana w komentarzu kodu jest liczona od innej liczby niż realna.
+
+[RAU-R05-001]  DUŻY
+MIEJSCE   ai-news-portal/src/Http.php:452-463 (W2)
+CO JEST ŹLE  Http::allowed() zapisuje do transientu werdykt „wolno pobierać” na 12 godzin także
+   wtedy, gdy pobranie robots.txt zakończyło się błędem transportu.
+DOWÓD   Odczyt 401-464: $verdict inicjalizowany na true (450), gałąź is_wp_error nie ma else,
+   set_transient (461) wykonuje się bezwarunkowo. Grep -n "set_transient|delete_transient"
+   w Http.php — 1 trafienie (461), ZERO delete_transient. Grep -n "ROBOTS_TTL" — 2 trafienia
+   (91 deklaracja, 461 użycie): jedno TTL dla udanego i nieudanego pobrania. Grep -n "ainp_robots_"
+   po ai-news-portal/src — 1 trafienie (122). Ten sam plik przy braku budżetu robi odwrotnie:
+   komentarz 430-433 „NIE zapisujemy werdyktu do cache'u” i wyjście przed set_transient (436).
+WPŁYW   Jeden błąd sieci (DNS, timeout) przy pierwszym w oknie 12 h pobraniu robots.txt hosta
+   z Disallow: / — od tej chwili wszystkie artykuły z tego hosta są pobierane mimo zakazu,
+   aż transient wygaśnie.
+WAGA — DLACZEGO   Ochrona przed pobieraniem wbrew zakazowi źródła jest wyłączana na 12 godzin
+   przez zdarzenie, przed którym miała chronić.
+
+[RAU-R15-005]  DUŻY
+MIEJSCE   tests/load/l7-http-concurrency.php:69-76 (W1, harness obciążeniowy)
+CO JEST ŹLE  Bezpiecznik chroniący dobowy budżet API rozstrzyga wyłącznie po czasie odpowiedzi
+   sondy i nie ma gałęzi dla sondy zakończonej błędem curla albo kodem innym niż 200, więc szybka
+   odpowiedź błędna przechodzi jako dowód, że atrapa dostawcy jest aktywna.
+DOWÓD   Grep wzorcem 'error'\]|200 !== po całym pliku — 2 trafienia, obie w pętli pomiarowej
+   (88: 200 !== (int) $r['http'] || '' !== $r['error']; 99: '' !== $r['error']); w bloku
+   bezpiecznika 66-78 ZERO — te same dwa trafienia niżej są kontrolą pozytywną wzorca. Odczyt
+   66-78: jedyny warunek to if ( $probe_ms > 500 ); wartość ['http'] jest w linii 71 wypisywana
+   przez printf i nigdzie nie badana, ['error'] nie jest czytany wcale. Odczyt 26-64: fire_batch()
+   zwraca http, time i error — dane do gałęzi są w miejscu decyzji dostępne.
+WPŁYW   Uruchomienie L7a, gdy mu-plugin z atrapą nie jest wgrany albo padł, a witryna odpowiada
+   szybko kodem 401/429/500 lub curl kończy się błędem przed 500 ms: skrypt melduje „mock aktywny,
+   zero kosztu API” i wysyła kolejne 15 żądań na trasę bijącą w prawdziwe Gemini, zużywając pulę.
+WAGA — DLACZEGO   Limit chroniący dobowy budżet API nie chroni go dokładnie w scenariuszu, dla
+   którego został napisany.
+
+WZORZEC C — funkcja nie robi tego, co deklaruje
+
+[RAU-R04-002]  DUŻY
+MIEJSCE   ai-news-portal/src/Feed.php:387-396 (W2)
+CO JEST ŹLE  Feed::clean_text() deklaruje w docbloku zdjęcie znaczników, encji i nadmiarowych
+   białych znaków, a wykonuje wyłącznie trim(), więc summary, content i guid wychodzą z parsera
+   z surowym HTML-em.
+DOWÓD   Odczyt 387-396: ciało to jedno `return trim( $tekst );`. Grep "strip_tags|
+   html_entity_decode|preg_replace" w Feed.php — 4 trafienia: 376 (BOM w strip_prolog) oraz 409,
+   410, 411 (wszystkie w clean_title); w clean_text zero. clean_text jest jedyną funkcją
+   czyszczącą dla adresu, zajawki, treści i guida w obu gałęziach parsera (wołana z 122, 135, 146,
+   151, 153, 193, 195, 286, 289). Skutek na styku plików: Filter::haystack() (Filter.php:223-241)
+   skleja title+summary+excerpt+content i przycina sklejkę do MAX_HAYSTACK_BYTES ZANIM zawoła
+   normalize() (240), więc sufit długości konsumuje znaczniki HTML zamiast tekstu artykułu.
+WPŁYW   Każda pozycja kanału, której <description> lub <content:encoded> niesie HTML — norma
+   w kanałach z pełną treścią: pola zapisywane w tablicy pozycji zawierają znaczniki, a sufit
+   długości materiału jest zjadany przez nie zamiast przez treść.
+WAGA — DLACZEGO   Zadeklarowany kontrakt funkcji nie jest realizowany na ścieżce używanej
+   w każdym normalnym przebiegu zbierania, a skutek sięga sufitu długości materiału.
+
+[RAU-R10-003]  DUŻY
+MIEJSCE   ai-news-portal/tests/krok5-cron-test.php:1134-1139 (W2)
+CO JEST ŹLE  Teza ZACH-W2-13 nie ma testu: żaden test w obu katalogach nie sprawdza odstępu między
+   dwoma żądaniami do tego samego hosta, a jedyna asercja na kotwicy Http::MIN_SECONDS przypina
+   inną regułę — dolny próg pozostałego budżetu w Http::timeout_for().
+DOWÓD   Grep -rnE 'sleep\(|usleep\(' po ai-news-portal/src/ — 0 trafień, kod wyjścia 1 (prawdziwy
+   brak dopasowania). Grep -rn 'MIN_SECONDS' po tests/ i ai-news-portal/tests/ — 6 trafień
+   (krok5-cron-test.php 1052 i 1079 komentarze, 1134 asercja wartości stałej;
+   krok5-ponowienia-test.php 333, 338 i krok7-wejscie-test.php 209 — własne stałe w atrapach);
+   żadne nie porównuje czasu między dwoma żądaniami. Kontrola fałszywego zera: ten sam wzorzec po
+   src/ i ai-news-portal/src/ — 2 trafienia (Http.php:79 definicja, :366 jedyne użycie). Odczyt
+   Http.php 355-371: całe użycie stałej to if ( remaining < self::MIN_SECONDS ) return 0 wewnątrz
+   timeout_for(). Uruchomienie zestawu: 100 asercji, 0 błędów, kod wyjścia 0.
+WPŁYW   Każde pobieranie kanału i strony źródłowej: udokumentowane zachowanie „co najmniej 3 s
+   między dwoma żądaniami do tego samego hosta” nie ma we wskazanej kotwicy egzekucji ani
+   strażnika — usunięcie odstępu albo zmiana 3 na inną liczbę nie przewraca żadnej asercji.
+WAGA — DLACZEGO   Człon WTEDY tezy zachowania nie jest realizowany przez wskazaną kotwicę ani
+   pilnowany asercją, więc regresja grzeczności wobec serwerów źródeł jest niewykrywalna.
+
+WZORZEC D — test, który zieleni się przy zepsutym kodzie
+
+[RAU-R08-001]  DUŻY
+MIEJSCE   ai-news-portal/tests/krok4-akcje-test.php:806-813 (W2)
+CO JEST ŹLE  Asercja o wygaszeniu przycisku publikacji przy braku klucza API przeszukuje cały
+   wyrenderowany ekran zamiast formularza publikacji, więc spełnia ją atrybut disabled drugiego
+   przycisku i regresja na przycisku publikacji nie zostanie wykryta.
+DOWÓD   Grep -n "disabled" w ai-news-portal/src/Admin_Screen.php — 2 trafienia: 132
+   (submit_button ACTION_PUBLISH, disabled przy braku klucza) i 153 (ACTION_RETRY, disabled przy
+   zerze nieudanych). Odczyt testu 470-493: k4a_reset(false) zeruje liczbę nieudanych, więc OBA
+   przyciski mają disabled; odczyt 260-270: atrapa submit_button wypisuje dosłownie
+   disabled="disabled". Ten sam plik dwa razy wcześniej zawęża pytanie do wyciętego formularza
+   (asercja 683 dla publikacji, 720 dla wznowienia), a linia 812 pyta o całe $html.
+   PRÓBA MUTACYJNA weryfikatora na KOPII poza repozytorium: linia 132 Admin_Screen.php zmieniona
+   na array(), php -l bez błędów. Przed mutacją: asercji 99, błędów 0. Po mutacji: asercji 99,
+   błędów 0, asercja z linii 812 nadal OK. Po próbie: git status --porcelain pusty, HEAD 66e5ad4.
+WPŁYW   Każdy przebieg runnera: usunięcie warunku wygaszającego przycisk publikacji przy braku
+   klucza API przechodzi przez komplet testów bez jednej czerwonej linii.
+WAGA — DLACZEGO   Wada testu udowodniona wykonawczo — zepsuty kod produkcyjny daje ten sam wynik
+   zestawu co kod poprawny.
+
+[RAU-R09-003]  DUŻY
+MIEJSCE   tests/krok23-etap5-naprawy-test.php:356-359 (W1)
+CO JEST ŹLE  Asercja pilnująca kompletu kolumn w SQL GenerationRepository::page() sprawdza
+   obecność PODCIĄGU, więc dla kolumny id jest spełniona przez kolumnę user_id z tego samego
+   zapytania i nie wykryje usunięcia kolumny id.
+DOWÓD   Odczyt 356-359: warunek to false !== strpos( $page_sql, $col ) dla $col z listy
+   ('id','created_at','topic','extra_desc','num_questions','language','user_id'); napis „id” jest
+   podciągiem „user_id”, sprawdzanego w tej samej liście osobno. Grep -rn page_sql po tests/
+   i ai-news-portal/tests/ — 6 trafień, wszystkie w tym pliku (343, 345, 347, 349, 353, 358).
+   Grep -rn generation_item po obu katalogach — 3 trafienia (krok15-generations-rest-test.php:179
+   na wierszu syntetycznym, oraz 356 i 358 w tym pliku); żadne nie sprawdza listy kolumn SELECT.
+   Uruchomienie pliku: „=== WSZYSTKIE OK (asercji: 41) ===”, kod wyjścia 0.
+WPŁYW   Usunięcie kolumny id z listy SELECT przy pozostawieniu user_id: lista historii generowań
+   traci identyfikator wiersza, a test przechodzi na zielono.
+WAGA — DLACZEGO   Asercja o zbyt szerokim zasięgu daje fałszywe zielenie dokładnie dla elementu,
+   którego pilnuje.
+
+[RAU-R09-004]  DUŻY
+MIEJSCE   src/Index/Indexer.php:408-414 (W1)
+CO JEST ŹLE  Alarm o skurczeniu indeksu o ponad 30 procent jest wygaszony warunkiem negacji flagi
+   budget_hit, a test wymaga tego wygaszenia jako oczekiwanego wyniku, więc teza ZACH-W1-10 nie
+   jest spełniona dla przebiegu przerwanego budżetem i żaden test tego nie zgłasza.
+DOWÓD   Odczyt 405-421: warunek w 413 zaczyna się od negacji $budget_hit, próg DROP_ALERT
+   domyka go w 414. Grep -nE 'DROP_ALERT|BUDGET_SECONDS|WAVE_SIZE' w Indexer.php: DROP_ALERT
+   w 51 (deklaracja 0.30), 367 (komentarz), 414 (jedyne użycie) — innej ścieżki alarmu nie ma.
+   Grep -rn DROP_ALERT po tests/ i ai-news-portal/tests/ — 5 trafień, wszystkie
+   w krok19-migracja-test.php (281, 573, 586 komentarze; 594, 595 asercje). Asercja 594 to
+   check( array() === $d_budget, ... ) — wymaga PUSTEJ listy ostrzeżeń w scenariuszu, dla którego
+   teza żąda alarmu. Osiągalność: :570 asertuje true === budget_hit dla przebiegu z budżetem 1 s.
+WPŁYW   Duży reindeks przerwany budżetem, w którym źródło oddało niekompletny materiał: liczba
+   fragmentów spada o ponad 30 procent, raport nie zawiera ani jednego ostrzeżenia, a administrator
+   uznaje indeks za poprawny.
+WAGA — DLACZEGO   Bezpiecznik ilościowy nie strzela w scenariuszu opisanym tezą, a istniejąca
+   asercja utrwala to odstępstwo zamiast je wykryć.
+
+[RAU-R09-005]  DUŻY
+MIEJSCE   tests/uninstall-guard-test.php:621-624 (obie wtyczki)
+CO JEST ŹLE  Teza ZACH-AUD-03 jest pokryta testem tylko w jedną stronę: zestaw wtyczki 2 sprawdza,
+   że odinstalowanie wtyczki 2 nie rusza danych wtyczki 1, a w całym katalogu tests/ wtyczki 1 nie
+   ma ani jednej asercji sprawdzającej kierunek odwrotny.
+DOWÓD   Grep -rn ainp po tests/ — 0 trafień, kod wyjścia 1. Kontrola fałszywego zera: ten sam
+   wzorzec po ai-news-portal/src/ — 262 trafienia. Kontrola pozytywna kierunku pokrytego:
+   ai-news-portal/tests/krok1-uninstall-test.php:317, 318, 321, 383 oraz krok4-uninstall-test.php
+   534, 535, 536 — grep -rn AIFAQ|aifaq_ po ai-news-portal/tests/ daje 14 trafień w tych dwóch
+   plikach. Odczyt nagłówka tests/uninstall-guard-test.php:11-15: skan jest czysto statyczny
+   (token_get_all, zero ładowania WordPressa) i wymaga pokrycia wyłącznie dla kluczy aifaq/_aifaq
+   — klucze ainp_ nie występują w nim wcale. Uruchomienie zestawu wtyczki 1: 61 zestawów,
+   1 niezaliczony (demo-tryb-test.php, tryb demo poza zakresem audytu).
+WPŁYW   Zmiana w uninstall.php wtyczki 1 poszerzająca kasowanie po LIKE albo dodająca zbyt szeroki
+   wzorzec GUARD-PATTERN może skasować wpisy ainp_article, terminy ainp_topic i meta _ainp_ przy
+   odinstalowaniu wtyczki 1, a komplet zestawów wtyczki 1 przejdzie na zielono.
+WAGA — DLACZEGO   Brak kontroli negatywnej w kierunku, w którym błąd oznacza skasowanie danych
+   drugiej wtyczki, czyni zestaw ślepym na najcięższą klasę regresji tego produktu.
+
+
+--------------------------------------------------------------------
+3.3  ŚREDNI (27)
+--------------------------------------------------------------------
+
+WZORZEC E — bramka inna niż zadeklarowana
+
+[RAU-R01-001]  ŚREDNI
+MIEJSCE   src/Admin/EditorNotice.php:103-114 (W1)
+CO JEST ŹLE  Akcja admin_post_aifaq_editor_hint z rodziny aifaq_fix bramkuje się capability
+   publish_posts, czyli bramką słabszą niż manage_options deklarowane dla tej rodziny w UPR-W1-26.
+DOWÓD   Grep "manage_options" w EditorNotice.php — 1 trafienie: linia 76, i jest to KOMENTARZ
+   („Uprawnienia: CAP NARZĘDZIA, nie `manage_options`”); pierwszą instrukcją wykonywalną po nim
+   jest current_user_can( self::tool_capability() ) w 79. Odczyt 178-195: tool_capability()
+   startuje z 'publish_posts' (182) i nadpisuje ją stałą RestController::CAPABILITY_TOOL (184-187);
+   grep "CAPABILITY_TOOL" w RestController.php — 3 trafienia, deklaracja w 67:
+   const CAPABILITY_TOOL = 'publish_posts'. Grep "current_user_can( 'manage_options' )" po
+   src/Admin — 6 trafień w 4 plikach (FreshnessNotice 36, IndexNotice 55, MenuNotice 83 i 120,
+   PageNotice 60 i 135); EditorNotice nie występuje ani razu, a MenuNotice:120 i PageNotice:135 to
+   bramki dwóch pozostałych akcji tej samej rodziny (grep "PARAM = " — 3 stałe 'aifaq_fix').
+WPŁYW   Autor albo Redaktor (publish_posts, bez manage_options) z ważnym noncem wykonuje akcję,
+   którą dokument rezerwuje dla administratora; skutek ogranicza się do wygaszenia własnej
+   podpowiedzi (zapis do własnej usermeta, linia 271).
+WAGA — DLACZEGO   Bramka jest realnie słabsza od udokumentowanej i od dwóch bliźniaczych akcji tej
+   samej rodziny, ale zmiana stanu nie wychodzi poza dane własne użytkownika.
+
+[RAU-R14-004]  ŚREDNI
+MIEJSCE   src/Rest/PublishService.php:84-92 (W1)
+CO JEST ŹLE  Trasa /admin/faq/publish ma bramkę uprawnień w dwóch warstwach naraz: zadeklarowaną
+   w RouteRegistrar oraz drugą, nieopisaną w rejestrze tras, wykonaną w warstwie usługowej.
+DOWÓD   Grep "current_user_can|CAPABILITY" po src/Rest — 14 trafień; kontroler: RestController.php
+   129, 159, 171; warstwa usługowa: PublishService.php:92 i AskService.php:100. Odczyt
+   RouteRegistrar.php 263-271: rejestracja tej trasy ma DOKŁADNIE jeden permission_callback (269,
+   require_publish_user) i ZERO klucza args. Odczyt RestController.php 115-118 (nagłówek: bramki
+   zostają na kontrolerze, bo to one są permission_callback każdej trasy), 57 (CAPABILITY =
+   manage_options), 171 (require_publish_user = manage_options LUB edit_others_posts), 392.
+   Weryfikator przeszedł ścieżkę osiągalną: Redaktor z edit_others_posts wysyła POST z id i BEZ
+   pairs, przechodzi bramkę trasy, a warunek z 92 jest fałszywy i żądanie kończy się 400 „Brak par
+   do opublikowania”; ten sam request administratora kończy się odczytem generacji. Weryfikator
+   skorygował kotwicę: pozycja istnieje — UPR-W1-14 (UPRAWNIENIA:178-184) opisuje JEDNĄ bramkę.
+WPŁYW   Żądanie REST z pustym pairs i dodatnim id od użytkownika bez manage_options: trasa
+   przepuszcza, warstwa usługowa odmawia, a ani rejestr tras, ani UPR-W1-14 tego warunku nie znają.
+WAGA — DLACZEGO   Bramka jest silniejsza, nie słabsza — nie ma obejścia uprawnień; rozjazd dotyczy
+   miejsca decyzji nieopisanego w rejestrze i w dokumentacji.
+
+WZORZEC F — zmiana stanu przed walidacją albo bez sprawdzenia wyniku
+
+[RAU-R02-001]  ŚREDNI
+MIEJSCE   src/Admin/PageNotice.php:164-172 (W1)
+CO JEST ŹLE  handle_fix() zapisuje opcję aifaq_page_ok zanim rozpozna rodzaj naprawy, więc żądanie
+   z wartością aifaq_fix spoza zamkniętej listy — oraz bez tego parametru — zmienia stan witryny
+   mimo że żadna akcja naprawcza nie zostaje wykonana.
+DOWÓD   Odczyt całego pliku (553 linie): bramka uprawnienia 135, nonce 147, PIERWSZA zmiana stanu
+   167, pierwsze porównanie z listą akcji 170. Grep -n "update_option" w PageNotice.php —
+   2 trafienia (167, 430), przy czym 430 leży w remember_dismissal(), już wewnątrz whitelisty.
+   Bliźniacza MenuNotice::handle_fix() ma tę samą kolejność cap→nonce→whitelista BEZ zapisu przed
+   whitelistą: grep -n "update_option" w MenuNotice.php — 1 trafienie (463). Kotwica UPR-W1-26 oraz
+   UPRAWNIENIA:412-413 („odrzucenie, które wcześniej zapisało wiersz, kosztuje tyle co przyjęcie”).
+WPŁYW   Użytkownik z manage_options i ważnym noncem, który podmieni wartość aifaq_fix albo usunie
+   ten parametr, kasuje wartość opcji aifaq_page_ok — bramka frontu przelicza się mimo braku akcji.
+WAGA — DLACZEGO   Odrzucenie żądania nie jest darmowe wbrew regule dokumentu, ale zapis poprzedzają
+   obie bramki, więc nie jest to droga eskalacji uprawnień.
+
+[RAU-R06-003]  ŚREDNI
+MIEJSCE   src/Data/KnowledgeRepository.php:88-99 (W1)
+CO JEST ŹLE  replace_for_post() odrzuca wynik delete_by_post(), więc nieudane skasowanie starych
+   fragmentów nie przerywa transakcji i wpis kończy z podwojonym zestawem fragmentów.
+DOWÓD   Grep "delete_by_post" w pliku — 2 trafienia: 93 (wywołanie jako gołe wyrażenie) i 132
+   (definicja); zero przypisań i zero warunków na wyniku. Odczyt 85-124: jedyna droga do ROLLBACK
+   prowadzi przez $failed ustawiane po save_chunk() <= 0 (105-107) albo przez catch(\Throwable)
+   (120), a $wpdb->delete() zwraca false bez rzucania wyjątku. Docblock 69-79 obiecuje, że wpis
+   nigdy nie zostaje z niekompletnym zestawem fragmentów.
+WPŁYW   Ponowne indeksowanie wpisu mającego już fragmenty, gdy DELETE się nie wykona (blokada
+   wiersza, timeout): stare fragmenty zostają, nowe dochodzą, a metoda zwraca dodatnią liczbę
+   wstawień jak przy sukcesie.
+WAGA — DLACZEGO   Docblock deklaruje spójność, której kod nie egzekwuje, ale warunkiem jest awaria
+   zapytania DELETE, nie zwykły przebieg.
+
+[RAU-R06-004]  ŚREDNI
+MIEJSCE   src/Data/CacheRepository.php:61-75 (W1)
+CO JEST ŹLE  put() nie sprawdza wyniku $wpdb->query() i zwraca $wpdb->insert_id także wtedy, gdy
+   zapytanie zakończyło się błędem, więc wywołujący nie odróżni odpowiedzi zapisanej od niezapisanej.
+DOWÓD   Grep "last_error|insert_id|false ===|is_wp_error" w pliku — 1 trafienie: 74
+   ($wpdb->insert_id); zero sprawdzeń wyniku w całym pliku (107 linii odczytanych w całości).
+   Wynik $wpdb->query() z linii 61 nie jest przypisany do żadnej zmiennej. Docblock zapowiada zwrot
+   0, gdy nie udało się ustalić ID. Weryfikator prześledził gałąź ON DUPLICATE KEY UPDATE, na
+   której silnik nie ustawia nowego insert_id.
+WPŁYW   Zapis do wp_aifaq_cache przy niedostępnej albo przepełnionej tabeli oraz każde powtórne
+   pytanie o tę samą treść: wywołujący (RagService.php:437) dostaje wartość nieodróżnialną od sukcesu.
+WAGA — DLACZEGO   Kontrakt zwrotu z docbloka nie jest realizowany, a błąd zapisu cache jest
+   nierozpoznawalny — bez wpływu na treść odpowiedzi udzielonej użytkownikowi.
+
+[RAU-R07-005]  ŚREDNI
+MIEJSCE   ai-news-portal/src/Publisher.php:124-132 (W2)
+CO JEST ŹLE  publish() nie sprawdza wyniku wp_update_post() przy cofaniu artykułu do szkicu po
+   nieudanym przypisaniu kategorii i zwraca stan 'draft' także wtedy, gdy zapis się nie powiódł
+   i wpis pozostał opublikowany bez kategorii.
+DOWÓD   Odczyt Publisher.php 1-349. Grep -n "is_wp_error|META_|wp_update_post" — 9 trafień:
+   is_wp_error w 106, 198, 217 (plus komentarz 12), wp_update_post w 124, META_ w 99, 100, 162, 241.
+   Sprawdzane są wyniki wp_insert_post(), wp_insert_term() i wp_set_object_terms(); wynik
+   wp_update_post() z linii 124 nie jest sprawdzany nigdzie i stoi bez przypisania mimo drugiego
+   argumentu true. Kotwica AWA-W2-25 (AWARIE:209-211): „Czego NIE wolno: uznać zapis za udany”.
+WPŁYW   Przebieg, w którym assign_topic() zwróci powód niepusty, a następujące po nim
+   wp_update_post() nie powiedzie się: artykuł zostaje publiczny i bez kategorii, a wynik przebiegu
+   melduje status 'draft'.
+WAGA — DLACZEGO   Raportowany stan nie odpowiada danym w bazie, ale wymaga złożenia dwóch
+   niezależnych awarii zapisu.
+
+[RAU-R06-001]  ŚREDNI
+MIEJSCE   ai-news-portal/src/Plugin.php:221-231 (W2)
+CO JEST ŹLE  ensure_topics() zapisuje odcisk listy kategorii w opcji ainp_topics_seeded bez
+   sprawdzenia wyniku wp_insert_term(), więc nieudane założenie terminu jest stanem terminalnym —
+   kolejne przebiegi wychodzą na porównaniu odcisku i nigdy nie ponawiają próby.
+DOWÓD   Grep "is_wp_error|wp_insert_term" w tym pliku — 5 trafień: 117 (komentarz), 228
+   (wp_insert_term w ensure_topics, wynik odrzucony), 621 i 629 (is_wp_error), 627 (wp_insert_term).
+   Oba sprawdzenia is_wp_error stoją w maybe_insert_demo(); w liniach 208-232 jest ich 0 — ten sam
+   plik sprawdza wynik wstawienia terminu w 629, a w 228 nie. Odczyt 208-232: między pętlą
+   a update_option nie ma gałęzi błędu; wyjście przy zgodnym odcisku stoi w 215-219.
+WPŁYW   Gdy wstawienie terminu skończy się WP_Error (kolizja slugu, filtr pre_insert_term innej
+   wtyczki, błąd zapisu), kategoria nie powstaje nigdy, a jedyną drogą powrotną jest zmiana listy
+   kategorii w Ustawieniach, dająca inny odcisk md5.
+WAGA — DLACZEGO   Stan terminalny bez automatycznego wyjścia, ale z drogą powrotną dostępną
+   właścicielowi bez ingerencji w bazę.
+
+[RAU-R06-002]  ŚREDNI
+MIEJSCE   ai-news-portal/src/Plugin.php:356-366 (W2)
+CO JEST ŹLE  create_table() ma w całej wtyczce 2 dokładnie jednego wywołującego — activate() —
+   więc przy aktualizacji przez podmianę plików tabela ainp_items nie jest przeliczana, mimo że ten
+   sam plik dwukrotnie kompensuje ten sam brak dla harmonogramu i dla kategorii.
+DOWÓD   Grep "create_table" w ai-news-portal/**/*.php — 4 trafienia: Plugin.php:357 (jedyne
+   wywołanie), 494 (definicja), 370 (komentarz), tests/atrapy/.../upgrade.php:5 (komentarz).
+   Grep "db_version" w całym drzewie ai-news-portal — 0 trafień. Grep "dbDelta" w src — 2 trafienia
+   (487 komentarz, 522 wywołanie), obie w ciele wołanym wyłącznie z aktywacji. Komentarze 119-125
+   i 140-152 tego samego pliku stwierdzają, że register_activation_hook nie odpala się przy
+   podmianie plików, i z tego powodu przenoszą ensure_topics() i ensure_schedule() na hook init.
+WPŁYW   Aktualizacja działającej instalacji przez podmianę plików bez dezaktywacji przy zmienionej
+   definicji tabeli: struktura zostaje stara, a żaden warunek wersji schematu nie może tego wykryć,
+   bo opcji wersji schematu w drzewie wtyczki 2 nie ma.
+WAGA — DLACZEGO   Brak gałęzi aktualizacji w cyklu życia jest realny, ale skutek pojawia się dopiero
+   przy pierwszej zmianie definicji tabeli między wydaniami.
+
+WZORZEC G — cichy wynik: sukces nieodróżnialny od pustki albo od błędu
+
+[RAU-R03-002]  ŚREDNI
+MIEJSCE   src/Admin/views/dashboard.php:41-47 (W1)
+CO JEST ŹLE  Nieudane ponowienie stron kończy się bez śladu: wyjątek z CrawlQueue::retry_failed()
+   jest połykany, zmienna zostaje na -1, a widok nie rysuje ani potwierdzenia, ani komunikatu.
+DOWÓD   Odczyt 1-483. Grep "aifaq_crawl_retried|notice-error|error_log" — 7 trafień: 37, 42, 178,
+   182, 188, 191 (zmienna) oraz 209 (notice-error należący do komunikatu o wstrzymanym pobieraniu,
+   sterowanego $aifaq_crawl_diag['paused']); error_log — 0 trafień, więc wyjątek nie idzie też do
+   dziennika. Blok catch w 43 wykonuje wyłącznie unset( $aifaq_e ), a blok potwierdzenia jest
+   bramkowany warunkiem $aifaq_crawl_retried >= 0 (178). Cztery pozostałe catch w tym pliku (63,
+   84, 116, 309) są czysto odczytowe; piąty, w 43, stoi na jedynej ścieżce zmieniającej stan.
+WPŁYW   Użytkownik z Menu::CAPABILITY klika „Ponów nieudane strony”, a przy wyjątku dostaje ten sam
+   ekran co przed kliknięciem: bez potwierdzenia, bez błędu i bez wpisu w dzienniku serwera.
+WAGA — DLACZEGO   Akcja zmieniająca stan kończy się ciszą, ale wyłącznie na ścieżce awarii zapisu
+   stanu kolejki albo błędu bazy.
+
+[RAU-R04-003]  ŚREDNI
+MIEJSCE   ai-news-portal/src/Feed.php:178-188 (W2)
+CO JEST ŹLE  parse_atom() sięga po wpisy wyłącznie nazwą bez przestrzeni ($doc->entry), a
+   zadeklarowana do tego stała NS_ATOM nie jest użyta ani razu, więc kanał Atom z prefiksowanym
+   korzeniem kończy się wynikiem ok=true z zerem pozycji i pustym polem error.
+DOWÓD   Grep 'NS_ATOM' w całym repozytorium — 1 trafienie, wyłącznie deklaracja w Feed.php:46.
+   Odczyt 178-204: dostęp do dzieci wyłącznie przez $doc->entry, ->link, ->title, ->summary, ->id,
+   ->published, ->updated, ani razu przez children( self::NS_ATOM ). Odczyt 89-99: o wyborze gałęzi
+   decyduje strtolower($doc->getName()), czyli nazwa LOKALNA. Odczyt 203: wyjście sukcesu budowane
+   bezwarunkowo, licznik skipped podnoszony wyłącznie w pętli. Nagłówek klasy (20-22) zapowiada
+   „czytelny błąd zamiast cichej pustki”. Wariant z domyślną przestrzenią działa i jest pokryty
+   testem krok2-feed-test.php:183.
+WPŁYW   Kanał <atom:feed>/<atom:entry> daje wynik sukcesu bez ani jednej pozycji i z pustym
+   komunikatem błędu — właściciel widzi kanał „bez nowości” zamiast informacji o nieobsłużonym
+   wariancie formatu.
+WAGA — DLACZEGO   Zapowiedź z nagłówka klasy nie jest dotrzymana, ale wada dotyczy wyłącznie
+   prefiksowanego wariantu Atom.
+
+[RAU-R04-001]  ŚREDNI
+MIEJSCE   ai-news-portal/src/Feed.php:375-385 (W2)
+CO JEST ŹLE  strip_prolog() szuka łańcucha '<?xml' w CAŁYM dokumencie i obcina wszystko przed
+   pierwszym trafieniem, więc kanał bez deklaracji XML cytujący '<?xml' w treści zostaje przycięty
+   do śmiecia i odrzucony w całości.
+DOWÓD   Odczyt 375-385: strpos() bez ograniczenia zakresu do prologu, warunek tylko 'pozycja > 0'.
+   Grep 'strip_prolog' w ai-news-portal — 3 trafienia (wywołanie 56, docblock 309, deklaracja 375):
+   jedno wywołanie, brak drugiej ścieżki naprawiającej. Siostrzana has_doctype() (296-362) ma
+   docblock wprost opisujący, że skan CAŁEGO dokumentu był wadą, bo „kanał, w którym którykolwiek
+   artykuł cytuje kod HTML w sekcji CDATA ... bywał odrzucany w całości”. Test krok2-feed-test.php
+   :247 sprawdza kanał bez deklaracji, ale niezawierający '<?xml' dalej — granica nieobjęta testem.
+WPŁYW   Kanał bez deklaracji XML cytujący ją dalej (blog techniczny z przykładem XML w CDATA):
+   parse() kończy się stanem terminalnym „Kanał nie jest poprawnym XML-em” i cała paczka pozycji
+   przepada.
+WAGA — DLACZEGO   Skutek jest ciężki (odrzucenie całego kanału), ale warunek wejściowy wąski —
+   kanał musi jednocześnie nie mieć deklaracji i cytować ją w treści.
+
+[RAU-R03-001]  ŚREDNI
+MIEJSCE   ai-news-portal/src/Article.php:807-812 (W2)
+CO JEST ŹLE  Gałąź przycinania w Article::take() wstawia zawartość węzła tekstowego do wynikowego
+   HTML bez ponownego zakodowania znaków specjalnych, więc tekst zapisany w źródle jako encja wraca
+   do treści jako znacznik.
+DOWÓD   Grep "saveHTML" w Article.php — 4 trafienia (kod: 670 w inner_html(), 797 w take();
+   komentarze 278 i 679); w 807-812 zero. Odczyt 771-826: gałąź $koszt <= $budzet używa saveHTML(),
+   która koduje < > i & z powrotem na encje, a gałąź XML_TEXT_NODE używa cut_text() na surowym
+   textContent. Odczyt 855-860: cut_text() wykonuje wyłącznie mb_substr, strrpos, substr, rtrim
+   i doklejenie wielokropka — bez htmlspecialchars i esc_html. Kontrola: Runner.php:1087 woła
+   Article::clean() (wp_kses_post), więc script zostaje usunięty, a znaczniki z białej listy
+   i rozkodowany & przechodzą do bazy i do promptu.
+WPŁYW   Artykuł dłuższy niż MAX_CONTENT_CHARS, w którym granica budżetu wypada wewnątrz węzła
+   tekstowego z rozkodowanym & albo < (tekst cytujący kod HTML, tabela znaków): opublikowana treść
+   zawiera działający znacznik tam, gdzie źródło miało tekst.
+WAGA — DLACZEGO   Treść publikowana jest zniekształcona w sposób widoczny dla czytelnika, ale tylko
+   dla materiałów cytujących HTML i tylko na granicy przycięcia.
+
+WZORZEC H — próg, który w kodzie znaczy co innego niż w dokumencie
+
+[RAU-R12-002]  ŚREDNI
+MIEJSCE   src/Providers/GeminiProvider.php:925-932 (W1)
+CO JEST ŹLE  Kotwica REG-W1-34 GeminiProvider::REQUEST_RETRY_BUDGET nie jest budżetem ponowień
+   liczonym w próbach, tylko globalnym budżetem CZASU jednego wywołania w sekundach, a rzeczywisty
+   sufit liczby ponowień wynosi 2 i nie ma kotwicy w dokumencie.
+DOWÓD   Wartość dokumentu: 100 (REGULY-I-PROGI:707, pole Wartość, BEZ jednostki — REG-W1-29, 31, 32
+   i 33 w tej samej sekcji podają [s] jawnie). Wartość kodu: 100 (definicja GeminiProvider.php:60).
+   Grep "REQUEST_RETRY_BUDGET" w src/ — 4 trafienia (60, 930, 931, 941); wszystkie trzy użycia
+   stoją w arytmetyce sekund. Docblock stałej (53-60): „Globalny budżet czasu JEDNEGO wywołania
+   generate()/embed() w sekundach”. Realny sufit prób: grep "max_attempts" — 3 trafienia, ustalenie
+   w 509: $max_attempts = $retry_on ? 3 : 1;  // maksymalnie 2 ponowienia. Grep "max_attempts"
+   w DOKUMENTACJA-FUNKCJONALNA-3-REGULY-I-PROGI.txt — 0 trafień.
+WPŁYW   Każde wywołanie generate()/embed() kończące się kodem 429 albo 503: właściciel czytający
+   REG-W1-34 widzi „budżet ponowień 100”, a zmiana tej stałej przestawia limit czasu całego
+   wywołania, nie liczbę prób; realny sufit dwóch ponowień nie ma w dokumentacji żadnej pozycji.
+WAGA — DLACZEGO   Dokument opisuje limit ochronny dwa rzędy wielkości obok jego rzeczywistego
+   znaczenia, więc decyzja o strojeniu ponowień oparta na tej pozycji trafia w inny mechanizm.
+
+[RAU-R13-002]  ŚREDNI
+MIEJSCE   ai-news-portal/src/Gemini.php:79-83 (W2)
+CO JEST ŹLE  Kotwica REG-W2-29 opisuje Gemini::RESERVE_ATTEMPTS jako rezerwę podejść utrzymywaną
+   w puli dobowej, a w kodzie ta stała jest wyłącznie licznikiem powtórzeń przegranej rezerwacji CAS
+   i nie odkłada w puli ani jednego podejścia.
+DOWÓD   Wartość dokumentu 5 (REGULY-I-PROGI:240) = wartość kodu 5 (Gemini.php:83); rozjeżdża się
+   znaczenie. Grep "RESERVE_ATTEMPTS" w Gemini.php — 2 trafienia: 83 (definicja) i 158 (jedyne
+   użycie, nagłówek pętli for ( $proba = 0; $proba < self::RESERVE_ATTEMPTS; $proba++ )); po całym
+   ai-news-portal/src — również 2, oba w tym pliku. Odczyt 130-185: docblock reserve_slot() mówi
+   „zero znaczy ktoś był szybszy i próbujemy jeszcze raz na świeżej wartości”, a komentarz przy
+   stałej (82): „Ile razy powtarzamy przegraną rezerwację slotu (CAS)”. Grep "daily_cap" — 2
+   trafienia (150, 253); w żadnym sufit dobowy nie jest pomniejszany o rezerwę.
+WPŁYW   Każde wywołanie rezerwujące slot: właściciel planujący zużycie na podstawie REG-W2-29 liczy
+   na pięć wywołań trzymanych w rezerwie, a pula (domyślnie 20) jest zużywalna w całości.
+WAGA — DLACZEGO   Reguła kotwicząca opisuje mechanizm ochrony puli, którego w kodzie nie ma, więc
+   planowanie dobowego limitu według dokumentu jest błędne.
+
+[RAU-R11-001]  ŚREDNI
+MIEJSCE   src/Core/Settings.php:215-221 (W1)
+CO JEST ŹLE  Podłoga progu miękkiego 0,70, kotwiczona w dokumentacji stałą RagService::
+   ASK_MIN_THRESHOLD, jest w Settings::get() i Settings::sanitize() gołym literałem 0.70 i ani razu
+   nie odczytuje tej stałej, więc kotwica nie steruje dwoma z trzech miejsc działania progu.
+DOWÓD   Wartość dokumentu 0,70 (REGULY-I-PROGI:468, REG-W1-02b). W kodzie: const ASK_MIN_THRESHOLD
+   = 0.70 (RagService.php:93) oraz dwa niezależne literały 0.70 (Settings.php:215 i :370).
+   Grep "::ASK_MIN_THRESHOLD" po src/ — 2 trafienia: RagService.php:235 (użycie) i Settings.php:207,
+   przy czym to drugie jest linią KOMENTARZA; grep -c "ASK_MIN_THRESHOLD" w Settings.php — 1, więc
+   w tym pliku nie ma ani jednego odwołania wykonywalnego. Grep "0\.70" po src/ — 5 trafień
+   (Settings 215, 360 i 364 komentarze, 370; RagService 93). Filtr 'aifaq_min_threshold' nakładany
+   jest na obie podłogi (Settings:217, RagService:236).
+WPŁYW   Każde wywołanie Settings::get() i Settings::sanitize(), na każdej instalacji: zmiana progu
+   przez kotwicę z dokumentu przestawia jedno z trzech miejsc, a dwa pozostałe dalej trzymają 0,70.
+WAGA — DLACZEGO   Próg dokumentowany jedną kotwicą jest w kodzie potrojony jako literały, więc
+   strojenie zgodne z dokumentacją daje stan niespójny między odczytem ustawień a usługą RAG.
+
+[RAU-R11-002]  ŚREDNI
+MIEJSCE   src/PublicUi/PageGuard.php:298-308 (W1)
+CO JEST ŹLE  Backoff w PageGuard::ensure() nie sprawdza licznika prób, więc przerwa 300 s obowiązuje
+   także wtedy, gdy znacznik last pochodzi z UDANEGO utworzenia podstrony; bliźniacza
+   MenuGuard::ensure() ma w tym samym miejscu dodatkowy człon tries > 0.
+DOWÓD   Wartości zgodne z REG-W1-37: MAX_TRIES = 3 (69), RETRY_DELAY = 300 (74); rozjeżdża się
+   warunek. Linia 307: if ( $s['last'] > 0 && ( time() - $s['last'] ) < self::RETRY_DELAY ) — bez
+   członu tries. Grep po kluczu 'last' w PageGuard.php — 4 trafienia: 307 (odczyt w backoffie),
+   336 (zapis po PORAŻCE), 379 (zapis po SUKCESIE), 455 (zerowanie w act('create')); linia 379
+   dowodzi, że last jest ustawiane także na ścieżce sukcesu. MenuGuard.php 462-471:
+   if ( $s['tries'] > 0 && $s['last'] > 0 && ... ) z komentarzem „backoff należy wyłącznie do stanu
+   `failed`”. Ręczne act('create') zeruje tries i last przed ensure() (452-458).
+WPŁYW   Ścieżka automatyczna w oknie 300 s po zapisie znacznika, gdy stan podstrony wraca do missing
+   bez przejścia przez hook usunięcia (wpis skasowany zapytaniem do bazy, wyzerowana opcja
+   aifaq_page_id): strażnik nie odtwarza podstrony przez pięć minut mimo licznika prób równego 0.
+WAGA — DLACZEGO   Asymetria dwóch bliźniaczych strażników jest zmierzona, a skutek — opóźnienie
+   odtworzenia podstrony — występuje tylko na wąskiej ścieżce zniknięcia wpisu poza hookiem.
+
+WZORZEC I — brak testu progu albo tezy
+
+[RAU-R09-001]  ŚREDNI
+MIEJSCE   src/Admin/IndexController.php:145-151 (W1)
+CO JEST ŹLE  Zamek reindeksu IndexController::LOCK_TTL nie ma żadnego testu: w obu katalogach testów
+   nie ma asercji wywołującej acquire_lock() tej klasy ani sprawdzającej odpowiedź 409 dla drugiego
+   równoczesnego żądania.
+DOWÓD   grep -rn LOCK_TTL tests/ — 5 trafień, ŻADNE nie dotyczy IndexController
+   (krok18-pageguard-test.php 406 i 726 — PageGuard; krok23-etap5-naprawy-test.php:207 — PublicFaq;
+   tests/load/l3-scenario-lock-after.php 11 i 19 — własna stała skryptu). grep -rn LOCK_TTL
+   ai-news-portal/tests/ — 9 trafień, wszystkie w drzewie wtyczki 2. grep -rnE
+   'reindex_lock|acquire_|is_locked' po obu katalogach: acquire_lock wyłącznie dla PageGuard
+   i PublicFaq. grep -rl 409 tests/ — 2 pliki, w krok23-etap1-index-crawl-test.php napis 409 stoi
+   tylko w komentarzu nagłówka przy 17 asercjach. tests/load/ nie jest wołane przez runner.
+WPŁYW   Regresja w acquire_lock() albo zmiana LOCK_TTL (15 min) nie zostanie wykryta przed
+   instalacją u klienta; dotyczy też run_clear(), która bierze ten sam zamek (linia 331).
+WAGA — DLACZEGO   Teza ZACH-W1-11 nie ma ani jednej asercji zachowaniowej, ale sam mechanizm zamka
+   w kodzie istnieje i działa.
+
+[RAU-R09-002]  ŚREDNI
+MIEJSCE   src/Index/Indexer.php:247-253 (W1)
+CO JEST ŹLE  Domyślna wartość budżetu przebiegu Indexer::BUDGET_SECONDS nie jest sprawdzana żadną
+   asercją — każdy test budżetu podmienia ją filtrem aifaq_index_budget.
+DOWÓD   grep -rn BUDGET_SECONDS tests/ ai-news-portal/tests/ — 0 trafień, kod wyjścia 1 (wzorzec
+   jest zwykłym literałem). grep -rn aifaq_index_budget tests/ — 6 trafień w 2 plikach
+   (krok19-migracja-test.php 529, 549, 576 oraz 536 i 545; krok19-rag-test.php:399) — każde
+   PODMIENIA budżet, żadne go nie odczytuje. grep -rn na literale 45 w krok19-migracja-test.php —
+   0 trafień. Kontrola pozytywna, że drugi człon tezy JEST pokryty: krok19-migracja-test.php:536
+   zawiera check( 3 === $b27->calls, ...) dla 1100 fragmentów przy fali 500.
+WPŁYW   Zmiana stałej BUDGET_SECONDS przy strojeniu wydajności przechodzi komplet testów na zielono,
+   mimo że dokumentowane zachowanie 45 s przestaje obowiązywać.
+WAGA — DLACZEGO   Brak asercji ilościowej dla jednego z dwóch członów tezy ZACH-W1-09; drugi człon
+   („fale po 500”) jest pokryty asercją === 3.
+
+[RAU-R10-001]  ŚREDNI
+MIEJSCE   ai-news-portal/tests/krok3-tresc-test.php:626-633 (W2)
+CO JEST ŹLE  Wartość stałej Runner::PREPARE_BATCH = 10 nie jest sprawdzana żadną asercją: każde
+   wywołanie prepare_batch() podaje limit jawnie, a jedyny test sufitu partii używa liczby 3.
+DOWÓD   grep -rn PREPARE_BATCH po ai-news-portal/tests/ — 0 trafień; kontrola fałszywego zera: ten
+   sam wzorzec po ai-news-portal/src/ — 4 trafienia (Runner.php:105 definicja, :328 wywołanie
+   w tick(), :919 sygnatura). grep -rn PREPARE_BATCH po tests/ wtyczki 1 — 0 trafień. grep -rno
+   wzorcem prepare_batch( po ai-news-portal/tests/ — 25 trafień; każde realne wywołanie ma jawny
+   pierwszy argument (m.in. krok3-tresc-test.php 606/10, 632/3, 639/10, 655/10, 688/6, 709/10;
+   krok5-ponowienia-test.php 9 wywołań z 10). Asercje na kluczu taken: 4 ===, 3 ===, 2 === — żadna
+   nie jest równa 10.
+WPŁYW   Zmiana stałej PREPARE_BATCH na dowolną inną wartość przechodzi cały zestaw obu wtyczek,
+   a automat bierze w fazie przygotowania inną liczbę pozycji, niż podaje ZACH-W2-32.
+WAGA — DLACZEGO   Próg ilościowy z tezy nie jest przypięty żadną asercją, ale sam mechanizm sufitu
+   partii jest sprawdzony przez parametr.
+
+WZORZEC J — harness i narzędzia pomiarowe
+
+[RAU-R14-001]  ŚREDNI
+MIEJSCE   tests/load/l3-shared-state-shim.php:65-75 (W1)
+CO JEST ŹLE  Shim zajmuje siedem nazw funkcji rdzenia WordPressa w globalnej przestrzeni nazw bez
+   osłony function_exists, jako jedyny moduł katalogu tests/load, więc nie da się go złożyć
+   w jednym procesie z żadnym innym harnessem tego katalogu ani załadować dwa razy.
+DOWÓD   Grep function_exists w tests/load — 14 trafień w 4 plikach (l2-indexing-scale.php 36-39,
+   43; l3-concurrency.php:150; l4-ask-worker.php 33-38; l5-db-scale.php 27, 28); w tym pliku
+   0 trafień, przy czym te same 14 są kontrolą pozytywną wzorca. W pliku 12 definicji funkcji
+   (22, 35, 46, 51, 58, 65, 70, 77, 88, 92, 102, 107), z czego siedem nosi nazwy rdzenia:
+   get_transient, set_transient, delete_transient, get_option, update_option, add_option,
+   delete_option; ósma (real_get_option) jest nazwą globalną bez prefiksu wtyczki. Ładowany
+   instrukcją require (nie require_once) w czterech scenariuszach: l3-scenario-lock.php:9,
+   l3-scenario-lock-after.php:9, l3-scenario-publish.php:9, l3-scenario-budget.php:10.
+WPŁYW   Każde złożenie tego shimu z innym harnessem tego katalogu w jednym procesie, każde podwójne
+   załadowanie i każde uruchomienie scenariusza L3 w procesie z załadowanym WordPressem kończy się
+   błędem krytycznym redeklaracji; dziś żaden scenariusz tego nie robi.
+WAGA — DLACZEGO   Skutek jest wykonawczy (fatal), ale wyłącznie w warunkach złożenia modułów,
+   których obecny zestaw nie tworzy.
+
+[RAU-R14-002]  ŚREDNI
+MIEJSCE   tests/load/l5-db-scale.php:31-37 (W1)
+CO JEST ŹLE  Adapter RealWpdb deklaruje zgodność z $wpdb i to, że repozytoria produkcyjne działają
+   nad nim bez zmian, a nie implementuje czterech składowych kontraktu używanych przez klasy, które
+   ten sam skrypt ładuje: update, get_col, get_charset_collate i pole posts.
+DOWÓD   Odczyt 31-142: RealWpdb ma 8 metod (prepare 44, get_results 76, get_row 85, get_var 93,
+   query 101, insert 107, delete 119, explain 126) i 4 pola. Grep odwołań do $wpdb po src/Data —
+   68 trafień; zbiór użytych składowych obejmuje także update (KnowledgeRepository.php:153),
+   get_col (KnowledgeRepository.php:400 i 414), get_charset_collate (Schema.php:72) i pole posts
+   (KnowledgeRepository.php:181) — wszystkie w plikach ładowanych przez l5 (Schema w 224,
+   KnowledgeRepository w 226, instancja w 231).
+WPŁYW   Każde rozszerzenie L5 o pomiar ścieżki dotykającej tych składowych kończy proces błędem
+   krytycznym zamiast wynikiem pomiaru; obecne sekcje A-D tych metod nie wołają.
+WAGA — DLACZEGO   Docblock obiecuje pełną zgodność, której nie ma, a skutek pojawia się przy
+   pierwszym rozszerzeniu pomiaru.
+
+[RAU-R14-003]  ŚREDNI
+MIEJSCE   tests/load/l5-db-scale.php:208-219 (W1)
+CO JEST ŹLE  Dwa moduły katalogu tests/load tworzą tę samą fizyczną tabelę
+   wp_loadtest_aifaq_generations z RÓŻNYM schematem, a wersja z l5-db-scale.php pomija indeks
+   złożony created_id, który produkcyjny Schema.php dla tej tabeli deklaruje.
+DOWÓD   Odczyt l5-db-scale.php 153 i 157: $PFX = wp_loadtest_, $T_GENERATIONS =
+   wp_loadtest_aifaq_generations. Odczyt l6-generator-concurrency.php:55 — ta sama nazwa dosłownie.
+   Definicje: l5 217-218 (PRIMARY KEY (id), KEY created_at) kontra l6 66-68 (PRIMARY KEY (id),
+   KEY created_at, KEY created_id (created_at,id)). Grep created_id po src — 4 trafienia
+   (Schema.php 112, 130, 163, 177), przy czym 177 to KEY created_id (created_at,id) w bloku CREATE
+   TABLE dla generations. Tabela założona w l5 nie jest tam do niczego używana: grep
+   lt_seed_generations po repo — 1 trafienie (sama definicja, 263), zero wywołań.
+WPŁYW   Uruchomienie obu skryptów na tej samej instancji MySQL: drugi kasuje i przedefiniowuje
+   tabelę pierwszego, a pomiar wykonany po l5 dotyczy struktury bez indeksu, który produkcja ma.
+WAGA — DLACZEGO   Kolizja nazwy zasobu z rozbieżną definicją daje wynik pomiaru nieodpowiadający
+   produkcji, ale wyłącznie w harnessie obciążeniowym.
+
+[RAU-R15-006]  ŚREDNI
+MIEJSCE   tests/load/l6-history-write-worker.php:8-18 (W1)
+CO JEST ŹLE  Worker L6 nie ma gałęzi dla braku odpowiedzi bazy: wyniku mysqli_connect() ani
+   prepare() nie bada, a proces nadrzędny czyta wyłącznie standardowe wyjście, więc nieudany zapis
+   wchodzi do pomiaru jako pusta pozycja zamiast przerwać pomiar.
+DOWÓD   Grep wzorcem mysqli_connect_error|connect_errno|! \$mysqli|false === \$stmt|\$mysqli->error
+   po całym pliku (20 linii) — 0 trafień. KONTROLA POZYTYWNA tego samego wzorca w pliku nadrzędnym
+   l6-generator-concurrency.php — 1 trafienie (linia 50, if ( ! $mysqli ) z komunikatem „BRAK
+   POŁĄCZENIA z MySQL Local” i pominięciem części B); to samo wywołanie mysqli_connect z tymi
+   samymi pięcioma argumentami stoi tam w 49, tutaj w 10. Proces nadrzędny czyta wyłącznie potok 1
+   (stream_get_contents, 81), a potok 2 zamyka bez odczytu (82).
+WPŁYW   Baza przestająca odpowiadać po starcie części B (limit połączeń przy sześciu workerach,
+   restart MySQL): worker kończy się bez wiersza, a pomiar równoległych zapisów zaniża liczbę
+   udanych INSERT-ów bez żadnego komunikatu.
+WAGA — DLACZEGO   Wynik pomiaru jest cicho zaniżany, co czyni go niewiarygodnym, ale skutek nie
+   wychodzi poza narzędzie pomiarowe.
+
+WZORZEC K — stan i zachowanie na styku wtyczek
+
+[RAU-R15-001]  ŚREDNI
+MIEJSCE   ai-news-portal/uninstall.php:27-31 (W2)
+CO JEST ŹLE  Skrypt odinstalowania wtyczki 2 nie ma ani jednej gałęzi dla instalacji
+   wielowitrynowej: sprząta wyłącznie witrynę, w której akurat biegnie, i zostawia na pozostałych
+   witrynach sieci tabelę materiałów, wpisy ainp_article, terminy ainp_topic oraz opcje ainp_.
+DOWÓD   Wzorzec is_multisite|switch_to_blog|get_sites|restore_current_blog|blog_id po całym pliku
+   (172 linie) — 0 trafień. KONTROLA POZYTYWNA tego samego wzorca w uninstall.php wtyczki 1 —
+   8 trafień (38, 180, 195, 197, 198, 200, 208, 210). Odczyt 1-172: nazwa tabeli powstaje raz
+   w linii 31, DROP TABLE w 115 używa tej jednej nazwy, delete_option 128-130 i DELETE po LIKE
+   143-147 działają na wp_options bieżącej witryny, wp_clear_scheduled_hook 152 i 167 na jej
+   harmonogramie. Kotwica TECH-22 (:326) opisuje obie wtyczki jako tak samo nieobsługujące sieci.
+WPŁYW   Administrator sieci usuwa wtyczkę 2 używaną na co najmniej dwóch witrynach: na wszystkich
+   poza bieżącą zostają tabela, wpisy, terminy i opcje, wbrew ZACH-AUD-04 („zero opcji, tabel,
+   wpisów i terminów po tej wtyczce”).
+WAGA — DLACZEGO   Trwały stan po odinstalowaniu jest realny i asymetryczny wobec wtyczki 1, ale
+   występuje wyłącznie w instalacji wielowitrynowej.
+
+[RAU-R15-002]  ŚREDNI
+MIEJSCE   uninstall.php:141-149 (W1)
+CO JEST ŹLE  uninstall.php wtyczki 1 nie kasuje po nazwie żadnego transientu o zmiennym sufiksie,
+   a jedyne zabezpieczenie ścieżki z trwałym zewnętrznym object cache to komentarzowe założenie
+   o najdłuższym TTL równym godzinie, które kod obala: aifaq_no_thinking_ ustawiany jest na 12 godzin.
+DOWÓD   Wzorzec delete_transient\( 'aifaq_(no_thinking|cooldown|rl) po uninstall.php — 0 trafień.
+   KONTROLA POZYTYWNA: ten sam wzorzec z członem (indexing_lock|cache_flush_lock) — 2 trafienia
+   (125, 126), więc wzorzec trafia. Sam napis no_thinking w uninstall.php daje 1 trafienie —
+   linia 135, wyliczenie w komentarzu, nie kasowanie. Odczyt GeminiProvider.php 880-892:
+   set_transient( 'aifaq_no_thinking_' . $this->model, 1, 12 * 3600 ) w 890, docblock w 881 mówi
+   „Zapamiętuje (na 12 h)”; grep no_thinking w tym pliku — 5 trafień. Odczyt uninstall.php 124-127:
+   delete_transient wykonuje się dokładnie dwa razy, oba dla nazw stałych.
+WPŁYW   Witryna z Redisem albo Memcached, na której model odrzucił wcześniej thinkingConfig:
+   po usunięciu wtyczki klucz aifaq_no_thinking_ żyje do 12 godzin, a nie do godziny, jak twierdzi
+   komentarz przy jedynej ścieżce czyszczenia.
+WAGA — DLACZEGO   Stan po odinstalowaniu przeżywa dwunastokrotnie dłużej niż deklaruje kod, ale
+   wyłącznie przy zewnętrznym trwałym object cache.
+
+WZORZEC L — licznik i praca frontu
+
+[RAU-R08-002]  ŚREDNI
+MIEJSCE   ai-news-portal/src/Runner.php:1232-1241 (W2)
+CO JEST ŹLE  Runner::ask_model() podbija licznik wywołań modelu po każdym wywołaniu
+   Gemini::generate(), także gdy ta metoda odmawia w bramce wstępnej bez żadnego żądania HTTP
+   i bez zużycia slotu z puli dobowej, więc panel pokazuje klientowi wywołania AI, których nie było.
+DOWÓD   Odczyt 1232-1241: podbicie $calls w 1236 stoi bezwarunkowo po wywołaniu z 1235. Odczyt
+   Gemini.php 440-519: docblock 446-448 mówi wprost, że pierwsze trzy bramy kończą się odmową BEZ
+   zużycia puli; 461 zwraca no_key, 466 time, 472 cap/busy — wszystkie PRZED wp_remote_post (475).
+   Ścieżka liczby: Runner.php 1252 i 1261 pakują $calls do werdyktu, 1296 przepisuje na $wywolan,
+   1305 do self::$last_calls, 1427 dodaje do klucza calls podsumowania, a podsumowanie idzie do
+   transientu i na ekran Materiałów (asercje krok4-akcje-test.php:843 i :778).
+WPŁYW   Witryna bez klucza API, z wyczerpaną pulą dobową albo z budżetem czasu poniżej progu:
+   każdy przebieg, także automatyczny, zapisuje w podsumowaniu jedno wywołanie AI, które nie doszło
+   do skutku; zawyżenie wynosi dokładnie jedno wywołanie na przebieg (publish_batch przerywa partię
+   na pierwszym wyniku waiting, Runner.php:1433).
+WAGA — DLACZEGO   Klient widzi w panelu liczbę wywołań modelu niezgodną ze stanem faktycznym, co
+   fałszuje ocenę zużycia dobowej puli, ale nie zmienia treści ani stanu artykułów.
+
+[RAU-R13-004]  ŚREDNI
+MIEJSCE   ai-news-portal/src/templates/card.php:22-27 (W2)
+CO JEST ŹLE  Szablon karty artykułu wykonuje na froncie po cztery sprawdzenia obecności pliku na
+   dysku dla KAŻDEJ karty listy, mimo że TECH-71 kotwiczy przy Portal.php regułę „front nie wykonuje
+   żadnej pracy poza zapytaniem do bazy” ze stanem REALIZOWANE.
+DOWÓD   Liczba zmierzona w kodzie: 4 wywołania file_exists() na kartę = 3 z pętli rotacji wariantów
+   + 1 z wywołania w linii 26 szablonu. Grep IMAGE_VARIANTS w Portal.php — 4 trafienia (96:
+   const IMAGE_VARIANTS = 3; oraz 560, 592, 635). Odczyt Portal.php 581-602: category_image_url()
+   kończy się warunkiem file_exists( AINP_PLUGIN_DIR . $wzgledna ) w 598. Odczyt 630-650:
+   category_variant() ma pętlę z 635 wołającą category_image_url() dla każdego wariantu.
+   Grep 'static \$licznik' — 1 trafienie (631), pamięta numer karty, nie listę wariantów; grep
+   'wp_cache|get_transient|set_transient' w Portal.php — 0 trafień. Docblock szablonu (5-7) mówi
+   „Nic nie zapytuje i nic nie liczy”, sprzecznie z linią 26 tego samego pliku.
+WPŁYW   Każde wyświetlenie archiwum Centrum Wiedzy przez gościa: liczba wywołań file_exists rośnie
+   liniowo z liczbą kart na stronie, a wynik nie jest pamiętany między kartami ani między żądaniami.
+WAGA — DLACZEGO   Praca wejścia-wyjścia w pętli renderowania frontu jest realna i sprzeczna ze
+   stanem REALIZOWANE przy TECH-71, ale jej koszt rośnie dopiero z liczbą kart.
+
+
+--------------------------------------------------------------------
+3.4  MAŁY (7)
+--------------------------------------------------------------------
+
+[RAU-R07-003]  MAŁY
+MIEJSCE   src/Data/Schema.php:1-6 (W1)
+CO JEST ŹLE  Nagłówek pliku definiującego schemat deklaruje wersję v4, podczas gdy stała
+   AIFAQ_DB_VERSION w ai-faq-generator.php:38 ma wartość '6', a komentarz w tym samym pliku (112)
+   opisuje zmianę schematu 5->6.
+DOWÓD   Odczyt Schema.php 1-183; linia 3: „Definicja schematu bazy (5 tabel) — schema v4”.
+   Grep "DB_VERSION|aifaq_db_version" po src — 6 trafień (Schema.php:112, Plugin.php 170, 175, 177,
+   179, Activator.php:98); po całym repo dokłada ai-faq-generator.php:38 z define '6'.
+   Grep "ALTER TABLE" po plikach mandatu — 0 trafień: nie istnieje ścieżka migracyjna czytająca ten
+   nagłówek. Kotwica REG-W1-39 (REGULY-I-PROGI:741-743) ustala wersję schematu na 6.
+WPŁYW   Każdy odczyt pliku przy diagnostyce schematu i przy planowaniu kolejnej migracji: numer
+   wersji podany w miejscu definicji schematu jest o dwa niższy od faktycznie wydanego.
+WAGA — DLACZEGO   Rozjazd dotyczy wyłącznie deklaracji w komentarzu — żadna ścieżka wykonawcza tego
+   nagłówka nie czyta.
+
+[RAU-R07-006]  MAŁY
+MIEJSCE   ai-news-portal/src/Publisher.php:90-104 (W2)
+CO JEST ŹLE  publish() tworzy artykuł bez pola post_name i nie zapisuje żadnego śladu w opcji
+   ainp_slug_collision przy zajętym slugu artykułu — opcja ta jest zapisywana wyłącznie przy
+   aktywacji i wyłącznie dla slugu archiwum.
+DOWÓD   Grep -in "slug" w Publisher.php — 1 trafienie (17), i jest to fragment słowa „obsługi”
+   w komentarzu. Grep "OPTION_SLUG_COLLISION" w ai-news-portal/src — 4 trafienia, wszystkie
+   w Plugin.php (59 definicja 'ainp_slug_collision', 538 jedyne update_option, 551 odczyt,
+   561 delete_option); linia 538 stoi w note_slug_collision(), wołanej z 365 i porównującej
+   ARCHIVE_SLUG ze Stroną przez get_page_by_path(). Grep "post_name|wp_unique_post_slug" po
+   ai-news-portal — 5 trafień (Portal.php 419, 420; tests 290, 323, 343), zero w ścieżce publikacji.
+   Zakaz z AWA-W2-23 („nie wolno utworzyć drugiego wpisu o tym samym slugu”) jest dotrzymany, bo
+   rdzeń WordPressa nadaje slug unikalny przez wp_unique_post_slug().
+WPŁYW   Publikacja artykułu o tytule dającym slug już zajęty: wpis powstaje pod slugiem
+   z przyrostkiem liczbowym i publikuje się poprawnie, a właściciel nie dostaje zapisu ani sygnału
+   o kolizji.
+WAGA — DLACZEGO   Brakuje wyłącznie śladu diagnostycznego wymaganego przez scenariusz awarii —
+   rozstrzygnięcie kolizji jest deterministyczne i treść publikuje się prawidłowo.
+
+[RAU-R10-002]  MAŁY
+MIEJSCE   ai-news-portal/tests/krok4-ponowienie-test.php:13-16 (W2)
+CO JEST ŹLE  Nagłówek pliku testowego deklaruje, że pusta odpowiedź modelu kończy sprawę po pierwszym
+   wywołaniu, podczas gdy asercja w linii 520 tego samego pliku wymaga dokładnie dwóch wywołań.
+DOWÓD   Odczyt 11-18: punkt 2 nagłówka wymienia pustą odpowiedź wśród powodów kończących sprawę po
+   pierwszym wywołaniu. Odczyt 501-523: plan transportu ma dwie puste koperty i jedną dobrą,
+   a asercje to k4p_check( 2 === $r['calls'], 'DOKŁADNIE dwa wywołania: pierwsze i jedno ponowienie' )
+   w 520 oraz k4p_check( true === $r['terminal'], ... ) w 523. Uruchomienie pliku: „=== Asercji: 56 |
+   błędów: 0 ===”, „WSZYSTKIE OK”, kod wyjścia 0. grep -rn AI_JSON_RETRIES po ai-news-portal/tests/
+   — 0 trafień; po ai-news-portal/src/ — 2 trafienia (Runner.php:161 definicja, :1232 pętla).
+WPŁYW   Każdy przegląd zakresu pokrycia ponowień prowadzony z nagłówka tego pliku (zmiana polityki
+   ponowień, ocena zużycia dobowej puli) czyta deklarację sprzeczną z asercjami tego samego pliku.
+WAGA — DLACZEGO   Nieprawdziwy jest opis w komentarzu nagłówka — asercje i kod zachowują się zgodnie
+   ze sobą, więc rozjazd nie ma skutku wykonawczego.
+
+[RAU-R12-001]  MAŁY
+MIEJSCE   src/Providers/GeminiProvider.php:513-519 (W1)
+CO JEST ŹLE  Kotwica REG-W1-33 GeminiProvider::MIN_ATTEMPT_SECONDS nie realizuje reguły z dokumentu
+   (minimalny odstęp między podejściami), tylko inny mechanizm: dolny próg POZOSTAŁEGO budżetu czasu,
+   poniżej którego kolejna próba w ogóle nie startuje.
+DOWÓD   Wartość dokumentu 5 s (REGULY-I-PROGI:700) = wartość kodu 5 (definicja
+   GeminiProvider.php:68); rozjeżdża się znaczenie. Grep "MIN_ATTEMPT_SECONDS" w src/ — 4 trafienia
+   (68 oraz użycia 517, 650, 671); każde jest porównaniem z remaining_budget(), żadne nie ustawia
+   opóźnienia. Docblock stałej (62-68): „Minimalny czas (sekundy), jaki musi zostać w budżecie, żeby
+   kolejna próba w ogóle wystartowała”. Odstęp między próbami ISTNIEJE, ale pochodzi z innego
+   miejsca: grep "sleep|usleep" w tym pliku — 5 trafień, realne uśpienie w 609, gdzie $delay pochodzi
+   z retry_delay() (703-747), a linia 746 zwraca 5 dla pierwszego ponowienia i 15 dla drugiego.
+WPŁYW   Każde wywołanie generate()/embed() z ponowieniem: liczba 5 z dokumentu odpowiada literałowi
+   z linii 746, a nie kotwicy podanej w pozycji REG-W1-33.
+WAGA — DLACZEGO   Kotwica wskazuje inny mechanizm niż opisuje reguła, ale obie liczby są w kodzie
+   równe 5 i zachowanie zgodne z opisem reguły faktycznie zachodzi w innym miejscu.
+
+[RAU-R12-003]  MAŁY
+MIEJSCE   src/Http/WpHttpClient.php:45-51 (W1)
+CO JEST ŹLE  Oba progi REG-W1-35 nie zmieniają limitu czasu żadnego żądania produkcyjnego wtyczki 1:
+   obaj produkcyjni wołający request() podają klucz timeout jawnie i zawsze z przedziału 5..60 s,
+   a gałąź podstawiająca DEFAULT_TIMEOUT (15 s) i gałąź przycinająca do MAX_TIMEOUT (120 s)
+   wykonują się wyłącznie na wywołaniach z plików testowych.
+DOWÓD   Wartości dokumentu 15 s / 120 s (REGULY-I-PROGI:713-714) = stałe WpHttpClient.php:26 i :31.
+   Grep -rnE "new WpHttpClient" po całym repo — 4 trafienia: produkcyjne ProviderFactory.php:167
+   oraz testowe krok7-audit-fixes-test.php:320, krok19-provider-test.php:798 i :814. Grep -rn
+   "->request(" po repo — 7 trafień: produkcyjne GeminiProvider.php:448 i :525 oraz pięć testowych.
+   Produkcyjny timeout: GeminiProvider.php:456 ('timeout' => REQUEST_TIMEOUT = 60) i :534
+   ('timeout' => (int) min( 60, $remaining )), gdzie bramka z :517 utrzymuje $remaining >= 5.
+   Grep -rnE "MAX_TIMEOUT|DEFAULT_TIMEOUT" po repo — 6 trafień, wszystkie w WpHttpClient.php;
+   grep -c "apply_filters" w tym pliku — 0. Obie gałęzie są sprawdzane asercjami spoza produkcji:
+   krok7-audit-fixes-test.php 321/322 (timeout 0 -> 15) i 323/324 (9999 -> 120).
+WPŁYW   Na gałęzi main żadne żądanie produkcyjne nie trafia w gałąź podstawienia ani przycięcia,
+   a komentarz z linii 45-46 zapowiada klampowanie do MAX_TIMEOUT, podczas gdy kod podstawia 15.
+WAGA — DLACZEGO   Progi z dokumentu nie mają skutku wykonawczego na ścieżce produkcyjnej — martwe
+   dla produktu, żywe wyłącznie w testach.
+
+[RAU-R14-005]  MAŁY
+MIEJSCE   tests/load/l4-ask-worker.php:66-73 (W1)
+CO JEST ŹLE  Komentarz w linii 66 opisuje mechanizm współdzielenia akumulatora czasu jako domknięcie
+   przez use z referencją, a w całym pliku nie ma ani jednej funkcji anonimowej — akumulator jest
+   wpinany przez przypisanie referencji do publicznych pól trzech atrap.
+DOWÓD   Grep wzorcem use z nawiasem i referencją do $TIME po całym repozytorium — 1 trafienie:
+   l4-ask-worker.php:66, czyli sam komentarz. KONTROLA POZYTYWNA wzorcem time_ref na tym pliku —
+   9 trafień: deklaracje pól 73, 100, 116; użycia 78, 104, 110, 120; trzy przypisania referencji
+   159, 163, 167. Odczyt całego pliku (215 linii) potwierdza brak jakiejkolwiek funkcji anonimowej.
+WPŁYW   Zmiana atrap L4Knowledge, L4Cache albo L4QaLog wykonana zgodnie z opisem z linii 66
+   rozłączyłaby akumulator i kolumna db_ms wyniku CSV cicho spadłaby do zera.
+WAGA — DLACZEGO   Kłamie wyłącznie komentarz — zaimplementowany mechanizm działa i jest spójny
+   w trzech miejscach.
+
+[RAU-R15-003]  MAŁY
+MIEJSCE   uninstall.php:194-205 (W1)
+CO JEST ŹLE  Pętla sprzątająca sieć bierze co najwyżej 10000 witryn jednym wywołaniem get_sites()
+   i nie ma gałęzi stronicowania, więc w większej sieci nadmiar witryn nie zostaje posprzątany —
+   ta sama cicha strata, przed którą broni komentarz o domyślnym limicie 100.
+DOWÓD   Wzorzec ERE offset|paged|while po całym pliku (215 linii) — 0 trafień; KONTROLA POZYTYWNA
+   tego wzorca w src/Rag/Retriever.php — 2 trafienia. Kontrola dodatkowa: wzorzec
+   offset|paged|while|number w uninstall.php — 2 trafienia (194 komentarz, 202 argument), oba na
+   członie number. Odczyt 191-214: po get_sites() nie ma sprawdzenia liczby zwróconych witryn ani
+   drugiego wywołania. Odczyt tests/uninstall-guard-test.php 386-406: asercje wymagają realnych
+   wywołań is_multisite, get_sites, switch_to_blog i restore_current_blog oraz ich symetrii i żadna
+   nie dotyka limitu ani stronicowania. Zderzenie z TECH-22 (:326-328, kotwica „oba uninstall.php”):
+   pozycja twierdzi, że multisite nie jest obsługiwany, a kod wtyczki 1 obsługuje go w pełni.
+WPŁYW   Sieć licząca ponad 10000 witryn: witryny spoza pierwszych 10000 zachowują sześć tabel
+   aifaq_, komplet opcji aifaq_ i oba zadania cron.
+WAGA — DLACZEGO   Warunek wystąpienia leży poza skalą tego produktu, a pozostała część pozycji to
+   nieprawdziwy opis w TECH-22 wobec kodu, który obsługę sieci ma.
+
+
+========================================
+4. ROZWAŻONE I NIEUJĘTE
+========================================
+
+Obie pozycje przeszły pełną weryfikację i obie zostały świadomie poza listą raportu.
+
+[RAU-R15-004]  werdykt: ODRZUCONY — pozycja NIE wchodzi do raportu i nie ma wagi
+   Miejsce: src/Seo/SiteProfile.php:107-117 (W1). Zgłoszenie mówiło, że refresh() nie ma gałęzi dla
+   pustej bazy wiedzy i zostawia stary temat witryny. Wszystkie czynności liczbowe autora odtworzyły
+   się co do trafienia (0 trafień self::forget|delete_option w ciele refresh(), 2 w całym pliku jako
+   kontrola pozytywna, 1 wywołanie SiteProfile::forget w IndexController.php:355), ale upadła
+   OSIĄGALNOŚĆ ścieżki: weryfikator odczytał Indexer.php 370-409 i wykazał, że przy pustym $seen
+   pruning w ogóle się nie wykonuje („Źródło nie zwróciło żadnych wpisów — pominięto usuwanie
+   osieroconych. Baza wiedzy nietknięta”), a druga droga (delete_missing) wymaga NIEPUSTEGO $seen.
+   Stan szkodliwy opisany w polu warunki jest zatem nieosiągalny.
+
+[RAU-R02-002]  werdykt: DO ROZSTRZYGNIĘCIA — pozycja otwarta, bez wagi
+   Miejsce: src/Admin/Menu.php:174-177 (W1). Menu::enqueue_assets() wystawia nonce aifaq_index za
+   bramką będącą wyłącznie dopasowaniem podciągu w nazwie ekranu: własny grep weryfikatora
+   current_user_can w tym pliku daje 1 trafienie (linia 159, wewnątrz render_view()), a w całym ciele
+   enqueue_assets (174-401) ZERO; wp_create_nonce — 2 trafienia (232, 238), oba wewnątrz tej metody.
+   CZEGO BRAKUJE: powierzchni, z której warunki dałoby się spełnić. Wymagany jest ekran kokpitu
+   o $hook_suffix zawierającym 'ai-faq-generator', niepochodzący z rejestracji tej wtyczki —
+   w żadnej z dwóch audytowanych wtyczek taka powierzchnia nie istnieje (wszystkie rejestracje
+   w liniach 46, 56, 65, 74, 83, 92, 101 są własne i idą przez CAPABILITY = manage_options), więc
+   musiałaby ją wnieść trzecia wtyczka o kolidującym slugu. Jedyny konsument nonce'a bramkuje się
+   samodzielnie: IndexController::guard() (545-560) woła check_ajax_referer, a potem
+   current_user_can. Pozycja pozostaje otwarta jako pytanie o zasadę, nie o fakt.
+
+Poza raportem pozostaje też z mocy kontraktu 36 zgłoszeń sektora `audyt` (33 potwierdzone,
+2 odrzucone, 1 do rozstrzygnięcia). Były materiałem wejściowym dla re-audytu, który szedł krok za
+nimi na tym samym obszarze; wynik ostateczny wydaje re-audyt. Nie wchodzi też 75 sygnałów — tropy
+przekazywane między agentami, bez werdyktu i bez wagi.
+
+
+========================================
+5. POKRYCIE — CO OBJĘTO, A CZEGO NIE
+========================================
+
+OBJĘTO (liczby z MANDATY.txt, czyli z MANIFEST-PLIKOW.tsv i MAPA-POZYCJI.tsv, oraz z flag GOTOWE):
+
+  obszar          pliki   pozycje   audyt (GOTOWE)          re-audyt (GOTOWE)
+  security          30        78    78/78 · 30/30           78/78 · 30/30
+  backend           60       150    150/150 · 60/60         150/150 · 60/60
+  performance       42        94    94/94 · 42/42           94/94 · 42/42
+  qa                28        68    68/68 · 28/28           68/68 · 28/28
+  frontend          14        31    31/31 · 14/14           31/31 · 14/14
+  bd                14        23    23/23 · 14/14           23/23 · 14/14
+  architekt         13        10    10/10 · 13/13           10/10 · 13/13
+  konrad            12         0    0/0 · 12/12             0/0 · 12/12
+  -----------------------------------------------------------------------------
+  RAZEM            213       454    pokrycie pełne          pokrycie pełne
+
+  Każdy z 30 autorów obu sektorów zamknął pracę flagą GOTOWE z mianownikiem równym mandatowi;
+  flaga jest jedynym znacznikiem ukończenia (00-PLAN.txt, reguły twarde).
+
+CZEGO NIE SPRAWDZONO — wymienione wprost:
+
+  1. TRYB DEMO I GAŁĄŹ `demo`. Poza zakresem przebiegu; kotwicą kodu jest wyłącznie main 66e5ad4.
+     Ślad wykonawczy: uruchomienie runnera wtyczki 1 przez weryfikatora dało 61 zestawów przy
+     1 niezaliczonym, i jest nim demo-tryb-test.php.
+  2. OBSZAR `konrad` (12 plików, obie wtyczki) nie ma w MAPA-POZYCJI.tsv ANI JEDNEJ pozycji
+     dokumentacyjnej: mandat brzmi 0/0 pozycji · 12/12 plików. Te pliki badano metodą własną
+     (łamanie założeń), bez wiersza dokumentacji do zderzenia — stąd w ich zgłoszeniach kotwica
+     „brak pozycji w dokumentacji”.
+  3. 75 SYGNAŁÓW nie ma werdyktów i nie zostało rozstrzygniętych jako zgłoszenia. Są śladem pracy,
+     nie wynikiem.
+  4. 4 SYGNAŁY UTRACONE bezpowrotnie w odchyleniu O-01 (wyścig dwóch instancji aud-a07 o jeden plik;
+     ODCHYLENIA.txt). Dotyczyły plików: Activator.php/Plugin.php, ai-news-portal/src/Runner.php,
+     ai-news-portal/src/Plugin.php oraz obu uninstall.php. Wszystkie cztery pliki leżą w mandatach
+     innych agentów, a te obszary domknęły się z pełnym pokryciem (security 78/78 · 30/30,
+     backend 150/150 · 60/60, konrad 12/12 plików).
+  5. OBSZAR `frontend` W SEKTORZE AUDYTU oddał ZERO zgłoszeń przy pełnym pokryciu 31/31 · 14/14
+     (O-05). Re-audyt tego samego obszaru oddał 6 zgłoszeń, z których 2 są w tym raporcie.
+  6. WERSJE INNE NIŻ HEAD 66e5ad4 oraz zachowanie na żywej instalacji: cały przebieg jest statyczny
+     — czytanie kodu, wzorce, uruchamianie istniejących zestawów testowych i jedna mutacja na kopii.
+     Żadnej instalacji WordPressa nie postawiono i żadnego scenariusza nie odtworzono na żywo.
+
+
+========================================
+6. WARTOŚCI START vs KONIEC — CZY PROJEKT JEST NIETKNIĘTY
+========================================
+
+  WARTOSCI-START.json   commit 66e5ad47ee5e646246773df4b9be699be56f46a6, gałąź main,
+                        zmierzono 2026-09-02T18:30:18+00:00
+  WARTOSCI-KONIEC.json  ten sam commit, ta sama gałąź,
+                        zmierzono 2026-09-07T20:19:13+00:00
+
+  Blok `meta` jest z porównania wyłączony z mocy własnego pola „uwaga” w obu plikach; różni się
+  w nim wyłącznie znacznik czasu pomiaru. Porównanie `wartosci.py --porownaj` wykonane przez
+  prowadzącego przebieg zwróciło WARTOŚCI IDENTYCZNE. Zderzenie obu plików wykonane przy pisaniu
+  raportu potwierdza to na materiale: te same liczby plików (W1: 162 PHP, 74 testowe, 184 wszystkie,
+  31 tras REST; W2: 51 PHP, 30 testowych, 135 wszystkich, 0 tras REST), te same listy tabel, te same
+  100 pozycji REG i 95 z wartością, ta sama treść progów.
+
+  Niezależny ślad z materiału dowodowego: weryfikator, który jako jedyny w przebiegu wykonał
+  mutację, zrobił ją na KOPII poza repozytorium i odnotował po próbie `git status --porcelain`
+  pusty oraz HEAD 66e5ad4 (werdykt RAU-R08-001, punkt 8). Autorzy i krytycy nie mieli prawa zapisu
+  do kodu wtyczek; zapis całego przebiegu ograniczono do katalogu przebieg-2\.
+
+
+========================================
+7. PODSTAWA — JAK POWSTAŁ TEN WYNIK
+========================================
+
+  - DWA SEKTORY. Sektor `audyt` przeszedł osiem obszarów; sektor `re-audyt` szedł krok za nim
+    w lockstepie, na tym samym obszarze, mając przed sobą wynik audytu. Wynik ostateczny wydaje
+    re-audyt — stąd 49 pozycji tego raportu pochodzi wyłącznie z niego.
+  - BRAMKA KRYTYKA PRZY KAŻDYM AUTORZE. Każdy agent działowy miał krytyka 1:1, którego werdykt
+    (ACCEPT/REJECT) warunkował scalenie działu; werdykty leżą w przebieg-2\krytyka\.
+  - WERYFIKATOR POWTARZAJĄCY DOWODY. Każda z 49 pozycji ma werdykt weryfikatora, który porównał
+    cytat znak w znak z gałęzią main, powtórzył grepy z policzoną liczbą trafień, a przy
+    twierdzeniach o nieistnieniu wykonał kontrolę pozytywną tego samego wzorca. Jeden weryfikator
+    poszedł dalej i udowodnił wadę testu mutacją na kopii poza repozytorium (RAU-R08-001).
+  - 17 FAL, limit współbieżności 16, obsada wydawana wyłącznie przez dyrygent.py; flaga GOTOWE była
+    jedynym znacznikiem ukończenia pracy autora.
+  - ODCHYLENIA OD PROCESU są spisane w ODCHYLENIA.txt (pięć pozycji O-01..O-05, w tym trzy poprawki
+    narzędzi wykonane za zgodą użytkownika i przy rozszerzonych samotestach: przedbramka.py 22/22,
+    dyrygent.py 9/9).
+  - KOD WTYCZEK POZOSTAŁ NIETKNIĘTY — patrz sekcja 6.

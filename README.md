@@ -12,6 +12,17 @@ Ten plik jest jednocześnie README całego repozytorium i dokumentacją wtyczki 
 | **AI FAQ Generator** | korzeń repo | 1.0.0 | `v0.1.0`–`v1.0.0` (historyczne); ewentualne kolejne wydania: prefiks `aifaq-` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
 | **AI News Portal** | `ai-news-portal/` | 1.0.0 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.0.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
 
+### Dokumentacja poza kodem
+
+| Katalog | Co zawiera |
+|---|---|
+| [audyt/](audyt/) | **Audyt jakości obu wtyczek** — jak był prowadzony, co znalazł (48 pozycji), co z tego naprawiono i jak to udowodniono. Wraz z surowym raportem. |
+| [instrukcje/](instrukcje/) | Dokumentacja wtyczki 1 dla klienta i informatyka: 5 PDF-ów, źródła HTML, schematy, zrzuty. |
+| [ai-news-portal/instrukcje/](ai-news-portal/instrukcje/) | To samo dla wtyczki 2. |
+
+Katalogi `instrukcje/` **nie wchodzą do paczek instalacyjnych** — klient dostaje PDF-y
+osobno, obok pliku `.zip`.
+
 **Układ „korzeń = wtyczka 1, podfolder = wtyczka 2" jest decyzją architektoniczną.**
 WordPress skanuje katalog `wp-content/plugins/` tylko dwa poziomy w głąb, więc plik główny
 wtyczki musi leżeć najwyżej jeden katalog pod `plugins/`. Korzeń repo jest jednocześnie
