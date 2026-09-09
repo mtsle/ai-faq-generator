@@ -52,9 +52,18 @@ namespace {
 			k6k_check( is_file( $w_repo ), 'kopia ' . $nazwa . ' jest w repo (kanon spoza repo niedostepny w tym srodowisku)' );
 			return;
 		}
+		// Porownanie idzie po tresci ZNORMALIZOWANEJ na konce wierszy, nie po bajtach.
+		// Git zamienia CRLF na LF przy pobraniu, wiec swiezy klon mialby inne bajty niz
+		// kanon na maszynie autora i kontrola zapalilaby sie na roznicy, ktora nie jest
+		// rozjazdem tresci.
+		$norm = static function ( $sciezka ) {
+			return str_replace( "
+", "
+", (string) file_get_contents( $sciezka ) );
+		};
 		k6k_check(
-			is_file( $w_repo ) && md5_file( $kanon ) === md5_file( $w_repo ),
-			'kopia ' . $nazwa . ' w repo zgodna co do bajtu z kanonem w projektAUDYT'
+			is_file( $w_repo ) && $norm( $kanon ) === $norm( $w_repo ),
+			'kopia ' . $nazwa . ' w repo zgodna z kanonem w projektAUDYT (konce wierszy pominiete)'
 		);
 	}
 
