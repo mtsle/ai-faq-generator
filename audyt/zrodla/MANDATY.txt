@@ -1,0 +1,53 @@
+MANDATY AUTOROW — zrodlo: MANIFEST-PLIKOW.tsv + MAPA-POZYCJI.tsv (przedbramka.mandat())
+Mianowniki w linii POKRYCIE flagi GOTOWE MUSZA byc rowne tym liczbom.
+Format flagi wymagany przez przedbramka.py:
+    LICZBA: <ile rekordow w .jsonl>
+    POKRYCIE: n/N pozycji · m/M plików
+    UWAGI: <tekst albo brak>
+
+aud-a01          pliki=15  pozycje=39
+aud-a02          pliki=15  pozycje=39
+aud-a03          pliki=15  pozycje=38
+aud-a04          pliki=15  pozycje=38
+aud-a05          pliki=15  pozycje=37
+aud-a06          pliki=15  pozycje=37
+aud-a07          pliki=14  pozycje=23
+aud-a08          pliki=14  pozycje=31
+aud-a09          pliki=14  pozycje=34
+aud-a10          pliki=14  pozycje=34
+aud-a11          pliki=14  pozycje=32
+aud-a12          pliki=14  pozycje=31
+aud-a13          pliki=14  pozycje=31
+aud-a14          pliki=13  pozycje=10
+aud-a15          pliki=12  pozycje=0
+aud-architekt    pliki=13  pozycje=10
+aud-backend      pliki=60  pozycje=150
+aud-bd           pliki=14  pozycje=23
+aud-frontend     pliki=14  pozycje=31
+aud-konrad       pliki=12  pozycje=0
+aud-performance  pliki=42  pozycje=94
+aud-qa           pliki=28  pozycje=68
+aud-security     pliki=30  pozycje=78
+rea-architekt    pliki=13  pozycje=10
+rea-backend      pliki=60  pozycje=150
+rea-bd           pliki=14  pozycje=23
+rea-frontend     pliki=14  pozycje=31
+rea-konrad       pliki=12  pozycje=0
+rea-performance  pliki=42  pozycje=94
+rea-qa           pliki=28  pozycje=68
+rea-r01          pliki=15  pozycje=39
+rea-r02          pliki=15  pozycje=39
+rea-r03          pliki=15  pozycje=38
+rea-r04          pliki=15  pozycje=38
+rea-r05          pliki=15  pozycje=37
+rea-r06          pliki=15  pozycje=37
+rea-r07          pliki=14  pozycje=23
+rea-r08          pliki=14  pozycje=31
+rea-r09          pliki=14  pozycje=34
+rea-r10          pliki=14  pozycje=34
+rea-r11          pliki=14  pozycje=32
+rea-r12          pliki=14  pozycje=31
+rea-r13          pliki=14  pozycje=31
+rea-r14          pliki=13  pozycje=10
+rea-r15          pliki=12  pozycje=0
+rea-security     pliki=30  pozycje=78

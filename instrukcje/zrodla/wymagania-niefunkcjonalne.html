@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Wymagania niefunkcjonalne (Non-functional) — AI FAQ Generator</title>
+<link rel="stylesheet" href="styl-tech.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<span class="okladka__etykieta">Non-functional</span>
+	<h1 class="okladka__tytul">Wymagania niefunkcjonalne</h1>
+	<p class="okladka__podtytul">AI FAQ Generator — jak system ma to robić</p>
+
+	<div class="okladka__ramka">
+		<p><strong>Zakres dokumentu.</strong> Nie <em>co</em> system robi (to opisuje
+		   <strong>Instrukcja dla informatyka</strong>), lecz <em>jak</em>: z jaką wydajnością,
+		   pod jakimi zabezpieczeniami, w jakim koszcie i z jaką odpornością na błędy.</p>
+		<p><strong>Jak czytać.</strong> Każde wymaganie ma identyfikator (<code>N1.1</code>,
+		   <code>N2.3</code> …), treść oraz <strong>sposób weryfikacji</strong> — czyli jak
+		   sprawdzić, że jest spełnione.</p>
+		<p><strong>Wartości domyślne</strong> podane w tym dokumencie pochodzą z konfiguracji
+		   fabrycznej wtyczki i są zmienialne w ustawieniach, o ile nie zaznaczono inaczej.</p>
+	</div>
+
+	<p class="okladka__stopka">
+		AI FAQ Generator 1.0.0 · Wymaga WordPress 6.4+ i PHP 8.0+ · Licencja GPLv2
+	</p>
+</section>
+
+<!-- ============ SPIS ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Spis treści</h1>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>N1 — Wydajność</strong>
+			<span class="spis__opis">Czasy odpowiedzi, zachowanie przy dużej bazie, indeksy.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>N2 — Bezpieczeństwo</strong>
+			<span class="spis__opis">Uprawnienia, walidacja, klucz dostawcy, nagłówki, wstrzyknięcia.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>N3 — Koszt i przydział dostawcy</strong>
+			<span class="spis__opis">Trzy warstwy ochrony przed wyczerpaniem darmowej puli.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>N4 — Niezawodność</strong>
+			<span class="spis__opis">Wznowienia, zamki, zachowanie przy równoległym dostępie.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>N5 — Jakość odpowiedzi</strong>
+			<span class="spis__opis">Progi trafności i zasada odmowy zamiast zmyślania.</span></span></li>
+		<li><span class="spis__nr">6</span><span><strong>N6 — Zgodność i przenośność</strong>
+			<span class="spis__opis">Wersje, standardy WordPressa, licencja, wielojęzyczność.</span></span></li>
+		<li><span class="spis__nr">7</span><span><strong>N7 — Prywatność danych</strong>
+			<span class="spis__opis">Co opuszcza serwer klienta, co jest zapisywane, jak usunąć.</span></span></li>
+		<li><span class="spis__nr">8</span><span><strong>N8 — Utrzymywalność</strong>
+			<span class="spis__opis">Testy, migracje bazy, struktura kodu.</span></span></li>
+	</ol>
+
+	<h2>Podsumowanie liczbowe</h2>
+	<table class="tech">
+		<thead><tr><th>Parametr</th><th>Wartość domyślna</th><th>Gdzie zmienić</th></tr></thead>
+		<tbody>
+			<tr><td>Próg trafności (miękki)</td><td>0,70</td><td>Ustawienia → RAG</td></tr>
+			<tr><td>Próg trafności (twardy)</td><td>0,65</td><td>Ustawienia → RAG</td></tr>
+			<tr><td>Liczba fragmentów na odpowiedź</td><td>5</td><td>Ustawienia → RAG</td></tr>
+			<tr><td>Limit pytań gościa</td><td>10 na godzinę</td><td>Ustawienia → Limity</td></tr>
+			<tr><td>Dobowy sufit zapytań</td><td>12 (z puli 20 dostawcy)</td><td>Ustawienia → Limity</td></tr>
+			<tr><td>Liczba par w zestawie FAQ</td><td><span class="nolam">zakres 5–20</span>, domyślnie 20</td><td>Ustawienia → Narzędzie</td></tr>
+			<tr><td>Długość odpowiedzi</td><td>500 jednostek</td><td>Ustawienia → RAG</td></tr>
+			<tr><td>Swoboda odpowiedzi</td><td>0,2 (niska, przewidywalna)</td><td>Ustawienia → RAG</td></tr>
+			<tr><td>Wersja schematu bazy</td><td>6</td><td>migracja automatyczna</td></tr>
+		</tbody>
+	</table>
+</section>
+
+<!-- ============ N1 WYDAJNOŚĆ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">1. N1 — Wydajność</h1>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N1.1</span>
+			<p class="wym__tytul">Odpowiedź z pamięci podręcznej nie wywołuje dostawcy</p></div>
+		<div class="wym__tresc">
+			<p>Powtórzone pytanie obsługiwane jest z pamięci podręcznej, bez ruchu na zewnątrz
+			   i bez zużycia przydziału. W interfejsie oznaczane jako „odpowiedź z pamięci”.</p>
+			<p class="wym__meta"><strong>Weryfikacja:</strong> zadać to samo pytanie dwukrotnie —
+			   drugie ma odpowiedzieć zauważalnie szybciej i nie podnieść licznika dobowego
+			   na Dashboardzie.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N1.2</span>
+			<p class="wym__tytul">Ponowne indeksowanie pomija treść niezmienioną</p></div>
+		<div class="wym__tresc">
+			<p>Fragmenty o niezmienionej sumie kontrolnej nie są ponownie wysyłane do dostawcy.
+			   Powtórne indeksowanie witryny bez zmian w treści <strong>nie generuje żadnych
+			   zapytań</strong>.</p>
+			<p class="wym__meta"><strong>Weryfikacja:</strong> uruchomić indeksowanie dwukrotnie
+			   pod rząd; drugi przebieg nie zmienia licznika zużycia.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N1.3</span>
+			<p class="wym__tytul">Indeksy bazy pod zapytania stronicujące</p></div>
+		<div class="wym__tresc">
+			<p>Listy Historii i Generowań korzystają z indeksu złożonego dopasowanego do
+			   porządku sortowania. Bez niego serwer bazy wykonywał sortowanie plikowe.</p>
+			<p class="wym__meta"><strong>Pomiar z testów obciążeniowych:</strong> czas zapytania
+			   stronicującego spadł z zakresu 25–71 ms do wartości poniżej progu pomiaru
+			   (przyspieszenie do ok. 31×).</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N1.4</span>
+			<p class="wym__tytul">Znane ograniczenie: wyszukiwanie liniowe</p></div>
+		<div class="wym__tresc">
+			<p>Dobór fragmentów przegląda bazę wiedzy liniowo. Czas rośnie proporcjonalnie
+			   do liczby fragmentów.</p>
+			<p><strong>Zmierzone:</strong> przy 50 000 fragmentów dobór trwa ok. 5,8 s.
+			   Dla witryn typowej wielkości (do kilku tysięcy fragmentów) czas jest pomijalny.</p>
+			<p class="wym__meta">Ograniczenie jest świadome — wektorowa baza danych byłaby
+			   dodatkową zależnością instalacyjną po stronie klienta. Przy witrynach powyżej
+			   kilkudziesięciu tysięcy fragmentów należy rozważyć zmianę podejścia.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N1.5</span>
+			<p class="wym__tytul">Indeksowanie nie blokuje żądania HTTP</p></div>
+		<div class="wym__tresc">
+			<p>Praca przerywana jest po przekroczeniu budżetu czasu, ze stanem zapisanym w bazie.
+			   Pobieranie wyrenderowanych stron przechodzi przez kolejkę obsługiwaną porcjami.</p>
+			<p class="wym__meta"><strong>Uwaga eksploatacyjna:</strong> przy bardzo małej puli
+			   procesów PHP (np. <code>pm.max_children=2</code>) pobieranie własnych stron
+			   po HTTP może zakleszczyć pulę. Zalecane minimum to 4 procesy.</p>
+		</div>
+	</div>
+</section>
+
+<!-- ============ N2 BEZPIECZEŃSTWO ============ -->
+<section class="strona">
+	<h1 class="rozdzial">2. N2 — Bezpieczeństwo</h1>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N2.1</span>
+			<p class="wym__tytul">Bramka uprawnień na każdej trasie</p></div>
+		<div class="wym__tresc">
+			<p>Wszystkie trasy poza <code>POST /ask</code> wymagają uprawnień sprawdzanych
+			   po stronie serwera. Ukrycie przycisku w interfejsie nie stanowi zabezpieczenia
+			   i nie jest za takie uznawane.</p>
+			<p class="wym__meta"><strong>Weryfikacja:</strong> wywołać trasę administracyjną
+			   bez logowania — oczekiwana odmowa, nie dane.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N2.2</span>
+			<p class="wym__tytul">Klucz dostawcy nigdy nie opuszcza serwera w stronę przeglądarki</p></div>
+		<div class="wym__tresc">
+			<p>Klucz nie jest zwracany w żadnej odpowiedzi ani wypisywany w interfejsie.
+			   Pole formularza ma typ ukrywający treść i po zapisaniu pokazuje wyłącznie
+			   informację o tym, że klucz istnieje.</p>
+			<p>Klucz <strong>nie jest ładowany automatycznie</strong> przy każdym żądaniu —
+			   pobierany jest dopiero w chwili faktycznego użycia.</p>
+			<p class="wym__meta"><strong>Weryfikacja:</strong> otworzyć źródło strony ustawień
+			   i podejrzeć odpowiedzi REST — wartość klucza nie może w nich wystąpić.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N2.3</span>
+			<p class="wym__tytul">Odporność na wstrzyknięcie instrukcji przez treść strony</p></div>
+		<div class="wym__tresc">
+			<p>Treść pobrana z witryny przekazywana jest dostawcy <strong>jako dane</strong>,
+			   oddzielone od polecenia. Tekst umieszczony na stronie nie może przejąć roli
+			   instrukcji dla modelu.</p>
+			<p class="wym__meta">Podatność tego rodzaju była wykryta i naprawiona w toku audytu
+			   bezpieczeństwa; zachowanie jest objęte testem.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N2.4</span>
+			<p class="wym__tytul">Nagłówki bezpieczeństwa podstrony publicznej</p></div>
+		<div class="wym__tresc">
+			<p>Podstrona generatora wysyłana jest z polityką bezpieczeństwa treści opartą
+			   o jednorazowy znacznik dla skryptów. Polityka <strong>nie zawiera</strong>
+			   dopuszczenia skryptów osadzonych w treści.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N2.5</span>
+			<p class="wym__tytul">Walidacja i oczyszczanie danych wejściowych</p></div>
+		<div class="wym__tresc">
+			<p>Każdy parametr trasy przechodzi walidację oraz oczyszczanie po stronie serwera.
+			   Zapytania do bazy budowane są wyłącznie z użyciem parametrów wiązanych.</p>
+			<p>Dostęp do zasobów sprawdzany jest pod kątem właściciela — identyfikator podany
+			   w żądaniu nie wystarcza do uzyskania cudzych danych.</p>
+			<p class="wym__meta">Podatność tego typu (dostęp po samym identyfikatorze) była
+			   wykryta i naprawiona w audycie przed wydaniem.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N2.6</span>
+			<p class="wym__tytul">Trasa publiczna nie zapisuje bez ograniczeń</p></div>
+		<div class="wym__tresc">
+			<p>Zapis do dziennika pytań podlega limitowi. Trasa otwarta nie może posłużyć
+			   do niekontrolowanego zapełniania bazy klienta.</p>
+		</div>
+	</div>
+</section>
+
+<!-- ============ N3 KOSZT ============ -->
+<section class="strona">
+	<h1 class="rozdzial">3. N3 — Koszt i przydział dostawcy</h1>
+	<p class="rozdzial__wstep">Wtyczka projektowana jest pod <strong>darmowy</strong> przydział
+	   dostawcy. Karta płatnicza nie jest wymagana do działania.</p>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N3.1</span>
+			<p class="wym__tytul">Trzy warstwy ochrony przydziału</p></div>
+		<div class="wym__tresc">
+			<table class="tech">
+				<thead><tr><th>Warstwa</th><th>Działanie</th><th>Domyślnie</th></tr></thead>
+				<tbody>
+					<tr><td>Pamięć podręczna</td><td>powtórzone pytanie bez wywołania dostawcy</td><td>włączona</td></tr>
+					<tr><td>Limit gościa</td><td>ogranicza liczbę pytań jednego odwiedzającego</td><td>10 / godzinę</td></tr>
+					<tr><td>Sufit dobowy</td><td>twardy limit zapytań wtyczki na dobę</td><td>12</td></tr>
+				</tbody>
+			</table>
+			<p class="wym__meta">Sufit dobowy ustawiony jest <em>poniżej</em> limitu dostawcy,
+			   aby pozostawić zapas na indeksowanie i generowanie zestawów.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N3.2</span>
+			<p class="wym__tytul">Rozdzielne pule dostawcy</p></div>
+		<div class="wym__tresc">
+			<p>Dostawca prowadzi <strong>osobne</strong> przydziały dla embeddingów
+			   i dla generowania treści. Wyczerpanie jednego nie blokuje drugiego —
+			   indeksowanie może działać mimo wyczerpania puli odpowiedzi.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N3.3</span>
+			<p class="wym__tytul">Widoczność zużycia</p></div>
+		<div class="wym__tresc">
+			<p>Bieżące zużycie dobowe prezentowane jest na Dashboardzie w formie
+			   „zużyto / limit”. Wartość odczytywana jest z licznika utrzymywanego przez wtyczkę.</p>
+		</div>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Pułapka diagnostyczna.</strong> Przy wyczerpaniu przydziału <em>dobowego</em>
+		   dostawca zwraca sugerowany czas ponowienia liczony w sekundach. Jest on mylący —
+		   przydział odnawia się dopiero następnego dnia, nie po kilkudziesięciu sekundach.</p>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Modele płatne.</strong> Modele oznaczone jako wymagające klucza płatnego mają
+		   na kluczu darmowym przydział zerowy. Ich wybór skutkuje błędem przy pierwszym pytaniu.
+		   Sprawdzenie połączenia weryfikuje poprawność klucza, <em>nie</em> przydział wybranego modelu.</p>
+	</div>
+</section>
+
+<!-- ============ N4 NIEZAWODNOŚĆ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">4. N4 — Niezawodność</h1>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N4.1</span>
+			<p class="wym__tytul">Wznowienie przerwanego indeksowania</p></div>
+		<div class="wym__tresc">
+			<p>Przerwanie z powodu budżetu czasu zapisuje stan i planuje automatyczne wznowienie.
+			   Przerwanie z powodu błędu albo limitu dostawcy <strong>nie</strong> jest wznawiane
+			   samoczynnie — wymaga decyzji obsługującego.</p>
+			<p class="wym__meta">Rozróżnienie jest celowe: automatyczne ponawianie przy błędzie
+			   dostawcy mnożyłoby nieudane zapytania.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N4.2</span>
+			<p class="wym__tytul">Zamek na równoległym indeksowaniu</p></div>
+		<div class="wym__tresc">
+			<p>Jednoczesne uruchomienie indeksowania przez kilka procesów przepuszcza tylko
+			   jeden. Wcześniejsza wersja zamka miała lukę czasową między sprawdzeniem
+			   a zajęciem — przy dziesięciu równoległych próbach zamek „zdobywały” trzy.
+			   Po naprawie: jedna.</p>
+			<p class="wym__meta"><strong>Weryfikacja:</strong> uruchomić kilka równoległych żądań
+			   indeksowania i sprawdzić, że pracuje jeden proces.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N4.3</span>
+			<p class="wym__tytul">Zamek publikacji</p></div>
+		<div class="wym__tresc">
+			<p>Równoległa publikacja zestawów szeregowana jest tak, aby przeszła jedna zmiana,
+			   a pozostałe otrzymały odpowiedź o konflikcie (HTTP 409).</p>
+			<p class="wym__meta">Przed naprawą przy pięciu równoległych publikacjach trzy ginęły
+			   bez śladu (nadpisanie ostatniego zapisu).</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N4.4</span>
+			<p class="wym__tytul">Spójność bazy wiedzy z treścią witryny</p></div>
+		<div class="wym__tresc">
+			<p>Usunięcie wpisu lub przeniesienie go do kosza usuwa powiązane fragmenty z bazy
+			   wiedzy. Odpowiedzi nie mogą powoływać się na treść już nieistniejącą.</p>
+			<p class="wym__meta">Brak tego sprzątania był usterką wykrytą w audycie i został
+			   naprawiony; zachowanie objęte testem.</p>
+		</div>
+	</div>
+</section>
+
+<!-- ============ N5-N8 ============ -->
+<section class="strona">
+	<h1 class="rozdzial">5. N5 — Jakość odpowiedzi</h1>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N5.1</span>
+			<p class="wym__tytul">Odmowa zamiast zmyślania</p></div>
+		<div class="wym__tresc">
+			<p>Brak pokrycia w bazie wiedzy skutkuje jawną odmową. System nie sięga po wiedzę
+			   ogólną modelu. Wymaganie ma pierwszeństwo przed „użytecznością” odpowiedzi.</p>
+			<p class="wym__meta"><strong>Weryfikacja:</strong> zadać pytanie ewidentnie spoza
+			   tematu witryny — oczekiwana odmowa.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N5.2</span>
+			<p class="wym__tytul">Progi trafności są kalibrowane, nie przypadkowe</p></div>
+		<div class="wym__tresc">
+			<p>Wartości progów (0,70 / 0,65) pochodzą z pomiarów na rzeczywistej witrynie.
+			   Wcześniejszy próg twardy 0,55 przepuszczał pytania o zbyt luźnym związku z treścią.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N5.3</span>
+			<p class="wym__tytul">Budżet rozumowania modelu</p></div>
+		<div class="wym__tresc">
+			<p>Ustawienie długości odpowiedzi obejmuje również wewnętrzne rozumowanie modelu.
+			   Przy zbyt niskim limicie model zużywa cały budżet na rozumowanie i zwraca
+			   odpowiedź pustą lub uciętą.</p>
+			<p class="wym__meta">Objaw „ubogich odpowiedzi” miał właśnie tę przyczynę — udowodniono
+			   pomiarem, że rozumowanie pochłaniało 476 z 500 dostępnych jednostek.</p>
+		</div>
+	</div>
+
+	<h1 class="rozdzial" style="margin-top:8mm">6. N6 — Zgodność i przenośność</h1>
+	<table class="tech">
+		<thead><tr><th>Wymaganie</th><th>Wartość</th></tr></thead>
+		<tbody>
+			<tr><td>WordPress</td><td>6.4 lub nowszy</td></tr>
+			<tr><td>PHP</td><td>8.0 lub nowszy, z rozszerzeniem <code>mbstring</code></td></tr>
+			<tr><td>Baza danych</td><td>MySQL 5.7+ lub MariaDB 10.3+</td></tr>
+			<tr><td>Licencja</td><td>GPLv2 — wyłącznie wersja 2; pełny tekst w pliku <code>LICENSE</code> w katalogu wtyczki</td></tr>
+			<tr><td>Nazewnictwo</td><td>tabele i opcje z prefiksem <code>aifaq_</code> — brak kolizji z innymi wtyczkami</td></tr>
+			<tr><td>Języki odpowiedzi</td><td>polski, angielski, niemiecki (treść odmowy konfigurowalna osobno)</td></tr>
+			<tr><td>Wymienność dostawcy</td><td>dostawca ukryty za interfejsem; dołożenie kolejnego nie wymaga zmian w rdzeniu</td></tr>
+		</tbody>
+	</table>
+
+	<h1 class="rozdzial" style="margin-top:8mm">7. N7 — Prywatność danych</h1>
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N7.1</span>
+			<p class="wym__tytul">Co opuszcza serwer klienta</p></div>
+		<div class="wym__tresc">
+			<p>Do dostawcy wysyłane są: fragmenty treści witryny (przy indeksowaniu),
+			   treść pytania oraz wybrane fragmenty (przy odpowiadaniu). <strong>Nie są wysyłane</strong>
+			   dane kont użytkowników ani zawartość bazy WordPressa poza treścią indeksowaną.</p>
+		</div>
+	</div>
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N7.2</span>
+			<p class="wym__tytul">Co jest zapisywane lokalnie</p></div>
+		<div class="wym__tresc">
+			<p>Dziennik pytań przechowuje treść pytania, odpowiedź, wynik dopasowania i — jeśli
+			   pytający był zalogowany — jego identyfikator. Dziennik można wyczyścić jednym
+			   działaniem z poziomu kokpitu.</p>
+		</div>
+	</div>
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">N7.3</span>
+			<p class="wym__tytul">Deinstalacja bez śladu</p></div>
+		<div class="wym__tresc">
+			<p>Usunięcie wtyczki kasuje wszystkie jej tabele, opcje, dane tymczasowe oraz
+			   zadania cykliczne. W bazie klienta nie zostają dane osierocone.</p>
+			<p class="wym__meta"><strong>Weryfikacja:</strong> po usunięciu sprawdzić brak tabel
+			   z prefiksem <code>wp_aifaq_</code> oraz brak opcji <code>aifaq_*</code>.</p>
+		</div>
+	</div>
+
+	<h1 class="rozdzial" style="margin-top:8mm">8. N8 — Utrzymywalność</h1>
+	<table class="tech">
+		<thead><tr><th>Aspekt</th><th>Stan</th></tr></thead>
+		<tbody>
+			<tr><td>Testy automatyczne</td><td>60 zestawów uruchamianych jednym poleceniem; warunek wydania: komplet zaliczony</td></tr>
+			<tr><td>Testy na żywym środowisku</td><td>pełne przejście cyklu życia produktu, 151 sprawdzeń</td></tr>
+			<tr><td>Migracje bazy</td><td>wersjonowany schemat (obecnie 6), migracja uruchamiana automatycznie</td></tr>
+			<tr><td>Struktura kodu</td><td>ładowanie klas wg przestrzeni nazw, podział na warstwy</td></tr>
+			<tr><td>Znany dług techniczny</td><td>brak wstrzykiwania zależności w trzech usługach; wyszukiwanie liniowe (N1.4)</td></tr>
+		</tbody>
+	</table>
+</section>
+
+</body>
+</html>

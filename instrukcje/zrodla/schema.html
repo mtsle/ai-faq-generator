@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Schema — format danych — AI FAQ Generator</title>
+<link rel="stylesheet" href="styl-tech.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<span class="okladka__etykieta">Schema</span>
+	<h1 class="okladka__tytul">Format danych</h1>
+	<p class="okladka__podtytul">AI FAQ Generator — wejście, wyjście, struktury składowania</p>
+
+	<div class="okladka__ramka">
+		<p><strong>Zakres dokumentu.</strong> Dokładny opis danych: trasy REST wraz z parametrami
+		   i odpowiedziami, schemat tabel, opcje konfiguracyjne, formaty eksportu oraz dane
+		   strukturalne dla wyszukiwarek.</p>
+		<p><strong>Dla kogo.</strong> Dla osoby integrującej się z wtyczką, rozszerzającej ją
+		   albo diagnozującej ruch sieciowy.</p>
+		<p><strong>Konwencja.</strong> Przestrzeń tras: <code>aifaq/v1</code>. Pełny adres trasy
+		   to <code>/wp-json/aifaq/v1/&lt;ścieżka&gt;</code>. Nazwy tabel podano z przedrostkiem
+		   <code>wp_</code> — w instalacji obowiązuje przedrostek witryny.</p>
+	</div>
+
+	<p class="okladka__stopka">
+		AI FAQ Generator 1.0.0 · schemat bazy w wersji 6 · Licencja GPLv2
+	</p>
+</section>
+
+<!-- ============ SPIS ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Spis treści</h1>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>S1 — Trasy REST</strong>
+			<span class="spis__opis">Wykaz 15 tras: metoda, uprawnienia, przeznaczenie.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>S2 — Pytanie gościa</strong>
+			<span class="spis__opis">Wejście i wyjście trasy publicznej, wraz ze stanami.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>S3 — Generowanie zestawu FAQ</strong>
+			<span class="spis__opis">Parametry wejściowe i struktura par.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>S4 — Schemat bazy danych</strong>
+			<span class="spis__opis">Pięć tabel, kolumny, typy, klucze.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>S5 — Opcje konfiguracyjne</strong>
+			<span class="spis__opis">Klucze w tabeli opcji WordPressa.</span></span></li>
+		<li><span class="spis__nr">6</span><span><strong>S6 — Formaty eksportu</strong>
+			<span class="spis__opis">Pięć postaci wyjściowych zestawu FAQ.</span></span></li>
+		<li><span class="spis__nr">7</span><span><strong>S7 — Dane strukturalne FAQPage</strong>
+			<span class="spis__opis">JSON-LD zgodny ze Schema.org.</span></span></li>
+		<li><span class="spis__nr">8</span><span><strong>S8 — Kody i stany błędów</strong>
+			<span class="spis__opis">Jak rozpoznać przyczynę odrzucenia żądania.</span></span></li>
+	</ol>
+
+	<div class="uwaga">
+		<p><strong>Uwierzytelnienie.</strong> Trasy administracyjne wymagają ciasteczka sesji
+		   WordPressa oraz znacznika <code>X-WP-Nonce</code> o wartości otrzymanej z
+		   <code>wp_create_nonce('wp_rest')</code>. Trasa <code>POST /ask</code> jest otwarta.</p>
+	</div>
+</section>
+
+<!-- ============ S1 TRASY ============ -->
+<section class="ciagly">
+	<h1 class="rozdzial">1. S1 — Trasy REST</h1>
+	<p class="rozdzial__wstep">Przestrzeń <code>aifaq/v1</code>, łącznie 15 tras.
+	   Jedna publiczna, czternaście wymagających uprawnień.</p>
+
+	<table class="tech">
+		<thead><tr><th>Metoda</th><th>Ścieżka</th><th>Uprawnienie</th><th>Przeznaczenie</th></tr></thead>
+		<tbody>
+			<tr><td class="met met--post">POST</td><td><code>/ask</code></td><td>—  (otwarta)</td>
+				<td>pytanie gościa, odpowiedź z treści witryny</td></tr>
+			<tr><td class="met met--get">GET</td><td><code>/admin/status</code></td><td>administracja</td>
+				<td>stan bazy wiedzy, zużycie dobowe</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/reindex</code></td><td>administracja</td>
+				<td>uruchomienie lub wznowienie indeksowania</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/clear</code></td><td>administracja</td>
+				<td>wyczyszczenie bazy wiedzy</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/settings</code></td><td>administracja</td>
+				<td>zapis ustawień</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/verify</code></td><td>administracja</td>
+				<td>sprawdzenie klucza dostawcy</td></tr>
+			<tr><td class="met met--get">GET</td><td><code>/admin/history</code></td><td>administracja</td>
+				<td>dziennik pytań gości (stronicowany)</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/history/clear</code></td><td>administracja</td>
+				<td>wyczyszczenie dziennika</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/generate-faq</code></td><td>narzędzie (Autor+)</td>
+				<td>wygenerowanie zestawu par</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/export</code></td><td>narzędzie (Autor+)</td>
+				<td>eksport zestawu w pięciu formatach</td></tr>
+			<tr><td class="met met--get">GET</td><td><code>/admin/generations</code></td><td>administracja</td>
+				<td>lista zapisanych generowań</td></tr>
+			<tr><td class="met met--get">GET</td><td><code>/admin/generations/detail</code></td><td>administracja</td>
+				<td>pojedyncze generowanie wraz z parami</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/generations/delete</code></td><td>administracja</td>
+				<td>usunięcie generowania i danych powiązanych</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/faq/publish</code></td><td>publikacja (Redaktor)</td>
+				<td>publikacja zestawu na podstronie</td></tr>
+			<tr><td class="met met--post">POST</td><td><code>/admin/faq/unpublish</code></td><td>publikacja (Redaktor)</td>
+				<td>zdjęcie zestawu z podstrony</td></tr>
+		</tbody>
+	</table>
+</section>
+
+<!-- ============ S2 ASK ============ -->
+<section class="ciagly">
+	<h1 class="rozdzial">2. S2 — Pytanie gościa</h1>
+	<p class="rozdzial__wstep"><code>POST /wp-json/aifaq/v1/ask</code> — jedyna trasa dostępna
+	   bez logowania.</p>
+
+	<h2>Wejście</h2>
+	<table class="tech">
+		<thead><tr><th>Pole</th><th>Typ</th><th>Wymagane</th><th>Ograniczenia</th></tr></thead>
+		<tbody>
+			<tr><td><code>question</code></td><td>tekst</td><td>tak</td>
+				<td>walidowane po stronie serwera; oczyszczane jak pole wieloliniowe</td></tr>
+		</tbody>
+	</table>
+	<pre class="kod">POST /wp-json/aifaq/v1/ask
+Content-Type: application/json
+
+{ "question": "W jakich godzinach czynne jest przedszkole?" }</pre>
+
+	<h2>Wyjście — odpowiedź udzielona</h2>
+	<table class="tech">
+		<thead><tr><th>Pole</th><th>Typ</th><th>Znaczenie</th></tr></thead>
+		<tbody>
+			<tr><td><code>status</code></td><td>tekst</td>
+				<td><code>answered</code> — odpowiedź udzielona, <code>refused</code> — odmowa</td></tr>
+			<tr><td><code>answer</code></td><td>tekst</td><td>treść odpowiedzi albo komunikat odmowy</td></tr>
+			<tr><td><code>score</code></td><td>liczba</td>
+				<td>dopasowanie najlepszego fragmentu, zaokrąglone do 4 miejsc (0–1)</td></tr>
+			<tr><td><code>source</code></td><td>tekst</td>
+				<td><code>ai</code> — z dostawcy, <code>cache</code> — z pamięci podręcznej</td></tr>
+			<tr><td><code>cached</code></td><td>logiczne</td><td>prawda, gdy <code>source</code> to <code>cache</code></td></tr>
+		</tbody>
+	</table>
+	<pre class="kod">{
+  "status": "answered",
+  "answer": "Przedszkole jest czynne od poniedziałku do piątku w godzinach 7:00–18:00.",
+  "score": 0.8137,
+  "source": "cache",
+  "cached": true
+}</pre>
+
+	<h2>Wyjście — odmowa i odrzucenie</h2>
+	<pre class="kod">{
+  "status": "refused",
+  "answer": "Przepraszam, odpowiadam wyłącznie na pytania dotyczące tej strony.",
+  "score": 0.4120,
+  "source": "ai",
+  "cached": false
+}</pre>
+	<table class="tech">
+		<thead><tr><th>Stan</th><th>Kiedy</th><th>Zużywa przydział</th></tr></thead>
+		<tbody>
+			<tr><td><code>answered</code></td><td>dopasowanie powyżej progu twardego</td><td>tak, chyba że z pamięci</td></tr>
+			<tr><td><code>refused</code></td><td>dopasowanie poniżej progu twardego</td><td><strong>nie</strong></td></tr>
+			<tr><td><code>rate_limited</code></td><td>przekroczony limit pytań gościa</td><td><strong>nie</strong></td></tr>
+			<tr><td><code>error</code></td><td>błąd dostawcy lub wyczerpany sufit dobowy</td><td>nie</td></tr>
+		</tbody>
+	</table>
+	<p>Przy <code>rate_limited</code> oraz <code>error</code> odpowiedź zawiera pole
+	   <code>message</code> z opisem przyczyny.</p>
+</section>
+
+<!-- ============ S3 GENEROWANIE ============ -->
+<section class="ciagly">
+	<h1 class="rozdzial">3. S3 — Generowanie zestawu FAQ</h1>
+	<p class="rozdzial__wstep"><code>POST /wp-json/aifaq/v1/admin/generate-faq</code> —
+	   wymaga uprawnień narzędzia (Autor i wyżej) oraz znacznika <code>X-WP-Nonce</code>.</p>
+
+	<h2>Wejście</h2>
+	<table class="tech">
+		<thead><tr><th>Pole</th><th>Typ</th><th>Wymagane</th><th>Uwagi</th></tr></thead>
+		<tbody>
+			<tr><td><code>topic</code></td><td>tekst</td><td>tak</td><td>temat zestawu; walidowany</td></tr>
+			<tr><td><code>extra_desc</code></td><td>tekst</td><td>nie</td><td>opis uzupełniający, pole wieloliniowe</td></tr>
+		</tbody>
+	</table>
+	<pre class="kod">POST /wp-json/aifaq/v1/admin/generate-faq
+X-WP-Nonce: &lt;znacznik wp_rest&gt;
+Content-Type: application/json
+
+{
+  "topic": "Zapisy dziecka do przedszkola",
+  "extra_desc": "Pytania rodziców o rekrutację, terminy i wymagane dokumenty."
+}</pre>
+
+	<h2>Struktura pary pytanie–odpowiedź</h2>
+	<p>Jednostką wyniku jest <strong>para</strong> o dwóch polach tekstowych. Ta sama struktura
+	   obowiązuje w całym systemie: przy generowaniu, zapisie, eksporcie i publikacji.</p>
+	<table class="tech">
+		<thead><tr><th>Pole</th><th>Typ</th><th>Uwagi</th></tr></thead>
+		<tbody>
+			<tr><td><code>question</code></td><td>tekst</td><td>niepusty po przycięciu białych znaków</td></tr>
+			<tr><td><code>answer</code></td><td>tekst</td><td>niepusty po przycięciu białych znaków</td></tr>
+		</tbody>
+	</table>
+	<pre class="kod">{
+  "pairs": [
+    { "question": "Od jakiego wieku przyjmujecie dzieci?",
+      "answer":   "Przyjmujemy dzieci w wieku od 2,5 do 6 lat." },
+    { "question": "Jakie dokumenty są potrzebne przy zapisie?",
+      "answer":   "Wypełniona karta zgłoszenia oraz numer PESEL dziecka." }
+  ]
+}</pre>
+
+	<h2>Normalizacja wyniku</h2>
+	<p>Przed zapisem pary przechodzą ujednolicenie:</p>
+	<ul class="zwarte">
+		<li>odrzucane są pozycje, w których którekolwiek pole jest puste po przycięciu,</li>
+		<li>odrzucane są wartości niebędące tekstem,</li>
+		<li>liczba par ograniczana jest do wartości z ustawień — zakres <strong class="nolam">5–20</strong>,
+		    wartość domyślna <strong>20</strong>.</li>
+	</ul>
+	<div class="uwaga">
+		<p><strong>Ten sam kontrakt obowiązuje przy eksporcie.</strong> Normalizacja jest wspólna
+		   dla generowania i eksportu — nie ma ścieżki, którą para niepełna trafiłaby na wyjście.</p>
+	</div>
+</section>
+
+<!-- ============ S4 BAZA ============ -->
+<section class="ciagly">
+	<h1 class="rozdzial">4. S4 — Schemat bazy danych</h1>
+	<p class="rozdzial__wstep">Pięć tabel z przedrostkiem witryny. Wersja schematu: 6.
+	   Migracja uruchamiana automatycznie po podniesieniu wersji wtyczki.</p>
+
+	<p><em>Diagram powiązań znajduje się na następnej stronie w układzie poziomym.</em></p>
+
+	<h2><code>wp_aifaq_knowledge</code> — baza wiedzy</h2>
+	<table class="tech">
+		<thead><tr><th>Kolumna</th><th>Typ</th><th>Znaczenie</th></tr></thead>
+		<tbody>
+			<tr><td><code>id</code></td><td>bigint unsigned, auto</td><td>klucz główny</td></tr>
+			<tr><td><code>post_id</code></td><td>bigint unsigned</td><td>wpis źródłowy</td></tr>
+			<tr><td><code>chunk_index</code></td><td>liczba</td><td>numer fragmentu w obrębie wpisu</td></tr>
+			<tr><td><code>content</code></td><td>longtext</td><td>treść fragmentu</td></tr>
+			<tr><td><code>content_hash</code></td><td>char(64)</td><td>suma kontrolna — podstawa pomijania niezmienionych</td></tr>
+			<tr><td><code>embedding</code></td><td>longtext</td><td>wektor fragmentu</td></tr>
+			<tr><td><code>updated_at</code></td><td>datetime</td><td>czas ostatniej aktualizacji</td></tr>
+		</tbody>
+	</table>
+	<p class="wym__meta">Klucze: <code>PRIMARY (id)</code>, <code>UNIQUE (post_id, chunk_index)</code>,
+	   <code>KEY (content_hash)</code>.</p>
+
+	<h2><code>wp_aifaq_qa_log</code> — dziennik pytań</h2>
+	<table class="tech">
+		<thead><tr><th>Kolumna</th><th>Typ</th><th>Znaczenie</th></tr></thead>
+		<tbody>
+			<tr><td><code>id</code></td><td>bigint unsigned, auto</td><td>klucz główny</td></tr>
+			<tr><td><code>created_at</code></td><td>datetime</td><td>czas zadania pytania</td></tr>
+			<tr><td><code>question</code></td><td>text</td><td>treść pytania</td></tr>
+			<tr><td><code>answer</code></td><td>longtext</td><td>udzielona odpowiedź lub komunikat odmowy</td></tr>
+			<tr><td><code>status</code></td><td>varchar(20)</td><td><code>answered</code> / <code>refused</code></td></tr>
+			<tr><td><code>source</code></td><td>varchar(20)</td><td><code>ai</code> / <code>cache</code></td></tr>
+			<tr><td><code>score</code></td><td>float</td><td>dopasowanie najlepszego fragmentu</td></tr>
+			<tr><td><code>user_id</code></td><td>bigint unsigned</td><td>0 dla gościa niezalogowanego</td></tr>
+		</tbody>
+	</table>
+
+	<h2><code>wp_aifaq_generations</code> — historia generowań</h2>
+	<table class="tech">
+		<thead><tr><th>Kolumna</th><th>Typ</th><th>Znaczenie</th></tr></thead>
+		<tbody>
+			<tr><td><code>id</code></td><td>bigint unsigned, auto</td><td>klucz główny</td></tr>
+			<tr><td><code>created_at</code></td><td>datetime</td><td>czas wygenerowania</td></tr>
+			<tr><td><code>topic</code></td><td>text</td><td>temat podany na wejściu</td></tr>
+			<tr><td><code>extra_desc</code></td><td>longtext</td><td>opis uzupełniający</td></tr>
+			<tr><td><code>language</code></td><td>varchar(10)</td><td>język zestawu, domyślnie <code>pl</code></td></tr>
+			<tr><td><code>user_id</code></td><td>bigint unsigned</td><td>autor generowania</td></tr>
+			<tr><td><code>pairs_json</code></td><td>longtext</td><td>pary w postaci ustrukturyzowanej</td></tr>
+		</tbody>
+	</table>
+	<p class="wym__meta">Indeks złożony obejmuje porządek sortowania listy
+	   (<code>created_at</code> malejąco wraz z <code>id</code>) — bez niego serwer bazy
+	   wykonywał sortowanie plikowe.</p>
+
+	<h2>Pozostałe tabele</h2>
+	<table class="tech">
+		<thead><tr><th>Tabela</th><th>Rola</th></tr></thead>
+		<tbody>
+			<tr><td><code>wp_aifaq_cache</code></td><td>pamięć podręczna odpowiedzi — klucz pytania i treść odpowiedzi</td></tr>
+			<tr><td><code>wp_aifaq_faq</code></td><td>zestaw aktualnie opublikowany na podstronie publicznej</td></tr>
+		</tbody>
+	</table>
+</section>
+
+<section class="strona--diagram">
+	<img src="../schematy/druk/03-baza-danych.png" alt="Schemat bazy danych AI FAQ Generator">
+	<figcaption>Schemat bazy danych · pełna skala w pliku źródłowym <code>schematy/03-baza-danych.drawio</code></figcaption>
+</section>
+
+<!-- ============ S5-S6 ============ -->
+<section class="ciagly">
+	<h1 class="rozdzial">5. S5 — Opcje konfiguracyjne</h1>
+	<p class="rozdzial__wstep">Przechowywane w tabeli opcji WordPressa, wszystkie z przedrostkiem
+	   <code>aifaq_</code>. Usuwane w całości przy deinstalacji.</p>
+
+	<table class="tech">
+		<thead><tr><th>Klucz</th><th>Zawartość</th></tr></thead>
+		<tbody>
+			<tr><td><code>aifaq_settings</code></td><td>komplet ustawień wtyczki (m.in. klucz dostawcy, model, język, adres podstrony, progi, limity)</td></tr>
+			<tr><td><code>aifaq_public_faq</code></td><td>zestaw aktualnie opublikowany</td></tr>
+			<tr><td><code>aifaq_public_faq_prev</code></td><td>zestaw poprzedni — umożliwia powrót po publikacji</td></tr>
+			<tr><td><code>aifaq_page_id</code></td><td>identyfikator podstrony publicznej</td></tr>
+			<tr><td><code>aifaq_page_state</code></td><td>stan podstrony (utworzona, adres, zgodność)</td></tr>
+			<tr><td><code>aifaq_page_bootstrapped</code></td><td>znacznik pierwszego utworzenia podstrony</td></tr>
+			<tr><td><code>aifaq_menu_item_id</code></td><td>identyfikator pozycji w menu witryny</td></tr>
+			<tr><td><code>aifaq_menu_state</code></td><td>stan pozycji w menu</td></tr>
+			<tr><td><code>aifaq_crawl_state</code></td><td>stan kolejki pobierania wyrenderowanych stron</td></tr>
+			<tr><td><code>aifaq_site_profile</code></td><td>rozpoznany profil witryny</td></tr>
+			<tr><td><code>aifaq_loopback</code></td><td>wynik sprawdzenia połączenia zwrotnego do własnej witryny</td></tr>
+			<tr><td><code>aifaq_index_signature</code></td><td>sygnatura indeksu: dostawca, model, wymiar wektora, wersja źródeł</td></tr>
+			<tr><td><code>aifaq_daily_usage</code></td><td>licznik zużycia dobowego: data oraz liczba zapytań</td></tr>
+			<tr><td><code>aifaq_db_version</code></td><td>wersja schematu bazy (obecnie 6)</td></tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Sygnatura indeksu.</strong> Zmiana dostawcy, modelu embeddingów albo wymiaru
+		   wektora unieważnia dotychczasową bazę wiedzy — wektory z różnych modeli nie są
+		   porównywalne. System wykrywa to po niezgodności sygnatury i wymusza przebudowę.</p>
+	</div>
+
+	<h1 class="rozdzial" style="margin-top:8mm">6. S6 — Formaty eksportu</h1>
+	<p class="rozdzial__wstep"><code>POST /admin/export</code> zwraca zestaw w pięciu postaciach
+	   jednocześnie. Odbiorca wybiera tę, której potrzebuje.</p>
+
+	<table class="tech">
+		<thead><tr><th>Klucz</th><th>Postać</th><th>Zastosowanie</th></tr></thead>
+		<tbody>
+			<tr><td><code>html</code></td><td>gotowy fragment HTML</td><td>wklejenie w dowolną stronę</td></tr>
+			<tr><td><code>gutenberg</code></td><td>bloki edytora WordPressa</td><td>wklejenie do wpisu w edytorze blokowym</td></tr>
+			<tr><td><code>elementor</code></td><td>struktura zakładek budowniczego stron</td><td>wklejenie do sekcji Elementora</td></tr>
+			<tr><td><code>json</code></td><td>pary w postaci ustrukturyzowanej</td><td>integracja z systemem zewnętrznym</td></tr>
+			<tr><td><code>jsonld</code></td><td>dane strukturalne FAQPage</td><td>oznaczenie treści dla wyszukiwarek</td></tr>
+		</tbody>
+	</table>
+	<div class="uwaga">
+		<p><strong>Wspólna normalizacja.</strong> Wszystkie pięć postaci powstaje z tego samego,
+		   uprzednio ujednoliconego zbioru par — treść między formatami nie może się rozjechać.</p>
+	</div>
+</section>
+
+<!-- ============ S7-S8 ============ -->
+<section class="ciagly">
+	<h1 class="rozdzial">7. S7 — Dane strukturalne FAQPage</h1>
+	<p class="rozdzial__wstep">Podstrona publiczna zawiera dane strukturalne typu
+	   <strong>FAQPage</strong> zgodne ze Schema.org, zbudowane z aktualnie opublikowanych par.</p>
+
+	<pre class="kod">&lt;script type="application/ld+json"&gt;
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "W jakich godzinach czynne jest przedszkole?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Przedszkole jest czynne od poniedziałku do piątku w godzinach 7:00–18:00."
+      }
+    }
+  ]
+}
+&lt;/script&gt;</pre>
+
+	<table class="tech">
+		<thead><tr><th>Warunek</th><th>Zachowanie</th></tr></thead>
+		<tbody>
+			<tr><td>Brak opublikowanych par</td><td>dane strukturalne nie są wypisywane</td></tr>
+			<tr><td>Zestaw opublikowany</td><td>każda para staje się pozycją <code>Question</code></td></tr>
+			<tr><td>Strona inna niż podstrona generatora</td><td>dane nie są dokładane</td></tr>
+		</tbody>
+	</table>
+	<p>Niezależnie od FAQPage sama podstrona opisana jest jako aplikacja internetowa —
+	   oba oznaczenia pełnią różne role i nie kolidują ze sobą.</p>
+
+	<h1 class="rozdzial" style="margin-top:8mm">8. S8 — Kody i stany błędów</h1>
+	<table class="tech">
+		<thead><tr><th>Kod HTTP</th><th>Sytuacja</th><th>Co zrobić</th></tr></thead>
+		<tbody>
+			<tr><td><code>200</code></td><td>żądanie obsłużone — także odmowa tematyczna</td>
+				<td>sprawdzić pole <code>status</code> w treści odpowiedzi</td></tr>
+			<tr><td><code>401</code> / <code>403</code></td><td>brak uprawnień albo nieważny znacznik <code>X-WP-Nonce</code></td>
+				<td>odświeżyć stronę kokpitu — znacznik wygasa (typowo po nocy)</td></tr>
+			<tr><td><code>400</code></td><td>parametr nie przeszedł walidacji</td>
+				<td>sprawdzić wymagane pola trasy w rozdziałach S2 i S3</td></tr>
+			<tr><td><code>409</code></td><td>konflikt publikacji — równoległa zmiana</td>
+				<td>odświeżyć i sprawdzić, który zestaw jest opublikowany</td></tr>
+			<tr><td><code>429</code></td><td>przekroczony limit pytań gościa</td>
+				<td>odczekać okno limitu albo podnieść próg w ustawieniach</td></tr>
+			<tr><td><code>5xx</code></td><td>błąd dostawcy lub środowiska</td>
+				<td>sprawdzić klucz, wybrany model i ruch wychodzący HTTPS</td></tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Wyczerpanie przydziału dobowego</strong> zwracane jest jako błąd wraz
+		   z sugerowanym czasem ponowienia liczonym w sekundach. Wartość ta jest myląca —
+		   przydział dobowy odnawia się dopiero następnego dnia.</p>
+	</div>
+</section>
+
+</body>
+</html>
