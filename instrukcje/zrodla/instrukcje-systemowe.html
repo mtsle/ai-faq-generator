@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Instrukcje systemowe — AI FAQ Generator</title>
+<link rel="stylesheet" href="styl-tech.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<span class="okladka__etykieta">System</span>
+	<h1 class="okladka__tytul">Instrukcje systemowe</h1>
+	<p class="okladka__podtytul">AI FAQ Generator — jak cała wtyczka ma działać</p>
+
+	<div class="okladka__ramka">
+		<p><strong>Zakres dokumentu.</strong> Zachowanie wtyczki jako całości w środowisku
+		   klienta: cykl życia od instalacji po usunięcie, stany, w jakich może się znaleźć,
+		   oraz czynności wykonywane samoczynnie, bez udziału obsługującego.</p>
+		<p><strong>Czym różni się od pozostałych dokumentów</strong></p>
+		<p>• <strong>Instrukcja dla klienta</strong> — jak obsługiwać (okna i przyciski).<br>
+		   • <strong>Instrukcja dla informatyka</strong> — co system robi (funkcje).<br>
+		   • <strong>Wymagania niefunkcjonalne</strong> — jak dobrze to robi (parametry).<br>
+		   • <strong>Schema</strong> — format danych.<br>
+		   • <strong>Ten dokument</strong> — jak system zachowuje się <em>w czasie</em>.</p>
+	</div>
+
+	<p class="okladka__stopka">
+		AI FAQ Generator 1.0.0 · schemat bazy w wersji 6 · Licencja GPLv2
+	</p>
+</section>
+
+<!-- ============ SPIS ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Spis treści</h1>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>Cykl życia wtyczki</strong>
+			<span class="spis__opis">Pięć faz i co dokładnie dzieje się w każdej z nich.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>Stany systemu</strong>
+			<span class="spis__opis">W jakim stanie może być wtyczka i jak go rozpoznać.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>Reakcje na zdarzenia witryny</strong>
+			<span class="spis__opis">Co wtyczka robi, gdy ktoś edytuje albo kasuje treść.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>Czynności samoczynne</strong>
+			<span class="spis__opis">Co dzieje się bez udziału człowieka i pod jakim warunkiem.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>Zachowanie przy awariach</strong>
+			<span class="spis__opis">Degradacja zamiast zatrzymania.</span></span></li>
+		<li><span class="spis__nr">6</span><span><strong>Migracje schematu bazy</strong>
+			<span class="spis__opis">Podnoszenie wersji i co się przy tym dzieje.</span></span></li>
+		<li><span class="spis__nr">7</span><span><strong>Konserwacja</strong>
+			<span class="spis__opis">Czynności okresowe i sygnały ostrzegawcze.</span></span></li>
+	</ol>
+</section>
+
+<!-- ============ 1. CYKL ŻYCIA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">1. Cykl życia wtyczki</h1>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">C1</span>
+			<p class="wym__tytul">Instalacja — samo wgranie plików</p></div>
+		<div class="wym__tresc">
+			<p>Rozpakowanie paczki do katalogu wtyczek. <strong>Nic się jeszcze nie dzieje</strong>:
+			   brak tabel, brak podstrony, brak wpisów w bazie. Wtyczka jest obecna, ale bezczynna.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">C2</span>
+			<p class="wym__tytul">Włączenie — powstaje struktura</p></div>
+		<div class="wym__tresc">
+			<p>Przy włączeniu system wykonuje kolejno:</p>
+			<ol class="zwarte">
+				<li>tworzy pięć tabel i zapisuje wersję schematu,</li>
+				<li>zakłada podstronę publiczną pod adresem z ustawień,</li>
+				<li>rejestruje trasę podstrony i przebudowuje reguły odnośników,</li>
+				<li>zapisuje ustawienia domyślne (bez klucza dostawcy),</li>
+				<li>dokłada pozycję w menu witryny, jeśli tak wskazują ustawienia.</li>
+			</ol>
+			<p class="wym__meta"><strong>Zasada:</strong> wtyczka nigdy nie tworzy menu nawigacyjnego
+			   od zera. Dokłada pozycję wyłącznie do menu już istniejącego — utworzenie menu
+			   tam, gdzie go nie było, wyłączyłoby zastępcze zachowanie motywu i mogło zmienić
+			   wygląd witryny.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">C3</span>
+			<p class="wym__tytul">Praca — stan ustalony</p></div>
+		<div class="wym__tresc">
+			<p>Wtyczka obsługuje pytania gości, generuje zestawy, prowadzi dzienniki
+			   i utrzymuje bazę wiedzy w zgodzie z treścią witryny.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">C4</span>
+			<p class="wym__tytul">Wyłączenie — wstrzymanie z zachowaniem danych</p></div>
+		<div class="wym__tresc">
+			<p>Trasy przestają odpowiadać, podstrona publiczna znika z witryny, zadania cykliczne
+			   są zdejmowane. <strong>Dane pozostają nienaruszone</strong>: tabele, ustawienia,
+			   baza wiedzy i dzienniki. Ponowne włączenie przywraca stan sprzed wyłączenia.</p>
+			<p class="wym__meta">Zastosowanie: tymczasowe wstrzymanie działania albo sprawdzanie
+			   kolizji z inną wtyczką.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">C5</span>
+			<p class="wym__tytul">Usunięcie — sprzątanie całkowite</p></div>
+		<div class="wym__tresc">
+			<p>Usunięcie wtyczki kasuje <strong>wszystko</strong>, co po sobie zostawiła:</p>
+			<table class="tech">
+				<thead><tr><th>Rodzaj</th><th>Co jest kasowane</th></tr></thead>
+				<tbody>
+					<tr><td>Tabele</td><td>wszystkie pięć, z przedrostkiem <code>wp_aifaq_</code></td></tr>
+					<tr><td>Opcje</td><td>komplet kluczy <code>aifaq_*</code></td></tr>
+					<tr><td>Dane tymczasowe</td><td>pamięć podręczna, liczniki, zamki</td></tr>
+					<tr><td>Zadania cykliczne</td><td><strong>oba</strong> zdarzenia</td></tr>
+				</tbody>
+			</table>
+			<p class="wym__meta">Kompletność sprzątania jest sprawdzana testem. Wcześniejsza wersja
+			   pozostawiała jedno z dwóch zadań cyklicznych — usterkę wykryto na żywym środowisku
+			   i naprawiono.</p>
+		</div>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Usunięcia nie da się cofnąć.</strong> Dziennik pytań i historia generowań
+		   przepadają bezpowrotnie. Zestawy warte zachowania należy wcześniej wyeksportować.</p>
+	</div>
+</section>
+
+<!-- ============ 2. STANY ============ -->
+<section class="strona">
+	<h1 class="rozdzial">2. Stany systemu</h1>
+	<p class="rozdzial__wstep">Wtyczka włączona może znajdować się w jednym z pięciu stanów.
+	   Stan bieżący widoczny jest na Dashboardzie.</p>
+
+	<table class="tech">
+		<thead><tr><th>Stan</th><th>Rozpoznanie</th><th>Zachowanie wobec gościa</th></tr></thead>
+		<tbody>
+			<tr><td><strong>Nieskonfigurowany</strong></td>
+				<td>brak zapisanego klucza dostawcy</td>
+				<td>odmowa z komunikatem o braku konfiguracji</td></tr>
+			<tr><td><strong>Bez bazy wiedzy</strong></td>
+				<td>klucz zapisany, licznik fragmentów równy zeru</td>
+				<td>odmowa na każde pytanie — brak materiału do odpowiedzi</td></tr>
+			<tr><td><strong>Gotowy</strong></td>
+				<td>klucz zapisany, baza wiedzy niepusta, przydział dostępny</td>
+				<td>pełne działanie</td></tr>
+			<tr><td><strong>Przydział wyczerpany</strong></td>
+				<td>licznik dobowy osiągnął sufit</td>
+				<td>pamięć podręczna działa; nowe pytania odrzucane do następnej doby</td></tr>
+			<tr><td><strong>Indeks nieaktualny</strong></td>
+				<td>sygnatura indeksu niezgodna z bieżącymi ustawieniami</td>
+				<td>wymagana przebudowa bazy wiedzy</td></tr>
+		</tbody>
+	</table>
+
+	<h2>Przejścia między stanami</h2>
+	<ul class="zwarte">
+		<li><em>Nieskonfigurowany → Bez bazy wiedzy</em> — po zapisaniu klucza,</li>
+		<li><em>Bez bazy wiedzy → Gotowy</em> — po zakończonym indeksowaniu,</li>
+		<li><em>Gotowy → Przydział wyczerpany</em> — samoczynnie, po osiągnięciu sufitu,</li>
+		<li><em>Przydział wyczerpany → Gotowy</em> — samoczynnie, wraz z nową dobą,</li>
+		<li><em>Gotowy → Indeks nieaktualny</em> — po zmianie dostawcy, modelu lub wymiaru wektora.</li>
+	</ul>
+
+	<div class="uwaga">
+		<p><strong>Stan „Indeks nieaktualny” jest wymuszony, nie doradczy.</strong> Wektory
+		   policzone różnymi modelami nie są porównywalne — pozostawienie starej bazy dawałoby
+		   odpowiedzi oparte na błędnym dopasowaniu.</p>
+	</div>
+</section>
+
+<!-- ============ 3. REAKCJE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">3. Reakcje na zdarzenia witryny</h1>
+	<p class="rozdzial__wstep">Wtyczka nasłuchuje zdarzeń WordPressa, aby baza wiedzy nie
+	   rozjeżdżała się z rzeczywistą treścią witryny.</p>
+
+	<table class="tech">
+		<thead><tr><th>Zdarzenie</th><th>Reakcja</th><th>Dlaczego</th></tr></thead>
+		<tbody>
+			<tr><td>Usunięcie wpisu</td><td>skasowanie powiązanych fragmentów bazy wiedzy</td>
+				<td>odpowiedź nie może powoływać się na treść, której już nie ma</td></tr>
+			<tr><td>Przeniesienie do kosza</td><td>to samo co przy usunięciu</td>
+				<td>treść w koszu nie jest widoczna dla odwiedzających</td></tr>
+			<tr><td>Zapis ustawień</td><td>ponowne sprawdzenie sygnatury indeksu i stanu podstrony</td>
+				<td>zmiana modelu lub adresu wymaga reakcji systemu</td></tr>
+			<tr><td>Zmiana adresu podstrony</td><td>podniesienie znacznika przebudowy odnośników</td>
+				<td>bez tego nowy adres zwracałby „nie znaleziono”</td></tr>
+			<tr><td>Usunięcie podstrony przez redakcję</td><td>wykrycie braku i odtworzenie przy kolejnym sprawdzeniu</td>
+				<td>generator nie może zniknąć wskutek przypadkowego skasowania strony</td></tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Sprzątanie po usuniętych wpisach działa niezależnie od interfejsu.</strong>
+		   Obowiązuje także wtedy, gdy wpis kasuje inna wtyczka albo polecenie wiersza poleceń —
+		   nasłuch jest na zdarzeniu WordPressa, nie na kliknięciu w kokpicie.</p>
+	</div>
+
+	<h2>Czego wtyczka NIE robi samoczynnie</h2>
+	<ul class="zwarte">
+		<li><strong>nie indeksuje nowej treści od razu</strong> — dodanie wpisu nie uruchamia
+		    indeksowania; wymaga ono decyzji obsługującego,</li>
+		<li><strong>nie publikuje wygenerowanych zestawów</strong> — publikacja jest zawsze
+		    świadomym działaniem osoby z uprawnieniami redaktorskimi,</li>
+		<li><strong>nie tworzy menu nawigacyjnego</strong> — dokłada pozycję tylko do menu
+		    istniejącego,</li>
+		<li><strong>nie zmienia treści wpisów</strong> — czyta je, nigdy nie modyfikuje.</li>
+	</ul>
+</section>
+
+<!-- ============ 4. AUTOMATYZMY ============ -->
+<section class="strona">
+	<h1 class="rozdzial">4. Czynności samoczynne</h1>
+	<p class="rozdzial__wstep">Trzy mechanizmy działające bez udziału człowieka. Każdy ma
+	   ściśle określony warunek uruchomienia.</p>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">A1</span>
+			<p class="wym__tytul">Wznowienie przerwanego indeksowania</p></div>
+		<div class="wym__tresc">
+			<p><strong>Warunek:</strong> indeksowanie przerwane <em>wyłącznie</em> z powodu
+			   wyczerpania budżetu czasu.</p>
+			<p><strong>Działanie:</strong> zaplanowanie zdarzenia, które podejmuje pracę
+			   od zapisanego miejsca.</p>
+			<p><strong>Nie uruchamia się</strong> po błędzie dostawcy ani po wyczerpaniu
+			   przydziału — ponawianie mnożyłoby wtedy nieudane zapytania.</p>
+			<p class="wym__meta">Wymaga działającego mechanizmu zadań cyklicznych WordPressa.
+			   Bez niego wznowienie trzeba uruchomić ręcznie — skutek jest taki sam.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">A2</span>
+			<p class="wym__tytul">Obsługa kolejki pobierania stron</p></div>
+		<div class="wym__tresc">
+			<p><strong>Warunek:</strong> treść wymaga pobrania wyrenderowanej strony po HTTP
+			   (witryny oparte na budowniczych stron).</p>
+			<p><strong>Działanie:</strong> kolejka przetwarzana porcjami, aby nie blokować
+			   żądania przeglądarki.</p>
+			<p class="wym__meta"><strong>Warunek środowiskowy:</strong> witryna musi móc połączyć
+			   się sama ze sobą. Przy bardzo małej puli procesów PHP (dwa i mniej) pobieranie
+			   potrafi zakleszczyć pulę — zalecane minimum to cztery.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">A3</span>
+			<p class="wym__tytul">Dobowe zerowanie licznika przydziału</p></div>
+		<div class="wym__tresc">
+			<p><strong>Warunek:</strong> zmiana daty.</p>
+			<p><strong>Działanie:</strong> licznik zużycia startuje od zera; stan „Przydział
+			   wyczerpany” ustępuje samoczynnie. Nie wymaga żadnej czynności obsługującego.</p>
+		</div>
+	</div>
+
+	<h2>Odtwarzanie podstrony publicznej</h2>
+	<p>System okresowo sprawdza, czy podstrona generatora nadal istnieje i czy jej adres zgadza
+	   się z ustawieniami. Rozbieżność jest naprawiana — podstrona zostaje odtworzona,
+	   a reguły odnośników przebudowane.</p>
+</section>
+
+<!-- ============ 5. AWARIE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">5. Zachowanie przy awariach</h1>
+	<p class="rozdzial__wstep">Zasada nadrzędna: <strong>awaria jednej części nie może wyłączyć
+	   witryny</strong>. System degraduje działanie zamiast się zatrzymywać.</p>
+
+	<table class="tech">
+		<thead><tr><th>Awaria</th><th>Zachowanie systemu</th><th>Wpływ na witrynę</th></tr></thead>
+		<tbody>
+			<tr><td>Dostawca AI niedostępny</td>
+				<td>pytania kończą się komunikatem błędu; pamięć podręczna nadal odpowiada</td>
+				<td>żaden — reszta witryny działa normalnie</td></tr>
+			<tr><td>Klucz nieprawidłowy lub wygasły</td>
+				<td>odmowa z komunikatem o konfiguracji</td>
+				<td>żaden</td></tr>
+			<tr><td>Przydział dobowy wyczerpany</td>
+				<td>nowe pytania odrzucane, opublikowane FAQ nadal widoczne</td>
+				<td>żaden</td></tr>
+			<tr><td>Baza wiedzy pusta</td>
+				<td>odmowa na każde pytanie</td>
+				<td>żaden</td></tr>
+			<tr><td>Zadania cykliczne nie działają</td>
+				<td>brak samoczynnego wznowienia indeksowania</td>
+				<td>indeksowanie wymaga ręcznego dokończenia</td></tr>
+			<tr><td>Witryna nie łączy się sama ze sobą</td>
+				<td>źródło „pobranie strony” nie działa; pozostałe źródła treści działają</td>
+				<td>uboższa baza wiedzy przy budowniczych stron</td></tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Opublikowane FAQ jest odporne na awarie dostawcy.</strong> Zestaw opublikowany
+		   na podstronie to zapisana treść — wyświetla się nawet przy całkowitej niedostępności
+		   usługi zewnętrznej. Przestaje działać wyłącznie zadawanie nowych pytań.</p>
+	</div>
+</section>
+
+<!-- ============ 6-7. MIGRACJE I KONSERWACJA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">6. Migracje schematu bazy</h1>
+	<p class="rozdzial__wstep">Schemat jest wersjonowany. Bieżąca wersja: <strong>6</strong>.</p>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">M1</span>
+			<p class="wym__tytul">Przebieg migracji</p></div>
+		<div class="wym__tresc">
+			<p>Po podniesieniu wersji wtyczki system porównuje zapisaną wersję schematu
+			   z oczekiwaną. Rozbieżność uruchamia migrację, po której zapisywana jest nowa wersja.</p>
+			<p>Migracje są <strong>przyrostowe i jednokierunkowe</strong> — nie przewidziano
+			   powrotu do wersji niższej. Przed aktualizacją należy wykonać kopię bazy.</p>
+		</div>
+	</div>
+
+	<table class="tech">
+		<thead><tr><th>Wersja</th><th>Zmiana</th></tr></thead>
+		<tbody>
+			<tr><td>5</td><td>rozbudowa dziennika pytań i historii generowań</td></tr>
+			<tr><td>6</td><td>indeks złożony pod zapytania stronicujące — usunięcie sortowania plikowego</td></tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Migracja nie dotyka bazy wiedzy.</strong> Zmiana wersji schematu nie unieważnia
+		   policzonych wektorów. Przebudowy wymaga wyłącznie zmiana sygnatury indeksu
+		   (dostawca, model, wymiar wektora).</p>
+	</div>
+
+	<h1 class="rozdzial" style="margin-top:9mm">7. Konserwacja</h1>
+
+	<h2>Czynności okresowe</h2>
+	<table class="tech">
+		<thead><tr><th>Czynność</th><th>Kiedy</th><th>Po co</th></tr></thead>
+		<tbody>
+			<tr><td>Ponowne indeksowanie</td><td>po istotnej zmianie treści witryny</td>
+				<td>zgodność odpowiedzi z aktualną ofertą</td></tr>
+			<tr><td>Przegląd dziennika pytań</td><td>okresowo</td>
+				<td>wykrycie pytań bez pokrycia — wskazówka, co uzupełnić na stronie</td></tr>
+			<tr><td>Czyszczenie dziennika</td><td>gdy rozrośnie się nadmiernie</td>
+				<td>ograniczenie rozmiaru bazy</td></tr>
+			<tr><td>Kontrola zużycia dobowego</td><td>przy skargach na odmowy</td>
+				<td>odróżnienie wyczerpania przydziału od braku pokrycia w treści</td></tr>
+		</tbody>
+	</table>
+
+	<h2>Sygnały ostrzegawcze</h2>
+	<table class="tech">
+		<thead><tr><th>Objaw</th><th>Prawdopodobna przyczyna</th></tr></thead>
+		<tbody>
+			<tr><td>Odmowa na wszystkie pytania, także oczywiste</td><td>pusta baza wiedzy albo nieaktualna sygnatura indeksu</td></tr>
+			<tr><td>Odpowiedzi ucięte lub puste</td><td>zbyt niski limit długości odpowiedzi — rozumowanie modelu zjada budżet</td></tr>
+			<tr><td>Sufit dobowy osiągany wcześnie</td><td>brak limitu gościa albo ruch automatyczny</td></tr>
+			<tr><td>Podstrona zwraca „nie znaleziono”</td><td>reguły odnośników nieprzebudowane po zmianie adresu</td></tr>
+			<tr><td>Indeksowanie nie kończy się mimo prób</td><td>zadania cykliczne nie działają albo pula procesów PHP jest zbyt mała</td></tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Kolejność diagnozy.</strong> Najpierw stan na Dashboardzie (klucz, baza wiedzy,
+		   zużycie), potem sprawdzenie połączenia, dopiero na końcu dzienniki serwera.
+		   Większość zgłoszeń kończy się na pierwszym kroku.</p>
+	</div>
+</section>
+
+</body>
+</html>

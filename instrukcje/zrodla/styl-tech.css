@@ -1,0 +1,198 @@
+/* Dokumenty techniczne (Functional / Non-functional / Schema).
+   Odbiorca: informatyk klienta. Gesciej i rzeczowo niz instrukcja wprowadzajaca. */
+
+@page { size: A4; }
+
+:root {
+	--granat: #1e3a5f;
+	--granat-jasny: #eef3f8;
+	--ciemny: #1f2937;
+	--szary: #5b6472;
+	--kreska: #d8dee6;
+	--kod-tlo: #f5f7fa;
+	--uwaga-tlo: #fff8e6;
+	--uwaga-ramka: #e0a800;
+	--zielen: #0f766e;
+	--czerwien: #b42318;
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	font-family: "Segoe UI", "Trebuchet MS", Arial, sans-serif;
+	font-size: 10.2pt;
+	line-height: 1.4;
+	color: var(--ciemny);
+	-webkit-print-color-adjust: exact;
+	print-color-adjust: exact;
+}
+
+code, .mono {
+	font-family: Consolas, "Courier New", monospace;
+	font-size: 9.5pt;
+	background: var(--kod-tlo);
+	padding: 0.4mm 1.2mm;
+	border-radius: 3px;
+}
+
+.strona { page-break-after: always; break-after: page; }
+.strona:last-child { page-break-after: auto; break-after: auto; }
+
+/* --- okladka --- */
+.okladka {
+	display: flex; flex-direction: column; justify-content: center;
+	min-height: 235mm; text-align: center;
+}
+.okladka__etykieta {
+	display: inline-block;
+	margin: 0 auto 6mm;
+	padding: 2mm 5mm;
+	background: var(--granat);
+	color: #fff;
+	border-radius: 4px;
+	font-size: 10pt;
+	letter-spacing: 0.6mm;
+	text-transform: uppercase;
+}
+.okladka__tytul {
+	font-size: 30pt; font-weight: 700; color: var(--granat);
+	margin: 0 0 3mm; line-height: 1.15;
+}
+.okladka__podtytul { font-size: 13pt; color: var(--szary); margin: 0 0 12mm; font-weight: 400; }
+.okladka__ramka {
+	border: 1px solid var(--kreska); border-left: 4px solid var(--granat);
+	border-radius: 4px; padding: 6mm 8mm; margin: 0 auto; max-width: 135mm;
+	background: var(--granat-jasny); text-align: left;
+}
+.okladka__ramka p { margin: 2mm 0; font-size: 10.5pt; }
+.okladka__stopka { margin-top: 14mm; font-size: 9.5pt; color: var(--szary); }
+
+/* --- naglowki --- */
+h1.rozdzial {
+	font-size: 18pt; color: var(--granat); margin: 0 0 2mm;
+	padding-bottom: 2.5mm; border-bottom: 2.5px solid var(--granat);
+}
+.rozdzial__wstep { font-size: 10.2pt; color: var(--szary); margin: 0 0 5mm; }
+h2 { font-size: 12.5pt; margin: 6mm 0 2.5mm; color: var(--granat); }
+h3 { font-size: 11pt; margin: 4mm 0 2mm; color: var(--ciemny); }
+
+/* --- blok wymagania (F1, N1, S1...) --- */
+.wym {
+	border: 1px solid var(--kreska);
+	border-radius: 5px;
+	margin: 0 0 3.2mm;
+	page-break-inside: avoid; break-inside: avoid;
+	overflow: hidden;
+}
+.wym__glowa {
+	background: var(--granat-jasny);
+	padding: 2.5mm 4mm;
+	border-bottom: 1px solid var(--kreska);
+	display: flex; gap: 3mm; align-items: baseline;
+}
+.wym__id {
+	font-family: Consolas, monospace; font-weight: 700;
+	color: var(--granat); font-size: 10.5pt; flex: 0 0 auto;
+}
+.wym__tytul { font-weight: 700; font-size: 10.5pt; margin: 0; }
+.wym__tresc { padding: 3mm 4mm; }
+.wym__tresc p { margin: 0 0 2mm; }
+.wym__tresc p:last-child { margin-bottom: 0; }
+.wym__meta {
+	margin-top: 2.5mm; padding-top: 2mm; border-top: 1px dotted var(--kreska);
+	font-size: 9.5pt; color: var(--szary);
+}
+
+/* --- tabele techniczne --- */
+table.tech {
+	width: 100%; border-collapse: collapse; margin: 2.5mm 0; font-size: 9.2pt;
+}
+table.tech th {
+	background: var(--granat); color: #fff; text-align: left;
+	padding: 2mm 2.5mm; font-size: 9.5pt; font-weight: 600;
+}
+table.tech td {
+	border-bottom: 1px solid var(--kreska); padding: 1.5mm 2.2mm; vertical-align: top;
+}
+table.tech tr { page-break-inside: avoid; break-inside: avoid; }
+table.tech code { background: none; padding: 0; }
+table.tech .met {
+	font-family: Consolas, monospace; font-weight: 700; font-size: 9pt;
+}
+.met--get { color: var(--zielen); }
+.met--post { color: var(--czerwien); }
+
+/* --- diagramy --- */
+figure { margin: 3mm 0 4mm; page-break-inside: avoid; break-inside: avoid; }
+figure img { width: 100%; display: block; }
+figcaption { font-size: 9pt; color: var(--szary); margin-top: 1.5mm; font-style: italic; }
+
+/* --- ramki --- */
+.uwaga {
+	background: var(--uwaga-tlo); border-left: 4px solid var(--uwaga-ramka);
+	padding: 3mm 4mm; margin: 3mm 0; border-radius: 0 4px 4px 0;
+	page-break-inside: avoid; break-inside: avoid; font-size: 10pt;
+}
+.uwaga p { margin: 0; }
+
+pre.kod {
+	background: var(--kod-tlo); border: 1px solid var(--kreska); border-left: 3px solid var(--granat);
+	padding: 3mm 4mm; margin: 2.5mm 0; font-family: Consolas, monospace;
+	font-size: 8.5pt; line-height: 1.4; overflow-wrap: break-word; white-space: pre-wrap;
+	page-break-inside: avoid; break-inside: avoid;
+}
+
+/* --- listy --- */
+ul.zwarte, ol.zwarte { margin: 2mm 0; padding-left: 6mm; }
+ul.zwarte li, ol.zwarte li { margin-bottom: 1.2mm; }
+
+.spis { list-style: none; padding: 0; margin: 0; }
+.spis > li {
+	padding: 1.6mm 0; border-bottom: 1px dotted var(--kreska);
+	display: flex; gap: 3mm; align-items: baseline;
+}
+.spis__nr {
+	flex: 0 0 auto; width: 7mm; height: 7mm; border-radius: 3px;
+	background: var(--granat-jasny); color: var(--granat); font-weight: 700;
+	font-size: 9.5pt; display: flex; align-items: center; justify-content: center;
+}
+.spis__opis { font-size: 9.5pt; color: var(--szary); display: block; }
+
+/* --- diagram na wlasnej stronie POZIOMEJ ---
+   Wczesniej diagram byl obracany o 90 st., co zmuszalo czytelnika do przekrecania
+   kartki (i glowy przy czytaniu na ekranie). Chromium obsluguje nazwane strony,
+   wiec sama strona jest pozioma, a diagram stoi normalnie.
+   Zysk: 277 mm szerokosci zamiast 232 mm po obrocie. */
+@page poziomo { size: A4 landscape; margin: 10mm; }
+
+.strona--diagram {
+	page: poziomo;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	height: 178mm;
+	page-break-after: always;
+	break-after: page;
+}
+.strona--diagram img {
+	max-width: 275mm;
+	max-height: 168mm;
+	width: auto;
+	height: auto;
+	object-fit: contain;
+}
+.strona--diagram figcaption {
+	margin-top: 2mm;
+	text-align: center;
+	font-size: 8.5pt;
+}
+
+/* --- dokument referencyjny: tresc plynie, strone lamie tylko naglowek rozdzialu --- */
+.ciagly { }
+.ciagly > h1.rozdzial { page-break-before: always; break-before: page; }
+.ciagly:first-of-type > h1.rozdzial { page-break-before: auto; break-before: auto; }
+
+/* Zakresy liczbowe nie moga sie lamac miedzy wierszami. */
+.nolam { white-space: nowrap; }

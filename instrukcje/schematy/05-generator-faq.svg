@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1520" height="830" viewBox="0 0 1520 830" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<defs><marker id="grot" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#475569"/></marker></defs>
+<rect width="1520" height="830" fill="#FFFFFF"/>
+<text x="24" y="36" font-size="19" font-weight="700" fill="#0F172A">Druga polowka produktu — generator FAQ w kokpicie</text>
+<text x="24" y="58" font-size="12.5" fill="#475569">Sciezka od tematu do gotowego FAQ: generowanie, edycja, piec formatow eksportu, publikacja na podstronie i dane strukturalne dla wyszukiwarki.</text>
+<line x1="200.0" y1="172.0" x2="200.0" y2="210.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="200.0" y1="284.0" x2="200.0" y2="320.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="330.6" y1="320.0" x2="491.2" y2="272.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="595.0" y1="272.0" x2="595.0" y2="300.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="595.0" y1="378.0" x2="595.0" y2="406.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="595.0" y1="468.0" x2="595.0" y2="496.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="638.4" y1="496.0" x2="951.6" y2="272.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="658.3" y1="496.0" x2="931.7" y2="362.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1160.0" y1="241.0" x2="1200.0" y2="241.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1112.1" y1="272.0" x2="1217.9" y2="300.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1051.1" y1="272.0" x2="1264.5" y2="390.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1335.0" y1="468.0" x2="1335.0" y2="500.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="1335.0" y1="562.0" x2="1335.0" y2="590.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)" stroke-dasharray="6 5"/>
+<rect x="40" y="110" width="320" height="62" rx="9" fill="#FFF4EC" stroke="#E8590C" stroke-width="2"/>
+<text x="200.0" y="136.5" font-size="12.5" font-weight="700" fill="#7C2D12" text-anchor="middle">Wlasciciel / redaktor</text>
+<text x="200.0" y="153.5" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">kokpit albo panel na froncie</text>
+<rect x="40" y="210" width="320" height="74" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="200.0" y="242.5" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">Temat + opcjonalny opis + liczba pytan</text>
+<text x="200.0" y="259.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">Narzedzie FAQ albo metabox w edytorze wpisu</text>
+<rect x="40" y="320" width="320" height="78" rx="9" fill="#FEFCE8" stroke="#CA8A04" stroke-width="2"/>
+<text x="200.0" y="346.0" font-size="12.5" font-weight="700" fill="#713F12" text-anchor="middle">Bramki kosztu</text>
+<text x="200.0" y="363.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">limit godzinowy per uzytkownik</text>
+<text x="200.0" y="380.0" font-size="11.5" font-weight="400" fill="#713F12" text-anchor="middle">+ wspolny dobowy sufit witryny</text>
+<rect x="430" y="210" width="330" height="62" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="595.0" y="236.5" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">Rest\GeneratorService</text>
+<text x="595.0" y="253.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">walidacja parametrow, przyciecie opisu</text>
+<rect x="430" y="300" width="330" height="78" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="595.0" y="326.0" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">Faq\FaqGenerator</text>
+<text x="595.0" y="343.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">reguly w systemInstruction,</text>
+<text x="595.0" y="360.0" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">temat w turze uzytkownika</text>
+<rect x="430" y="406" width="330" height="62" rx="9" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="595.0" y="432.5" font-size="12.5" font-weight="700" fill="#7F1D1D" text-anchor="middle">Google Gemini</text>
+<text x="595.0" y="449.5" font-size="11.5" font-weight="400" fill="#7F1D1D" text-anchor="middle">structured JSON (pary Q&amp;A)</text>
+<rect x="430" y="496" width="330" height="62" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="595.0" y="522.5" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">Faq\Exporter::normalize()</text>
+<text x="595.0" y="539.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">przyciecie par, limit dlugosci, sanityzacja</text>
+<rect x="830" y="210" width="330" height="62" rx="9" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="995.0" y="236.5" font-size="12.5" font-weight="700" fill="#0F172A" text-anchor="middle">Tabela par w przegladarce</text>
+<text x="995.0" y="253.5" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">edycja, kopiowanie, usuwanie pojedynczych par</text>
+<rect x="830" y="300" width="330" height="62" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="995.0" y="326.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">wp_aifaq_generations</text>
+<text x="995.0" y="343.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">kazde generowanie zapisane z parami</text>
+<rect x="1200" y="210" width="270" height="62" rx="9" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="1335.0" y="236.5" font-size="12.5" font-weight="700" fill="#0F172A" text-anchor="middle">Eksport — 5 formatow</text>
+<text x="1335.0" y="253.5" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">HTML · Gutenberg · Elementor · JSON · JSON-LD</text>
+<rect x="1200" y="300" width="270" height="62" rx="9" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="1335.0" y="326.5" font-size="12.5" font-weight="700" fill="#0F172A" text-anchor="middle">„Wstaw do wpisu”</text>
+<text x="1335.0" y="343.5" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">FAQ doklejone na koniec tresci</text>
+<rect x="1200" y="390" width="270" height="78" rx="9" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="1335.0" y="416.0" font-size="12.5" font-weight="700" fill="#0F172A" text-anchor="middle">Publikacja na podstronie</text>
+<text x="1335.0" y="433.0" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">opcja aifaq_public_faq + kopia _prev</text>
+<text x="1335.0" y="450.0" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">zamek: druga rownoczesna proba -&gt; HTTP 409</text>
+<rect x="1200" y="500" width="270" height="62" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="1335.0" y="526.5" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">JSON-LD FAQPage</text>
+<text x="1335.0" y="543.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">tylko z OPUBLIKOWANYCH par</text>
+<rect x="1200" y="590" width="270" height="62" rx="9" fill="#FFF4EC" stroke="#E8590C" stroke-width="2"/>
+<text x="1335.0" y="616.5" font-size="12.5" font-weight="700" fill="#7C2D12" text-anchor="middle">Wyszukiwarka</text>
+<text x="1335.0" y="633.5" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">rich results / FAQ w wynikach</text>
+<rect x="373.4" y="286.0" width="75.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="410.9" y="300.0" font-size="11" fill="#334155" text-anchor="middle">w limicie</text>
+<rect x="543.5" y="382.0" width="103.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="595.0" y="396.0" font-size="11" fill="#334155" text-anchor="middle">1 zadanie API</text>
+<rect x="24" y="733" width="26" height="14" rx="4" fill="#FFF4EC" stroke="#E8590C" stroke-width="2"/>
+<text x="58" y="744" font-size="11.5" fill="#334155">Czlowiek / odbiorca</text>
+<rect x="24" y="753" width="26" height="14" rx="4" fill="#FEFCE8" stroke="#CA8A04" stroke-width="2"/>
+<text x="58" y="764" font-size="11.5" fill="#334155">Ochrona kosztu</text>
+<rect x="24" y="773" width="26" height="14" rx="4" fill="#FEF2F2" stroke="#B91C1C" stroke-width="2"/>
+<text x="58" y="784" font-size="11.5" fill="#334155">Zadanie do Gemini</text>
+<rect x="24" y="793" width="26" height="14" rx="4" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="58" y="804" font-size="11.5" fill="#334155">Co dostaje wlasciciel</text>
+</svg>

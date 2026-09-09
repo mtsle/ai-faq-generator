@@ -1,0 +1,257 @@
+/* Instrukcja obslugi dla klienta — styl wydruku A4.
+   Zalozenie: czyta to osoba, ktora pierwszy raz widzi kokpit WordPressa. */
+
+/* Marginesy ustawia generator PDF (buduj-pdf.mjs). Podanie ich TAKZE tutaj
+   powoduje, ze Chromium sumuje jedne z drugimi i kolumna tekstu robi sie waska. */
+@page { size: A4; }
+
+:root {
+	--zielen: #0f766e;
+	--zielen-jasna: #e6f4f1;
+	--ciemny: #1f2937;
+	--szary: #5b6472;
+	--kreska: #dfe3e8;
+	--uwaga-tlo: #fff8e6;
+	--uwaga-ramka: #e0a800;
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	font-family: "Segoe UI", "Trebuchet MS", Arial, sans-serif;
+	font-size: 11pt;
+	line-height: 1.5;
+	color: var(--ciemny);
+	-webkit-print-color-adjust: exact;
+	print-color-adjust: exact;
+}
+
+/* --- strona --- */
+.strona {
+	page-break-after: always;
+	break-after: page;
+}
+.strona:last-child { page-break-after: auto; break-after: auto; }
+
+/* --- okladka --- */
+.okladka {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	min-height: 235mm;
+	text-align: center;
+}
+/* Znak graficzny rysowany CSS-em — emoji w druku wychodzi blade i rozmyte. */
+.okladka__znak {
+	width: 26mm;
+	height: 26mm;
+	margin: 0 auto 8mm;
+	border-radius: 50% 50% 50% 6px;
+	background: var(--zielen);
+	position: relative;
+}
+.okladka__znak::before,
+.okladka__znak::after {
+	content: "";
+	position: absolute;
+	background: #fff;
+	border-radius: 2px;
+	left: 50%;
+	transform: translateX(-50%);
+}
+.okladka__znak::before { top: 8mm;  width: 13mm; height: 1.8mm; }
+.okladka__znak::after  { top: 12mm; width: 8mm;  height: 1.8mm; }
+.okladka__tytul {
+	font-size: 32pt;
+	font-weight: 700;
+	color: var(--zielen);
+	margin: 0 0 4mm;
+	line-height: 1.15;
+}
+.okladka__podtytul {
+	font-size: 15pt;
+	color: var(--szary);
+	margin: 0 0 14mm;
+	font-weight: 400;
+}
+.okladka__ramka {
+	border: 2px solid var(--zielen);
+	border-radius: 10px;
+	padding: 7mm 9mm;
+	margin: 0 auto;
+	max-width: 125mm;
+	background: var(--zielen-jasna);
+	text-align: left;
+}
+.okladka__ramka p { margin: 2mm 0; font-size: 11pt; }
+.okladka__podtytul--male {
+	display: block;
+	font-size: 11.5pt;
+	margin-top: 3mm;
+	color: var(--szary);
+}
+.okladka__stopka {
+	margin-top: 16mm;
+	font-size: 10pt;
+	color: var(--szary);
+}
+
+/* --- naglowki --- */
+h1.rozdzial {
+	font-size: 21pt;
+	color: var(--zielen);
+	margin: 0 0 2mm;
+	padding-bottom: 3mm;
+	border-bottom: 3px solid var(--zielen);
+}
+.rozdzial__wstep {
+	font-size: 11pt;
+	color: var(--szary);
+	margin: 0 0 7mm;
+}
+h2 {
+	font-size: 13.5pt;
+	margin: 7mm 0 3mm;
+	color: var(--ciemny);
+}
+
+/* --- kroki --- */
+/* Bez "break-inside: avoid" — przy zrzucie ekranu w srodku krok nie miesci sie
+   w resztce strony i Chromium wypychalby go w calosci na nastepna, zostawiajac
+   pol strony pustki. Lamiemy tylko obrazek i ramke "uwaga". */
+.krok { margin: 0 0 6mm; }
+.krok__glowa {
+	display: flex;
+	align-items: baseline;
+	gap: 4mm;
+	margin-bottom: 2mm;
+}
+.krok__numer {
+	flex: 0 0 auto;
+	width: 9mm;
+	height: 9mm;
+	border-radius: 50%;
+	background: var(--zielen);
+	color: #fff;
+	font-weight: 700;
+	font-size: 12pt;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.krok__tytul {
+	font-size: 12.5pt;
+	font-weight: 700;
+	margin: 0;
+}
+.krok__tresc { margin-left: 13mm; }
+.krok__tresc p { margin: 0 0 2mm; }
+
+/* --- zrzuty ekranu --- */
+figure {
+	margin: 2.5mm 0 3mm;
+	page-break-inside: avoid;
+	break-inside: avoid;
+}
+/* Wezsze niz kolumna tekstu: zrzuty sa bardzo szerokie, a przy pelnej szerokosci
+   ich wysokosc wypychala koncowke rozdzialu na osobna, prawie pusta kartke.
+   Zwezenie zachowuje proporcje i oddaje ~8 mm na strone. */
+figure img {
+	width: 87%;
+	margin: 0 auto;
+	border: 1px solid var(--kreska);
+	border-radius: 6px;
+	display: block;
+}
+figcaption {
+	font-size: 9.5pt;
+	color: var(--szary);
+	margin-top: 1.5mm;
+	font-style: italic;
+}
+
+/* --- ramka "wazne" --- */
+.uwaga {
+	background: var(--uwaga-tlo);
+	border-left: 4px solid var(--uwaga-ramka);
+	padding: 4mm 5mm;
+	margin: 4mm 0;
+	border-radius: 0 6px 6px 0;
+	page-break-inside: avoid;
+	break-inside: avoid;
+}
+.uwaga p { margin: 0; }
+.uwaga strong { color: #8a6100; }
+
+/* --- spis tresci --- */
+.spis { list-style: none; padding: 0; margin: 0; }
+.spis > li {
+	padding: 1.8mm 0;
+	border-bottom: 1px dotted var(--kreska);
+	display: flex;
+	gap: 4mm;
+	align-items: baseline;
+}
+.spis__nr {
+	flex: 0 0 auto;
+	width: 8mm;
+	height: 8mm;
+	border-radius: 50%;
+	background: var(--zielen-jasna);
+	color: var(--zielen);
+	font-weight: 700;
+	font-size: 10.5pt;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.spis__opis { font-size: 10pt; color: var(--szary); display: block; }
+
+/* --- naglowek czesci (A / B) --- */
+.czesc {
+	background: var(--zielen-jasna);
+	color: var(--zielen);
+	padding: 2.5mm 4mm;
+	border-radius: 6px;
+	margin: 6mm 0 3mm;
+	font-size: 12pt;
+}
+
+/* --- tabela "co widzisz / co zrobic" --- */
+.problemy {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 4mm 0;
+	font-size: 10pt;
+}
+.problemy th {
+	background: var(--zielen);
+	color: #fff;
+	text-align: left;
+	padding: 2.5mm 3mm;
+	font-size: 10.5pt;
+}
+.problemy td {
+	border-bottom: 1px solid var(--kreska);
+	padding: 2.5mm 3mm;
+	vertical-align: top;
+}
+.problemy tr { page-break-inside: avoid; break-inside: avoid; }
+.problemy td:first-child { width: 38%; }
+
+/* --- zamkniecie dokumentu --- */
+.koniec {
+	margin-top: 8mm;
+	padding: 5mm;
+	border: 2px solid var(--zielen);
+	border-radius: 8px;
+	background: var(--zielen-jasna);
+	text-align: center;
+}
+.koniec p { margin: 1mm 0; }
+
+/* --- slowniczek --- */
+.slownik { margin: 0; }
+.slownik dt { font-weight: 700; margin-top: 2.5mm; color: var(--zielen); }
+.slownik dd { margin: 0 0 0 0; }
