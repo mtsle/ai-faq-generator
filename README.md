@@ -75,8 +75,8 @@ PHP 8.2 z `mbstring`) wołają CI-owe kopie runnerów z `.github/ci/`:
 
 | job | runner | kryterium zaliczenia |
 |---|---|---|
-| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **60 zestawów, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
-| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2083 asercje** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
+| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **62 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
+| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2305 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
 
 Te same skrypty działają lokalnie (wymagany PHP CLI z rozszerzeniem `mbstring`):
 
@@ -371,9 +371,11 @@ drugi raz); **realny `score` przy trafieniu cache** (dotąd log zapisywał zmyś
 | 9. Audyt ❌ | **NIE WYKONANY — świadomie zdjęty z zakresu** decyzją właściciela projektu (2026-08-03). Nie jest to etap „zaliczony po cichu": osobnego audytu przed v1.0.0 nie było. Warto pamiętać, że pełny audyt bezpieczeństwa całej wtyczki przeszedł wcześniej, w **v0.26.0**, a etapy 1–5 tego Kroku były w praktyce ciągiem audytów (red team, wydajność, architektura, obciążenie, cykl życia na żywo) |
 | 10. Domknięcie ✅ | `AIFAQ_VERSION` → **1.0.0**, tag i release |
 
-**Testy.** W `tests/` leży **61 zestawów** spinanych własnym runnerem (`zasoby/run-tests.sh` —
-**poza tym repo**, w katalogu roboczym projektu obok wtyczki): **61/61 przechodzi**. W repo jest
-jego CI-owa kopia [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) — ta sama lista
+**Testy.** W `tests/` leży **62 zestawy**, spinane runnerem
+[`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh): **62/62 przechodzi**. Kopia robocza
+tego runnera (`zasoby/run-tests.sh`, **poza tym repo**) wymienia jeszcze `demo-tryb-test.php`,
+który żyje wyłącznie na gałęzi `demo` — daje więc 63 zestawy przy 1 niezaliczonym. To znany
+stan, nie regresja. Runner w repo — ta sama lista
 zestawów i to samo kryterium; woła ją workflow „Testy" (sekcja „CI" na górze). Runner nie
 jest PHPUnitem — to zwykłe skrypty PHP z atrapami WordPressa, uruchamiane bez bazy danych.
 Osobno `tests/load/` (**14 plików**, Krok 23 etap 4) wymaga żywego środowiska i **nie wchodzi**

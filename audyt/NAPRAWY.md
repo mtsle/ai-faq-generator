@@ -145,7 +145,7 @@ regułę techniczną. Zrobione zostały obie.
 
 | | Przed audytem | Po naprawach |
 |---|---|---|
-| Zestawy testowe W1 | 60 | **61** |
+| Zestawy testowe W1 | 60 | **62** |
 | Zestawy testowe W2 | 29 | 29 |
 | Asercje W2 (liczone co do jednej) | 2083 | **2305** |
 | Pozycje otwarte z audytu | 48 | **0** |

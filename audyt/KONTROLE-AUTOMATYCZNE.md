@@ -20,9 +20,9 @@ Wymagania: PHP 8.2 z rozszerzeniem `mbstring`. Nic więcej.
 | | Wtyczka 1 | Wtyczka 2 |
 |---|---|---|
 | Segmenty | 54 | 15 |
-| Zestawy | 60 → **61** po naprawach | 29 |
+| Zestawy | **62** po naprawach (przed: 60) | 29 |
 | Kryterium zaliczenia | kod wyjścia zestawu | **dokładna równość liczby asercji** |
-| Asercje | nieliczone globalnie | 2083 → **2305** po naprawach |
+| Asercje | nieliczone globalnie | **2305** po naprawach (przed: 2083) |
 
 ---
 
