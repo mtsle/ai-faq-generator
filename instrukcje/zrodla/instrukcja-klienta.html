@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Instrukcja dla klienta (wprowadzająca) — AI FAQ Generator</title>
+<link rel="stylesheet" href="styl.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<div class="okladka__znak"></div>
+	<h1 class="okladka__tytul">AI FAQ Generator</h1>
+	<p class="okladka__podtytul">Instrukcja dla klienta (wprowadzająca)<br>
+	   <span class="okladka__podtytul--male">Jak wgrać wtyczkę i jak z niej korzystać — krok po kroku</span></p>
+
+	<div class="okladka__ramka">
+		<p><strong>Dla kogo jest ta instrukcja?</strong></p>
+		<p>Dla osoby, która prowadzi stronę internetową i chce, żeby odpowiadała ona
+		   na pytania odwiedzających — sama, przez całą dobę.</p>
+		<p><strong>Czy muszę znać się na komputerach?</strong></p>
+		<p>Nie. Wszystko jest opisane po kolei, z obrazkami. Każdy obrazek pokazuje
+		   dokładnie to, co zobaczysz na swoim ekranie. Czerwona ramka na obrazku
+		   wskazuje miejsce, w które masz kliknąć.</p>
+		<p><strong>Ile to zajmie?</strong></p>
+		<p>Uruchomienie — około 20 minut. Potem obsługa to kwestia kilku kliknięć.</p>
+	</div>
+
+	<p class="okladka__stopka">
+		Wersja wtyczki 1.0.0<br>
+		Obrazki pochodzą ze strony przedszkola, na której wtyczka działa.<br>
+		Na swojej stronie zobaczysz własne treści — układ ekranów będzie taki sam.
+	</p>
+</section>
+
+<!-- ============ SPIS TREŚCI ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Co znajdziesz w tej instrukcji</h1>
+	<p class="rozdzial__wstep">Instrukcja dzieli się na dwie części. Pierwszą przechodzisz
+	   raz, przy uruchomieniu. Drugiej używasz na co dzień.</p>
+
+	<h2 class="czesc">Część A — uruchomienie (robisz raz)</h2>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>Zanim zaczniesz</strong>
+			<span class="spis__opis">Co musisz mieć przygotowane.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>Jak wgrać wtyczkę na stronę</strong>
+			<span class="spis__opis">Od pliku, który dostałeś, do działającej wtyczki.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>Klucz — jak go zdobyć i wpisać</strong>
+			<span class="spis__opis">Darmowy klucz Google. Bez niego wtyczka nie odpowie.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>Ustawienia podstawowe</strong>
+			<span class="spis__opis">Model, język odpowiedzi, adres strony z pytaniami.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>Nauka treści Twojej strony</strong>
+			<span class="spis__opis">Indeksowanie — najważniejszy krok całego uruchomienia.</span></span></li>
+	</ol>
+
+	<h2 class="czesc">Część B — codzienna obsługa</h2>
+	<ol class="spis" start="6">
+		<li><span class="spis__nr">6</span><span><strong>Dwa miejsca, z których obsługujesz wtyczkę</strong>
+			<span class="spis__opis">Kokpit i panel na stronie — to samo, w dwóch miejscach.</span></span></li>
+		<li><span class="spis__nr">7</span><span><strong>Zadawanie pytań</strong>
+			<span class="spis__opis">Sprawdzenie, czy wtyczka dobrze zna Twoją stronę.</span></span></li>
+		<li><span class="spis__nr">8</span><span><strong>Narzędzie FAQ — gotowy zestaw pytań</strong>
+			<span class="spis__opis">Wtyczka sama układa listę najczęstszych pytań z odpowiedziami.</span></span></li>
+		<li><span class="spis__nr">9</span><span><strong>Publikacja FAQ na stronie</strong>
+			<span class="spis__opis">Pokazanie gotowego zestawu odwiedzającym.</span></span></li>
+		<li><span class="spis__nr">10</span><span><strong>Co widzi osoba odwiedzająca</strong>
+			<span class="spis__opis">Ta sama strona oczami gościa — i kiedy wtyczka odmawia odpowiedzi.</span></span></li>
+		<li><span class="spis__nr">11</span><span><strong>Historia pytań i generowań</strong>
+			<span class="spis__opis">O co pytają ludzie i co wtyczka wcześniej wygenerowała.</span></span></li>
+		<li><span class="spis__nr">12</span><span><strong>FAQ przy konkretnej stronie</strong>
+			<span class="spis__opis">Panel wtyczki w edytorze wpisu lub strony.</span></span></li>
+		<li><span class="spis__nr">13</span><span><strong>Ustawienia dla wymagających</strong>
+			<span class="spis__opis">Progi trafności, limity pytań, ochrona przed przekroczeniem darmowego przydziału.</span></span></li>
+		<li><span class="spis__nr">14</span><span><strong>Gdy coś nie działa</strong>
+			<span class="spis__opis">Najczęstsze kłopoty i co wtedy zrobić.</span></span></li>
+		<li><span class="spis__nr">15</span><span><strong>Wyłączenie i usunięcie wtyczki</strong>
+			<span class="spis__opis">Jak się rozstać bez śladów w bazie.</span></span></li>
+	</ol>
+</section>
+
+<!-- ============ SŁOWNICZEK ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Kilka słów, które będą się powtarzać</h1>
+	<p class="rozdzial__wstep">Nie musisz uczyć się ich na pamięć — wracaj tutaj, gdy któreś
+	   pojawi się w tekście.</p>
+
+	<dl class="slownik">
+		<dt>Kokpit</dt>
+		<dd>Panel zarządzania Twoją stroną — to tam logujesz się, żeby dodać wpis albo zmienić
+		    zdjęcie. Adres zwykle kończy się na <code>/wp-admin</code>.</dd>
+
+		<dt>Wtyczka</dt>
+		<dd>Dodatek, który dokłada stronie nową umiejętność — tak jak aplikacja dokładana
+		    do telefonu.</dd>
+
+		<dt>Klucz API</dt>
+		<dd>Hasło do sztucznej inteligencji Google. Dostajesz je za darmo, wklejasz raz
+		    i więcej do niego nie wracasz.</dd>
+
+		<dt>Model</dt>
+		<dd>Rodzaj sztucznej inteligencji, z której korzysta wtyczka. Zostaw ten zalecany.</dd>
+
+		<dt>Indeksowanie</dt>
+		<dd>Czytanie Twojej strony przez wtyczkę i zapamiętywanie, co na niej jest. Dzięki temu
+		    odpowiada o <em>Twojej</em> firmie, a nie ogólnie o świecie.</dd>
+
+		<dt>Baza wiedzy</dt>
+		<dd>To, co wtyczka zapamiętała po indeksowaniu. Im więcej treści na stronie,
+		    tym lepsze odpowiedzi.</dd>
+
+		<dt>FAQ</dt>
+		<dd>Lista najczęstszych pytań wraz z odpowiedziami. Skrót od angielskiego
+		    „często zadawane pytania”.</dd>
+
+		<dt>Gość</dt>
+		<dd>Osoba odwiedzająca Twoją stronę, która nie jest zalogowana. Widzi mniej niż Ty.</dd>
+
+		<dt>Dobowy przydział</dt>
+		<dd>Ile pytań dziennie wtyczka może zadać sztucznej inteligencji za darmo.
+		    Wtyczka zatrzymuje się po <strong>12 pytaniach</strong>. Google daje ich 20,
+		    ale zapas zostaje na uczenie się treści strony i generowanie zestawów FAQ.
+		    Po wyczerpaniu wtyczka czeka do następnego dnia.</dd>
+	</dl>
+
+	<div class="uwaga">
+		<p><strong>Jedna rzecz na start.</strong> Wtyczka odpowiada <em>wyłącznie</em> na podstawie
+		   treści Twojej strony. Jeśli czegoś na stronie nie ma — wtyczka tego nie wymyśli,
+		   tylko grzecznie odmówi. To celowe: dzięki temu nie opowie klientowi bzdur.</p>
+	</div>
+</section>
+
+<!-- ============ 1. ZANIM ZACZNIESZ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">1. Zanim zaczniesz</h1>
+	<p class="rozdzial__wstep">Przygotuj trzy rzeczy. Zajmie to chwilę, a oszczędzi
+	   przerywania w połowie.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Plik z wtyczką</p></div>
+		<div class="krok__tresc">
+			<p>Nazywa się <strong>ai-faq-generator.zip</strong>. Zapisz go w miejscu, które
+			   łatwo odnajdziesz — na przykład na pulpicie. <strong>Nie rozpakowuj go</strong>;
+			   wgrywasz go w całości, tak jak jest.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Dostęp do kokpitu swojej strony</p></div>
+		<div class="krok__tresc">
+			<p>Login i hasło, którymi logujesz się do zarządzania stroną. Musisz mieć
+			   uprawnienia administratora — czyli takie, przy których w menu po lewej
+			   widzisz pozycję <strong>Wtyczki</strong>. Jeśli jej nie widzisz, poproś osobę,
+			   która zakładała Ci stronę.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">3</span>
+			<p class="krok__tytul">Konto Google</p></div>
+		<div class="krok__tresc">
+			<p>Zwykłe konto Google — takie jak do poczty Gmail. Posłuży do wygenerowania
+			   darmowego klucza. <strong>Karta płatnicza nie jest potrzebna</strong> i nie
+			   będziesz o nią proszony.</p>
+		</div>
+	</div>
+
+	<h2>Czego wtyczka potrzebuje od strony</h2>
+	<p>Żeby odpowiedzi miały z czego powstać, na stronie muszą być treści — opisy usług,
+	   zakładka „O nas”, cennik, wpisy na blogu. Im więcej konkretów, tym lepsze odpowiedzi.
+	   Strona złożona z samych zdjęć niewiele wtyczce da.</p>
+
+	<div class="uwaga">
+		<p><strong>Uwaga.</strong> Ta instrukcja opisuje obsługę wtyczki. Sprawy techniczne
+		   po stronie serwera — limity wgrywania plików, wersja PHP, zadania cykliczne —
+		   opisuje osobna <strong>Instrukcja dla informatyka (Functional)</strong>.</p>
+		<p>W paczce są jeszcze trzy dokumenty techniczne: <strong>Wymagania niefunkcjonalne</strong>,
+		   <strong>Schema — format danych</strong> oraz <strong>Instrukcje systemowe</strong>.
+		   Jeśli oddajesz sprawę informatykowi, przekaż mu <strong>całą paczkę</strong>,
+		   a nie pojedynczy plik.</p>
+	</div>
+</section>
+
+<!-- ============ 2. JAK WGRAĆ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">2. Jak wgrać wtyczkę na stronę</h1>
+	<p class="rozdzial__wstep">Pięć kliknięć. Nic nie da się tu zepsuć — wtyczkę zawsze
+	   można usunąć i wgrać ponownie.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Wejdź w „Wtyczki → Dodaj nową wtyczkę”</p></div>
+		<div class="krok__tresc">
+			<p>Zaloguj się do kokpitu. W menu po lewej kliknij <strong>Wtyczki</strong>,
+			   a potem <strong>Dodaj nową wtyczkę</strong>. U góry ekranu, obok tytułu,
+			   znajdziesz przycisk <strong>„Wyślij wtyczkę na serwer”</strong> — kliknij go.</p>
+			<figure>
+				<img src="../zrzuty/01-dodaj-nowa-wtyczke.png" alt="Ekran dodawania nowej wtyczki">
+				<figcaption>Przycisk jest u samej góry. Reszta ekranu to katalog gotowych wtyczek — nie potrzebujesz go.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Wskaż plik i zainstaluj</p></div>
+		<div class="krok__tresc">
+			<p>Pojawi się pole wyboru pliku. Kliknij <strong>„Wybierz plik”</strong>, odszukaj
+			   <strong>ai-faq-generator.zip</strong> i zatwierdź. Gdy nazwa pliku pojawi się
+			   obok przycisku, kliknij <strong>„Zainstaluj”</strong>.</p>
+			<figure>
+				<img src="../zrzuty/03-plik-wybrany.png" alt="Formularz z wybranym plikiem ZIP">
+				<figcaption>Plik wybrany, można instalować. Instalacja trwa kilka sekund.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">3</span>
+			<p class="krok__tytul">Włącz wtyczkę</p></div>
+		<div class="krok__tresc">
+			<p>Po instalacji zobaczysz komunikat o powodzeniu i odnośnik
+			   <strong>„Włącz wtyczkę”</strong>. Kliknij go. W menu po lewej pojawi się wtedy
+			   nowa pozycja <strong>AI FAQ Generator</strong> — to znak, że wszystko się udało.</p>
+			<figure>
+				<img src="../zrzuty/05-lista-wtyczek-aktywna.png" alt="Wiersz włączonej wtyczki na liście">
+				<figcaption>Tak wygląda włączona wtyczka na liście: pod nazwą jest odnośnik „Wyłącz”.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Gdy instalacja nie przechodzi.</strong> Komunikat o braku uprawnień albo
+		   o zbyt dużym pliku to ustawienie serwera, nie błąd wtyczki. Poproś wtedy informatyka
+		   lub firmę hostingową — potrzebne im szczegóły są w dokumencie
+		   <strong>„Instrukcja dla informatyka (Functional)”</strong>.</p>
+	</div>
+</section>
+
+<!-- ============ 3. KLUCZ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">3. Klucz — jak go zdobyć i wpisać</h1>
+	<p class="rozdzial__wstep">Wtyczka korzysta ze sztucznej inteligencji Google (Gemini).
+	   Żeby mogła to robić, potrzebuje Twojego klucza. Klucz jest darmowy.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Otwórz ustawienia wtyczki</p></div>
+		<div class="krok__tresc">
+			<p>W menu po lewej kliknij <strong>AI FAQ Generator</strong>, a potem
+			   <strong>Ustawienia</strong>.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Kliknij „Zdobądź darmowy klucz”</p></div>
+		<div class="krok__tresc">
+			<p>Pod polem <strong>Klucz API</strong> jest odnośnik
+			   <strong>„Zdobądź darmowy klucz →”</strong>. Otwiera stronę Google, na której
+			   logujesz się swoim kontem i klikasz przycisk tworzenia klucza. Google pokaże
+			   długi ciąg znaków — <strong>skopiuj go w całości</strong>.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">3</span>
+			<p class="krok__tytul">Wklej klucz i zapisz</p></div>
+		<div class="krok__tresc">
+			<p>Wróć do ustawień, wklej klucz w pole <strong>Klucz API</strong> i kliknij
+			   <strong>Zapisz</strong> na dole strony. Następnie kliknij
+			   <strong>„Test połączenia”</strong> — wtyczka sprawdzi, czy klucz działa.</p>
+			<figure>
+				<img src="../zrzuty/15-ustawienia-klucz-api.png" alt="Ustawienia — pole klucza API">
+				<figcaption>Gdy klucz jest już zapisany, pole pokazuje napis „Klucz zapisany” zamiast samego klucza.
+				  Tak ma być — to zabezpieczenie, żeby nikt nie podejrzał go zza pleców.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Traktuj klucz jak hasło.</strong> Nie wysyłaj go mailem ani nie wklejaj
+		   w wiadomościach. Gdyby wyciekł — wejdź na stronę Google, usuń go i wygeneruj nowy,
+		   a potem wklej nowy w to samo pole.</p>
+	</div>
+</section>
+
+<!-- ============ 4. USTAWIENIA PODSTAWOWE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">4. Ustawienia podstawowe</h1>
+	<p class="rozdzial__wstep">Trzy ustawienia, które warto sprawdzić od razu.
+	   Wszystkie są na tej samej stronie, pod polem klucza.</p>
+
+	<h2>Model</h2>
+	<p>Zostaw <strong>Gemini 2.5 Flash</strong>. Jest oznaczony jako zalecany i mieści się
+	   w darmowym przydziale.</p>
+	<figure>
+		<img src="../zrzuty/16-ustawienia-model.png" alt="Ustawienia — wybór modelu">
+		<figcaption>Lista modeli. Zalecany jest opisany wprost.</figcaption>
+	</figure>
+
+	<div class="uwaga">
+		<p><strong>Ważne.</strong> Modele opisane jako „WYMAGA KLUCZA PŁATNEGO” mają na darmowym
+		   kluczu przydział <strong>zero</strong> — pierwsze pytanie skończy się błędem.
+		   Jeśli nie masz pewności, nie zmieniaj tego ustawienia.</p>
+	</div>
+
+	<h2>Język odpowiedzi</h2>
+	<p>Pole <strong>Język FAQ</strong>, kilka linijek niżej — ustaw język, w którym wtyczka
+	   ma odpowiadać Twoim klientom. Domyślnie polski.</p>
+
+	<h2>Adres strony z pytaniami</h2>
+	<p>Wtyczka tworzy na Twojej witrynie osobną stronę, na której goście zadają pytania.
+	   Domyślnie ma adres kończący się na <code>/faqgenerator</code>, ale możesz wpisać
+	   własny — na przykład <code>pytania</code> albo <code>generator-faq</code>.</p>
+
+	<div class="uwaga">
+		<p><strong>Po zmianie adresu</strong> wejdź w <strong>Ustawienia → Bezpośrednie odnośniki</strong>
+		   w kokpicie i kliknij tam <strong>Zapisz</strong>. To odświeża adresy na stronie.
+		   Bez tego nowy adres może pokazywać „nie znaleziono”.</p>
+	</div>
+</section>
+
+<!-- ============ 5. INDEKSOWANIE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">5. Nauka treści Twojej strony</h1>
+	<p class="rozdzial__wstep">To najważniejszy krok całego uruchomienia. Bez niego wtyczka
+	   nie wie nic o Twojej firmie i będzie odmawiać odpowiedzi na każde pytanie.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Wejdź w „Dashboard”</p></div>
+		<div class="krok__tresc">
+			<p>W menu po lewej: <strong>AI FAQ Generator → Dashboard</strong>. Zobaczysz kafelki
+			   pokazujące, ile treści wtyczka już zna i ile pytań zużyła dzisiaj.</p>
+			<figure>
+				<img src="../zrzuty/55-dashboard-stan.png" alt="Dashboard ze stanem bazy wiedzy">
+				<figcaption>Kafelki na Dashboardzie: stan bazy wiedzy i zużycie dobowego przydziału.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Kliknij „Zaindeksuj”</p></div>
+		<div class="krok__tresc">
+			<p>Wtyczka przeczyta strony i wpisy Twojej witryny. Przy niewielkiej stronie
+			   zajmie to kilkadziesiąt sekund, przy dużej — kilka minut.
+			   <strong>Nie zamykaj okna w trakcie.</strong></p>
+			<p>Gdy skończy, licznik na Dashboardzie pokaże liczbę zapamiętanych fragmentów.
+			   To znaczy, że wtyczka jest gotowa do pracy.</p>
+		</div>
+	</div>
+
+	<h2>Kiedy powtórzyć indeksowanie</h2>
+	<p>Za każdym razem, gdy <strong>istotnie</strong> zmienisz treść strony: dodasz nową usługę,
+	   zmienisz cennik, opublikujesz ważny wpis. Poprawka literówki nie wymaga powtarzania.</p>
+
+	<div class="uwaga">
+		<p><strong>Gdyby indeksowanie przerwało się w połowie</strong> — nic się nie stało.
+		   Kliknij ponownie „Zaindeksuj”; wtyczka dokończy od miejsca, w którym stanęła.
+		   Przy bardzo dużych stronach potrafi wznowić się sama.</p>
+	</div>
+</section>
+
+<!-- ============ 6. DWA MIEJSCA OBSŁUGI ============ -->
+<section class="strona">
+	<h1 class="rozdzial">6. Dwa miejsca, z których obsługujesz wtyczkę</h1>
+	<p class="rozdzial__wstep">To bywa mylące na początku, więc wyjaśnijmy od razu:
+	   wszystko możesz zrobić na dwa sposoby. Wybierz ten, który Ci wygodniejszy —
+	   robią dokładnie to samo.</p>
+
+	<h2>Sposób pierwszy: kokpit</h2>
+	<p>Menu <strong>AI FAQ Generator</strong> po lewej stronie kokpitu. Znajdziesz tam
+	   sześć pozycji: <strong>Dashboard</strong>, <strong>Generator</strong>,
+	   <strong>Narzędzie FAQ</strong>, <strong>Historia generowań</strong>,
+	   <strong>Ustawienia</strong> i <strong>Historia</strong>.</p>
+	<figure>
+		<img src="../zrzuty/11-kokpit-generator.png" alt="Generator w kokpicie">
+		<figcaption>Kokpit — widok znany z zarządzania stroną, wtyczka dokłada tu własne pozycje w menu.</figcaption>
+	</figure>
+
+	<h2>Sposób drugi: panel na stronie z pytaniami</h2>
+	<p>Wejdź na swoją stronę z pytaniami (tę spod adresu z rozdziału 4), będąc zalogowanym.
+	   Zobaczysz <strong>Panel właściciela</strong> z zakładkami — te same funkcje,
+	   ale bez wchodzenia do kokpitu.</p>
+	<figure>
+		<img src="../zrzuty/30-panel-generator.png" alt="Panel właściciela na stronie">
+		<figcaption>Panel właściciela widzisz tylko Ty, po zalogowaniu. Gość w tym miejscu widzi samo pole pytania.</figcaption>
+	</figure>
+
+	<div class="uwaga">
+		<p><strong>Zapamiętaj.</strong> Napis <strong>„PANEL WŁAŚCICIELA”</strong> oznacza,
+		   że oglądasz stronę jako zalogowany właściciel. Chcesz zobaczyć, co widzą klienci?
+		   Otwórz tę samą stronę w oknie prywatnym przeglądarki.</p>
+	</div>
+</section>
+
+<!-- ============ 7. ZADAWANIE PYTAŃ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">7. Zadawanie pytań</h1>
+	<p class="rozdzial__wstep">Najprostszy sposób, żeby sprawdzić, czy wtyczka dobrze
+	   zna Twoją stronę. Zadaj pytanie, na które znasz odpowiedź.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Wpisz pytanie</p></div>
+		<div class="krok__tresc">
+			<p><strong>AI FAQ Generator → Generator</strong>. Wpisz pytanie w pole
+			   i kliknij <strong>Zapytaj</strong>. Formułuj je tak, jak zrobiłby to klient —
+			   pełnym zdaniem, a nie hasłem.</p>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Przeczytaj odpowiedź</p></div>
+		<div class="krok__tresc">
+			<p>Odpowiedź pojawia się po kilku sekundach — powstaje wyłącznie na podstawie
+			   treści Twojej strony.</p>
+			<figure>
+				<img src="../zrzuty/51-kokpit-odpowiedz.png" alt="Odpowiedź w Generatorze">
+				<figcaption>Odpowiedź oparta na treści strony.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<h2>Gdy odpowiedź jest słaba albo wtyczka odmawia</h2>
+	<p>Prawie zawsze znaczy to jedno: <strong>na stronie nie ma tej informacji</strong>.
+	   Jeśli dopiero ją dodałeś — powtórz indeksowanie (rozdział 5).</p>
+
+	<div class="uwaga">
+		<p><strong>Napis „odpowiedź z pamięci”</strong> pod odpowiedzią oznacza, że ktoś już
+		   wcześniej zadał to samo pytanie. Wtyczka podaje wtedy zapamiętaną odpowiedź —
+		   szybciej i bez zużywania dobowego przydziału.</p>
+	</div>
+</section>
+
+<!-- ============ 8. NARZĘDZIE FAQ ============ -->
+<section class="strona">
+	<h1 class="rozdzial">8. Narzędzie FAQ — gotowy zestaw pytań</h1>
+	<p class="rozdzial__wstep">Zamiast układać listę pytań ręcznie, podajesz temat,
+	   a wtyczka sama proponuje pytania wraz z odpowiedziami.</p>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">1</span>
+			<p class="krok__tytul">Podaj temat i krótki opis</p></div>
+		<div class="krok__tresc">
+			<p><strong>AI FAQ Generator → Narzędzie FAQ</strong>. W polu tematu wpisz, czego ma
+			   dotyczyć zestaw — na przykład „Zapisy dziecka do przedszkola”. W opisie dodaj
+			   jednym zdaniem, o co zwykle pytają klienci.</p>
+			<figure>
+				<img src="../zrzuty/52-narzedzie-faq-wypelnione.png" alt="Wypełniony formularz Narzędzia FAQ">
+				<figcaption>Im konkretniejszy temat, tym trafniejsze pytania.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">2</span>
+			<p class="krok__tytul">Poczekaj na zestaw</p></div>
+		<div class="krok__tresc">
+			<p>Generowanie trwa zwykle kilkanaście sekund. Wynik to lista pytań z gotowymi
+			   odpowiedziami, opartymi na treści Twojej strony.</p>
+			<figure>
+				<img src="../zrzuty/53-narzedzie-faq-wyniki.png" alt="Wygenerowany zestaw FAQ">
+				<figcaption>Gotowy zestaw. Każdą odpowiedź możesz poprawić przed publikacją.</figcaption>
+			</figure>
+		</div>
+	</div>
+
+	<div class="krok">
+		<div class="krok__glowa"><span class="krok__numer">3</span>
+			<p class="krok__tytul">Przeczytaj, zanim opublikujesz</p></div>
+		<div class="krok__tresc">
+			<p>To Twoja firma i Twoje słowo. Przejrzyj odpowiedzi, popraw, co brzmi nie po
+			   Twojemu, usuń pytania, które są zbędne.</p>
+		</div>
+	</div>
+</section>
+
+<!-- ============ 9. PUBLIKACJA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">9. Publikacja FAQ na stronie</h1>
+	<p class="rozdzial__wstep">Gotowy zestaw możesz pokazać odwiedzającym albo zapisać
+	   na dysk. Przyciski znajdziesz pod wynikami.</p>
+
+	<figure>
+		<img src="../zrzuty/54-narzedzie-faq-eksport.png" alt="Przyciski eksportu i publikacji">
+		<figcaption>Pod wygenerowanym zestawem: publikacja na stronie oraz zapis do pliku.</figcaption>
+	</figure>
+
+	<h2>Publikacja na stronie</h2>
+	<p>Kliknięcie publikacji sprawia, że zestaw pojawia się na Twojej stronie z pytaniami —
+	   pod polem, w którym goście zadają pytania. Od tej chwili każdy odwiedzający widzi
+	   gotowe odpowiedzi, bez pytania o cokolwiek.</p>
+
+	<h2>Zapis do pliku</h2>
+	<p>Zestaw możesz też pobrać na dysk i wykorzystać gdzie indziej — wkleić do ulotki,
+	   wysłać pracownikowi, wrzucić na inną stronę.</p>
+
+	<div class="uwaga">
+		<p><strong>Publikujesz nowy zestaw?</strong> Zastąpi on poprzedni. Wtyczka pamięta
+		   jednak, co było wcześniej — poprzedni zestaw znajdziesz w Historii generowań
+		   (rozdział 11) i możesz do niego wrócić.</p>
+	</div>
+
+	<div class="uwaga">
+		<p><strong>Gdy publikacja się nie udaje.</strong> Jeżeli zestaw publikuje kilka osób
+		   jednocześnie, wtyczka przepuści tylko jedną zmianę i pokaże pozostałym komunikat.
+		   To zabezpieczenie przed cichym nadpisaniem czyjejś pracy — po prostu odśwież stronę
+		   i sprawdź, co ostatecznie jest opublikowane.</p>
+	</div>
+</section>
+
+<!-- ============ 10. WIDOK GOŚCIA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">10. Co widzi osoba odwiedzająca</h1>
+	<p class="rozdzial__wstep">Warto raz zobaczyć swoją stronę oczami klienta.
+	   Otwórz ją w oknie prywatnym przeglądarki — wtedy nie jesteś zalogowany.</p>
+
+	<h2>Pole pytania i odpowiedź</h2>
+	<p>Gość widzi pole pytania oraz opublikowany zestaw FAQ. Nie widzi panelu właściciela
+	   ani ustawień.</p>
+	<figure>
+		<img src="../zrzuty/61-gosc-odpowiedz.png" alt="Widok gościa z odpowiedzią">
+		<figcaption>Gość zadał pytanie i dostał odpowiedź opartą na treści strony. Niżej widnieje opublikowany zestaw FAQ.</figcaption>
+	</figure>
+
+	<h2>Gdy pytanie nie dotyczy Twojej strony</h2>
+	<p>Wtyczka wtedy <strong>odmawia</strong> — i to jest zachowanie prawidłowe.
+	   Nie zmyśla odpowiedzi o rzeczach, których na stronie nie ma.</p>
+	<figure>
+		<img src="../zrzuty/62-gosc-odmowa.png" alt="Odmowa odpowiedzi na pytanie spoza tematu">
+		<figcaption>Pytanie „Jaka jest stolica Australii?” — wtyczka grzecznie odmawia zamiast zgadywać.</figcaption>
+	</figure>
+
+	<div class="uwaga">
+		<p><strong>To zaleta, nie usterka.</strong> Dzięki temu wtyczka nie opowie Twojemu
+		   klientowi nieprawdy o cenach, terminach czy zakresie usług.</p>
+	</div>
+</section>
+
+<!-- ============ 11. HISTORIA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">11. Historia pytań i generowań</h1>
+	<p class="rozdzial__wstep">Dwa dzienniki, dwa różne zastosowania.</p>
+
+	<h2>Historia — o co pytają ludzie</h2>
+	<p><strong>AI FAQ Generator → Historia</strong>. Lista pytań zadanych przez odwiedzających.
+	   To najcenniejsza informacja, jaką daje Ci ta wtyczka: widzisz, czego klienci szukali
+	   i czego <em>nie znaleźli</em> na Twojej stronie.</p>
+	<figure>
+		<img src="../zrzuty/57-historia-pytan.png" alt="Historia pytań gości">
+		<figcaption>Dziennik pytań. Powtarzające się pytanie bez dobrej odpowiedzi to sygnał, że warto uzupełnić stronę.</figcaption>
+	</figure>
+
+	<h2>Historia generowań — co wtyczka wcześniej ułożyła</h2>
+	<p><strong>AI FAQ Generator → Historia generowań</strong>. Zapis wszystkich zestawów FAQ,
+	   które wygenerowałeś. Możesz wrócić do starszego zestawu albo porównać go z obecnym.</p>
+	<figure>
+		<img src="../zrzuty/13-kokpit-historia-generowan.png" alt="Historia generowań">
+		<figcaption>Każde generowanie jest zapisane — nic nie ginie.</figcaption>
+	</figure>
+</section>
+
+<!-- ============ 12. METABOX ============ -->
+<section class="strona">
+	<h1 class="rozdzial">12. FAQ przy konkretnej stronie</h1>
+	<p class="rozdzial__wstep">Możesz przygotować osobny zestaw pytań dla pojedynczego wpisu
+	   lub strony — na przykład FAQ tylko o rekrutacji, przy stronie o rekrutacji.</p>
+
+	<p>Otwórz dowolny wpis lub stronę do edycji. Obok treści znajdziesz panel wtyczki.
+	   Działa tak samo jak Narzędzie FAQ, ale wynik przypisuje się do tej jednej strony.</p>
+	<figure>
+		<img src="../zrzuty/56-metabox-edytor.png" alt="Panel wtyczki w edytorze strony">
+		<figcaption>Panel wtyczki w edytorze — wynik dotyczy tylko tej jednej strony.</figcaption>
+	</figure>
+
+	<div class="uwaga">
+		<p><strong>Kiedy to ma sens?</strong> Gdy jedna podstrona wywołuje powtarzalne pytania —
+		   cennik, rekrutacja, dojazd. Klient dostaje odpowiedzi w miejscu, w którym ich szuka.</p>
+	</div>
+</section>
+
+<!-- ============ 13. USTAWIENIA ZAAWANSOWANE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">13. Ustawienia dla wymagających</h1>
+	<p class="rozdzial__wstep">Tego rozdziału możesz nie czytać — domyślne wartości są dobrane
+	   rozsądnie. Wróć tu, gdy zechcesz coś dostroić.</p>
+
+	<h2>Progi trafności</h2>
+	<p>Decydują, jak blisko tematu musi być pytanie, żeby wtyczka w ogóle odpowiedziała.
+	   Podniesienie progu = mniej odpowiedzi, ale pewniejszych. Obniżenie = więcej odpowiedzi,
+	   część mniej trafna.</p>
+	<figure>
+		<img src="../zrzuty/19-ustawienia-rag.png" alt="Ustawienia progów trafności">
+		<figcaption>Progi trafności odpowiedzi.</figcaption>
+	</figure>
+
+	<h2>Limity i ochrona przydziału</h2>
+	<p>Ograniczenie liczby pytań, jakie jeden gość może zadać w danym czasie —
+	   domyślnie <strong>10 pytań na godzinę</strong> od jednej osoby. Chroni dobowy
+	   przydział przed wyczerpaniem przez jednego odwiedzającego.</p>
+	<figure>
+		<img src="../zrzuty/20-ustawienia-limity.png" alt="Ustawienia limitów">
+		<figcaption>Limity zapytań i ochrona dobowego przydziału.</figcaption>
+	</figure>
+
+	<h2>Odnośnik w menu strony</h2>
+	<p>Wtyczka może sama dodać odnośnik do strony z pytaniami w menu Twojej witryny.
+	   Wybierasz, w którym menu ma się pojawić.</p>
+	<figure>
+		<img src="../zrzuty/18-ustawienia-menu.png" alt="Ustawienia odnośnika w menu">
+		<figcaption>Umiejscowienie odnośnika w menu witryny.</figcaption>
+	</figure>
+</section>
+
+<!-- ============ 14. PROBLEMY ============ -->
+<section class="strona">
+	<h1 class="rozdzial">14. Gdy coś nie działa</h1>
+	<p class="rozdzial__wstep">Zestawienie najczęstszych kłopotów. W większości przypadków
+	   rozwiązanie zajmuje minutę.</p>
+
+	<table class="problemy">
+		<thead><tr><th>Co widzisz</th><th>Co zrobić</th></tr></thead>
+		<tbody>
+			<tr>
+				<td>Wtyczka odmawia odpowiedzi na <strong>każde</strong> pytanie</td>
+				<td>Prawie na pewno brakuje indeksowania. Wejdź w Dashboard i kliknij
+				    „Zaindeksuj” (rozdział 5).</td>
+			</tr>
+			<tr>
+				<td>Błąd zaraz po zadaniu pytania</td>
+				<td>Sprawdź klucz: Ustawienia → „Test połączenia”. Jeśli test przechodzi,
+				    sprawdź, czy nie wybrałeś modelu wymagającego klucza płatnego.</td>
+			</tr>
+			<tr>
+				<td>„Wyczerpano dobowy przydział”</td>
+				<td>Wykorzystałeś dzienną pulę (domyślnie <strong>12 pytań</strong>).
+				    Wtyczka wróci do pracy następnego dnia. Stan zużycia widzisz na Dashboardzie.</td>
+			</tr>
+			<tr>
+				<td>Strona z pytaniami pokazuje „nie znaleziono”</td>
+				<td>Wejdź w Ustawienia → Bezpośrednie odnośniki (w kokpicie) i kliknij tam
+				    „Zapisz”. To odświeża adresy.</td>
+			</tr>
+			<tr>
+				<td>Odpowiedzi są ogólnikowe</td>
+				<td>Wtyczka zna tylko to, co jest na stronie. Uzupełnij treści i zaindeksuj
+				    ponownie.</td>
+			</tr>
+			<tr>
+				<td>Indeksowanie zatrzymało się w połowie</td>
+				<td>Kliknij „Zaindeksuj” ponownie — dokończy od miejsca, w którym stanęło.</td>
+			</tr>
+			<tr>
+				<td>Nie widzę panelu na stronie z pytaniami</td>
+				<td>Panel właściciela widać tylko po zalogowaniu. Zaloguj się do kokpitu
+				    i odśwież stronę.</td>
+			</tr>
+			<tr>
+				<td>Komunikat o braku uprawnień przy publikacji</td>
+				<td>Publikować może właściciel strony i redaktor. Poproś o odpowiednie
+				    uprawnienia albo o wykonanie publikacji.</td>
+			</tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Nadal nie działa?</strong> Przekaż informatykowi osobną
+		   <strong>instrukcję dla informatyka</strong> — są w niej komunikaty techniczne,
+		   wymagania serwera i sposób sprawdzenia, co poszło nie tak.</p>
+	</div>
+</section>
+
+<!-- ============ 15. USUNIĘCIE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">15. Wyłączenie i usunięcie wtyczki</h1>
+	<p class="rozdzial__wstep">Dwie różne rzeczy — warto znać różnicę, zanim klikniesz.</p>
+
+	<h2>Wyłączenie</h2>
+	<p><strong>Wtyczki → Wyłącz</strong> przy pozycji AI FAQ Generator. Wtyczka przestaje
+	   działać, strona z pytaniami znika, ale <strong>wszystko zostaje zapamiętane</strong>:
+	   ustawienia, klucz, baza wiedzy, historia. Po ponownym włączeniu wraca stan sprzed
+	   wyłączenia.</p>
+	<p>Używaj, gdy chcesz tymczasowo wstrzymać działanie albo sprawdzić, czy wtyczka
+	   nie koliduje z inną.</p>
+
+	<h2>Usunięcie</h2>
+	<p>Najpierw wyłącz, potem <strong>Usuń</strong>. Wtyczka sprząta po sobie
+	   <strong>całkowicie</strong>: kasuje swoje ustawienia, bazę wiedzy, historię pytań
+	   i zadania cykliczne. W bazie Twojej strony nie zostaje po niej ślad.</p>
+
+	<div class="uwaga">
+		<p><strong>Usunięcia nie da się cofnąć.</strong> Historia pytań gości i wygenerowane
+		   zestawy FAQ przepadają bezpowrotnie. Jeśli chcesz je zachować — najpierw pobierz
+		   zestawy do pliku (rozdział 9).</p>
+	</div>
+
+	<h2>Zmiana klucza</h2>
+	<p>Nie musisz w tym celu nic usuwać. Wejdź w Ustawienia, wklej nowy klucz w pole
+	   <strong>Klucz API</strong> i zapisz — stary zostanie zastąpiony.</p>
+
+	<div class="koniec">
+		<p><strong>To wszystko.</strong></p>
+		<p>Jeśli przeszedłeś rozdziały 1–5, wtyczka działa. Reszta to wygoda i dostrajanie.</p>
+	</div>
+</section>
+
+</body>
+</html>

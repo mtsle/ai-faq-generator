@@ -1,0 +1,248 @@
+========================================
+PLAN AKCJI — PRZEBIEG-2
+========================================
+
+CZYM TEN DOKUMENT JEST: segregacją 48 pozycji raportu (obejmujących 49 potwierdzonych zgłoszeń
+re-audytu — RAU-R05-002 i RAU-R07-002 są jedną pozycją) na decyzje do podjęcia.
+CZYM NIE JEST: nie ma tu napraw, łatek, kodu ani wskazówek „jak zrobić”. Naprawa jest osobną
+decyzją, poza tym procesem. Dla każdej pozycji podano wagę, miejsce i jedno zdanie o tym,
+CZEGO DOTYCZY DECYZJA.
+
+Kolejność: wg wagi, wewnątrz wagi wg identyfikatora. Pełny dowód każdej pozycji jest
+w RAPORCIE-AUDYTU.txt w tym samym katalogu.
+
+  KRYTYCZNY 1 · DUŻY 13 · ŚREDNI 27 · MAŁY 7 · pozycje otwarte 1 · odrzucone 1
+  (DUŻY: 13 decyzji, 14 identyfikatorów — jedna decyzja obejmuje dwa scalone zgłoszenia)
+
+
+========================================
+KRYTYCZNY (1)
+========================================
+
+RAU-R07-004  src/Data/QaLogRepository.php:131-141 (W1)
+  DECYZJA DOTYCZY: czy granica retencji dziennika Q&A ma być wyznaczana po dacie zdarzenia,
+  czy po kluczu głównym — i co zrobić z instalacjami, na których prune() już się wykonał po
+  migracji historii.
+
+
+========================================
+DUŻY (13 decyzji, 14 identyfikatorów)
+========================================
+
+RAU-R04-002  ai-news-portal/src/Feed.php:387-396 (W2)
+  DECYZJA DOTYCZY: czy obowiązuje kontrakt zapisany w docbloku clean_text (znaczniki, encje,
+  białe znaki), czy obecne zachowanie, i który z nich jest podstawą sufitu MAX_HAYSTACK_BYTES.
+
+RAU-R05-001  ai-news-portal/src/Http.php:452-463 (W2)
+  DECYZJA DOTYCZY: jak ma być traktowane nieudane pobranie robots.txt — jako zgoda, jako brak
+  rozstrzygnięcia, czy jako odmowa — i czy werdykt z nieudanej operacji ma w ogóle trafiać do
+  pamięci podręcznej na ROBOTS_TTL.
+
+RAU-R05-002 + RAU-R07-002  src/Core/Plugin.php:174-181 ORAZ src/Data/Migrator.php:29-34 (W1)
+  JEDNA DECYZJA NA DWA ZGŁOSZENIA — scalone w raporcie zgodnie z kolizją zgłoszoną przez
+  weryfikatora (weryfikacja\rea-weryfikator-02.jsonl): ten sam łańcuch i ta sama poprawka.
+  DECYZJA DOTYCZY: co dokładnie składa się na „podniesienie schematu” na ścieżce aktualizacji
+  przez podmianę plików — czy wersja może rosnąć bez kroku migracji danych i która ścieżka cyklu
+  życia jest właścicielem wywołania Migrator::run() wobec zakazu z AWA-W1-16.
+
+RAU-R07-001  src/Data/Migrator.php:70-78 (W1)
+  DECYZJA DOTYCZY: kiedy migracja ma prawo uznać się za zakończoną i czy znacznik zakończenia
+  może być nieodwracalny bez ingerencji w opcje bazy.
+
+RAU-R08-001  ai-news-portal/tests/krok4-akcje-test.php:806-813 (W2)
+  DECYZJA DOTYCZY: jaki zasięg musi mieć asercja o stanie elementu interfejsu, żeby zestaw
+  wykrywał regresję udowodnioną tu mutacją.
+
+RAU-R09-003  tests/krok23-etap5-naprawy-test.php:356-359 (W1)
+  DECYZJA DOTYCZY: czy obecność kolumny w zapytaniu wolno stwierdzać dopasowaniem podciągu,
+  gdy jedna nazwa kolumny zawiera się w drugiej.
+
+RAU-R09-004  src/Index/Indexer.php:408-414 (W1)
+  DECYZJA DOTYCZY: czy przerwanie przebiegu budżetem jest uprawnionym wyjątkiem od alarmu
+  o skurczeniu indeksu — a jeśli tak, czy teza ZACH-W1-10 i asercja z krok19-migracja-test.php
+  mają opisywać ten wyjątek.
+
+RAU-R09-005  tests/uninstall-guard-test.php:621-624 (obie wtyczki)
+  DECYZJA DOTYCZY: czy teza o wzajemnym nietykaniu danych obu wtyczek ma być pilnowana
+  w obu kierunkach i po której stronie (zestaw W1 czy W2) ma leżeć kontrola negatywna.
+
+RAU-R10-003  ai-news-portal/tests/krok5-cron-test.php:1134-1139 (W2)
+  DECYZJA DOTYCZY: czy odstęp 3 s między żądaniami do tego samego hosta jest nadal wymaganym
+  zachowaniem produktu — a jeśli tak, gdzie ma mieszkać jego kotwica i jego strażnik.
+
+RAU-R12-004  ai-news-portal/src/Article.php:731-743 (W2)
+  DECYZJA DOTYCZY: co ma się dziać z treścią przekraczającą sufit 20 000 znaków, gdy dokumentu
+  nie da się sparsować — przepuszczenie w całości, odrzucenie czy przycięcie inną metodą.
+
+RAU-R13-001  ai-news-portal/src/Runner.php:403-411 (W2)
+  DECYZJA DOTYCZY: czy nierówność TICK_BUDGET i PUBLISH_BUDGET ma obowiązywać na budżetach
+  efektywnych (po przycięciu limitem hostingu), czy wyłącznie na stałych — i czy TECH-73 opisuje
+  wtedy stan faktyczny.
+
+RAU-R13-003  ai-news-portal/src/Runner.php:279-284 (W2)
+  DECYZJA DOTYCZY: czy faza publikacji ma mieć gwarantowane minimum niezależne od limitu
+  hostingu i co ma się stać z tickiem, w którym to minimum jest poniżej progu wejścia modelu.
+
+RAU-R15-005  tests/load/l7-http-concurrency.php:69-76 (W1)
+  DECYZJA DOTYCZY: po czym bezpiecznik L7a ma rozpoznawać obecność atrapy dostawcy, skoro sam
+  czas odpowiedzi nie odróżnia atrapy od błędu.
+
+
+========================================
+ŚREDNI (27)
+========================================
+
+RAU-R01-001  src/Admin/EditorNotice.php:103-114 (W1)
+  DECYZJA DOTYCZY: czy rodzina akcji aifaq_fix ma jedną wspólną bramkę, czy trzy różne —
+  i która z dwóch wersji (UPR-W1-26 czy komentarz z linii 76) jest wiążąca.
+
+RAU-R02-001  src/Admin/PageNotice.php:164-172 (W1)
+  DECYZJA DOTYCZY: czy zapis stanu może wyprzedzać rozpoznanie akcji, wobec wymogu, by
+  odrzucenie żądania było darmowe, i wobec przeciwnej kolejności w bliźniaczym MenuNotice.
+
+RAU-R03-001  ai-news-portal/src/Article.php:807-812 (W2)
+  DECYZJA DOTYCZY: czy fragment węzła tekstowego wstawiany do wynikowego HTML ma podlegać
+  ponownemu kodowaniu, tak jak fragmenty serializowane przez saveHTML().
+
+RAU-R03-002  src/Admin/views/dashboard.php:41-47 (W1)
+  DECYZJA DOTYCZY: co użytkownik i dziennik serwera mają zobaczyć, gdy akcja zmieniająca stan
+  kończy się wyjątkiem.
+
+RAU-R04-001  ai-news-portal/src/Feed.php:375-385 (W2)
+  DECYZJA DOTYCZY: do jakiego zakresu dokumentu ograniczyć poszukiwanie deklaracji XML, żeby
+  cytat '<?xml' w treści nie przesądzał o odrzuceniu całego kanału.
+
+RAU-R04-003  ai-news-portal/src/Feed.php:178-188 (W2)
+  DECYZJA DOTYCZY: czy prefiksowany wariant Atom jest formatem obsługiwanym, czy formatem spoza
+  zakresu — i jak ma być odróżniony wynik pusty od wyniku nieobsłużonego.
+
+RAU-R06-001  ai-news-portal/src/Plugin.php:221-231 (W2)
+  DECYZJA DOTYCZY: kiedy odcisk listy kategorii ma prawo zostać zapisany i czy nieudane
+  założenie terminu może zamykać drogę do kolejnej próby.
+
+RAU-R06-002  ai-news-portal/src/Plugin.php:356-366 (W2)
+  DECYZJA DOTYCZY: czy wtyczka 2 ma mieć własny znacznik wersji schematu i ścieżkę aktualizacji
+  tabeli poza aktywacją, tak jak ma je dla harmonogramu i kategorii.
+
+RAU-R06-003  src/Data/KnowledgeRepository.php:88-99 (W1)
+  DECYZJA DOTYCZY: czy nieudane skasowanie starych fragmentów ma przerywać podmianę, wobec
+  obietnicy docbloka o braku niekompletnego zestawu.
+
+RAU-R06-004  src/Data/CacheRepository.php:61-75 (W1)
+  DECYZJA DOTYCZY: jak wywołujący ma odróżniać zapis udany od nieudanego, skoro docblock
+  zapowiada zwrot 0 przy niepowodzeniu.
+
+RAU-R07-005  ai-news-portal/src/Publisher.php:124-132 (W2)
+  DECYZJA DOTYCZY: co ma raportować przebieg publikacji, gdy cofnięcie artykułu do szkicu
+  samo się nie powiedzie — wobec zakazu z AWA-W2-25.
+
+RAU-R08-002  ai-news-portal/src/Runner.php:1232-1241 (W2)
+  DECYZJA DOTYCZY: co dokładnie liczy licznik pokazywany klientowi — próby wejścia do modelu
+  czy wywołania, które doszły do skutku i zużyły pulę.
+
+RAU-R09-001  src/Admin/IndexController.php:145-151 (W1)
+  DECYZJA DOTYCZY: czy teza ZACH-W1-11 o zamku reindeksu ma być pilnowana asercją zachowaniową
+  i po której stronie (run_reindex, run_clear czy obie).
+
+RAU-R09-002  src/Index/Indexer.php:247-253 (W1)
+  DECYZJA DOTYCZY: czy domyślna wartość budżetu przebiegu jest progiem produktu wymagającym
+  asercji, czy wyłącznie ustawieniem strojeniowym.
+
+RAU-R10-001  ai-news-portal/tests/krok3-tresc-test.php:626-633 (W2)
+  DECYZJA DOTYCZY: czy wartość stałej PREPARE_BATCH z tezy ZACH-W2-32 ma być przypięta asercją,
+  skoro każde wywołanie w testach podaje limit jawnie.
+
+RAU-R11-001  src/Core/Settings.php:215-221 (W1)
+  DECYZJA DOTYCZY: gdzie mieszka jedno źródło prawdy dla podłogi progu miękkiego i czy kotwica
+  REG-W1-02b ma wskazywać trzy miejsca zamiast jednego.
+
+RAU-R11-002  src/PublicUi/PageGuard.php:298-308 (W1)
+  DECYZJA DOTYCZY: czy backoff strażnika podstrony należy wyłącznie do stanu po porażce, jak
+  w bliźniaczym MenuGuard, czy także po sukcesie.
+
+RAU-R12-002  src/Providers/GeminiProvider.php:925-932 (W1)
+  DECYZJA DOTYCZY: czy REG-W1-34 opisuje budżet czasu, czy liczbę ponowień — i czy realny sufit
+  dwóch ponowień ma dostać własną pozycję z kotwicą.
+
+RAU-R13-002  ai-news-portal/src/Gemini.php:79-83 (W2)
+  DECYZJA DOTYCZY: czy w puli dobowej ma istnieć rezerwa podejść opisana przez REG-W2-29, czy
+  pozycja ma opisywać to, czym RESERVE_ATTEMPTS jest w kodzie.
+
+RAU-R13-004  ai-news-portal/src/templates/card.php:22-27 (W2)
+  DECYZJA DOTYCZY: czy rozstrzyganie wariantu zdjęcia kategorii ma się odbywać przy renderowaniu
+  każdej karty, wobec brzmienia TECH-71 i docbloka samego szablonu.
+
+RAU-R14-001  tests/load/l3-shared-state-shim.php:65-75 (W1)
+  DECYZJA DOTYCZY: czy moduły katalogu tests/load mają być składalne w jednym procesie —
+  a jeśli tak, jaka jest wspólna zasada podstawiania funkcji rdzenia.
+
+RAU-R14-002  tests/load/l5-db-scale.php:31-37 (W1)
+  DECYZJA DOTYCZY: jaki zakres kontraktu $wpdb obowiązuje adapter pomiarowy i czy jego docblock
+  ma deklarować pełną zgodność.
+
+RAU-R14-003  tests/load/l5-db-scale.php:208-219 (W1)
+  DECYZJA DOTYCZY: kto jest właścicielem nazwy wp_loadtest_aifaq_generations i czy struktura
+  tabeli pomiarowej ma odwzorowywać produkcyjny schemat wraz z indeksem created_id.
+
+RAU-R14-004  src/Rest/PublishService.php:84-92 (W1)
+  DECYZJA DOTYCZY: czy decyzja o uprawnieniu może zapadać poza warstwą deklarującą bramki —
+  a jeśli tak, czy UPR-W1-14 ma tę drugą bramkę wymieniać.
+
+RAU-R15-001  ai-news-portal/uninstall.php:27-31 (W2)
+  DECYZJA DOTYCZY: czy wtyczka 2 ma sprzątać całą sieć, jak wtyczka 1, czy pozycja TECH-22 ma
+  opisywać rzeczywistą asymetrię obu wtyczek.
+
+RAU-R15-002  uninstall.php:141-149 (W1)
+  DECYZJA DOTYCZY: czy transienty o zmiennym sufiksie mają być kasowane po nazwie ze względu na
+  instalacje z zewnętrznym trwałym object cache i jaka granica TTL jest w komentarzu prawdziwa.
+
+RAU-R15-006  tests/load/l6-history-write-worker.php:8-18 (W1)
+  DECYZJA DOTYCZY: czy worker pomiarowy ma sygnalizować brak odpowiedzi bazy i którym kanałem,
+  skoro proces nadrzędny czyta wyłącznie standardowe wyjście.
+
+
+========================================
+MAŁY (7)
+========================================
+
+RAU-R07-003  src/Data/Schema.php:1-6 (W1)
+  DECYZJA DOTYCZY: która deklaracja wersji schematu jest wiążąca i czy nagłówek pliku ma ją
+  w ogóle podawać.
+
+RAU-R07-006  ai-news-portal/src/Publisher.php:90-104 (W2)
+  DECYZJA DOTYCZY: czy ślad kolizji slugu artykułu wymagany przez AWA-W2-23 jest nadal
+  oczekiwanym zachowaniem, skoro rozstrzygnięcie kolizji jest deterministyczne.
+
+RAU-R10-002  ai-news-portal/tests/krok4-ponowienie-test.php:13-16 (W2)
+  DECYZJA DOTYCZY: która wersja polityki ponowień jest obowiązująca dla pustej odpowiedzi —
+  nagłówek pliku czy jego asercje i kod Runner::ask_model().
+
+RAU-R12-001  src/Providers/GeminiProvider.php:513-519 (W1)
+  DECYZJA DOTYCZY: czy kotwica REG-W1-33 ma wskazywać próg pozostałego budżetu, czy miejsce,
+  w którym realnie powstaje odstęp między próbami.
+
+RAU-R12-003  src/Http/WpHttpClient.php:45-51 (W1)
+  DECYZJA DOTYCZY: czy progi domyślnego i maksymalnego limitu czasu klienta HTTP mają pozostać
+  pozycją dokumentacji, skoro na ścieżce produkcyjnej nie zmieniają żadnej wartości.
+
+RAU-R14-005  tests/load/l4-ask-worker.php:66-73 (W1)
+  DECYZJA DOTYCZY: czy opis mechanizmu przekazywania akumulatora ma odpowiadać implementacji
+  przez pola referencyjne.
+
+RAU-R15-003  uninstall.php:194-205 (W1)
+  DECYZJA DOTYCZY: czy sufit 10000 witryn w pętli sprzątającej sieć jest wystarczający i czy
+  TECH-22 ma zostać zderzone z faktyczną obsługą sieci w tym pliku.
+
+
+========================================
+POZYCJE OTWARTE I ODRZUCONE — BEZ WAGI
+========================================
+
+RAU-R02-002  src/Admin/Menu.php:174-177 (W1)  — DO ROZSTRZYGNIĘCIA, bez wagi
+  DECYZJA DOTYCZY: zasady, nie faktu — czy wystawienie nonce'a bez własnej bramki uprawnienia
+  jest wadą, gdy jedyny konsument tego nonce'a bramkuje się samodzielnie, a powierzchni
+  spełniającej warunki nie ma w żadnej z dwóch audytowanych wtyczek.
+
+RAU-R15-004  src/Seo/SiteProfile.php:107-117 (W1)  — ODRZUCONE, poza planem
+  Nie wymaga decyzji: weryfikator wykazał, że stan opisany w zgłoszeniu jest nieosiągalny, bo
+  przy pustym wyniku źródła pruning w Indexer nie wykonuje się w ogóle.

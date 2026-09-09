@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="720" viewBox="0 0 1500 720" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+<defs><marker id="grot" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#475569"/></marker></defs>
+<rect width="1500" height="720" fill="#FFFFFF"/>
+<text x="24" y="36" font-size="19" font-weight="700" fill="#0F172A">Schemat bazy danych (AIFAQ_DB_VERSION = 6)</text>
+<text x="24" y="58" font-size="12.5" fill="#475569">Piec tabel z prefiksem witryny + opcje w wp_options. Wszystko na hostingu klienta — wtyczka nie wysyla danych nigdzie poza Gemini.</text>
+<line x1="250.0" y1="500.0" x2="250.0" y2="240.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)"/>
+<line x1="337.6" y1="240.0" x2="688.2" y2="500.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)" stroke-dasharray="6 5"/>
+<line x1="940.0" y1="175.0" x2="1000.0" y2="175.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)" stroke-dasharray="6 5"/>
+<line x1="460.0" y1="368.2" x2="1000.0" y2="376.5" stroke="#475569" stroke-width="2" marker-end="url(#grot)" stroke-dasharray="6 5"/>
+<line x1="1230.0" y1="500.0" x2="1230.0" y2="460.0" stroke="#475569" stroke-width="2" marker-end="url(#grot)" stroke-dasharray="6 5"/>
+<rect x="40" y="110" width="420" height="130" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="250.0" y="153.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">wp_aifaq_knowledge — baza wiedzy RAG</text>
+<text x="250.0" y="170.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">id · post_id · chunk_index · content</text>
+<text x="250.0" y="187.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">content_hash · embedding (768) · tokens · updated_at</text>
+<text x="250.0" y="204.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">UNIQUE(post_id, chunk_index) · KEY content_hash</text>
+<rect x="520" y="110" width="420" height="130" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="730.0" y="153.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">wp_aifaq_cache — powtorzone pytania</text>
+<text x="730.0" y="170.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">id · question_hash · question · answer</text>
+<text x="730.0" y="187.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">score · hits · created_at</text>
+<text x="730.0" y="204.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">UNIQUE(question_hash)</text>
+<rect x="1000" y="110" width="460" height="130" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="1230.0" y="153.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">wp_aifaq_qa_log — dziennik pytan gosci</text>
+<text x="1230.0" y="170.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">id · created_at · question · answer · status</text>
+<text x="1230.0" y="187.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">source · score · user_id · ip_hash (nie surowe IP)</text>
+<text x="1230.0" y="204.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">KEY created_at, status, (created_at,id) [K23]</text>
+<rect x="40" y="300" width="420" height="130" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="250.0" y="343.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">wp_aifaq_generations — historia generowan FAQ</text>
+<text x="250.0" y="360.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">id · created_at · topic · extra_desc</text>
+<text x="250.0" y="377.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">num_questions · language · user_id · pairs_json</text>
+<text x="250.0" y="394.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">KEY created_at, (created_at,id) [K23]</text>
+<rect x="520" y="300" width="420" height="130" rx="9" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="730.0" y="343.5" font-size="12.5" font-weight="700" fill="#0F172A" text-anchor="middle">wp_aifaq_faq — tabela zaszlosciowa</text>
+<text x="730.0" y="360.5" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">id · post_id · question · answer</text>
+<text x="730.0" y="377.5" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">position · created_at · updated_at</text>
+<text x="730.0" y="394.5" font-size="11.5" font-weight="400" fill="#0F172A" text-anchor="middle">NIEUZYWANA — publikacja idzie przez opcje</text>
+<rect x="1000" y="300" width="460" height="160" rx="9" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="1230.0" y="341.5" font-size="12.5" font-weight="700" fill="#4C1D95" text-anchor="middle">wp_options — konfiguracja i stan</text>
+<text x="1230.0" y="358.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">aifaq_settings (35 pol, w tym klucz API)</text>
+<text x="1230.0" y="375.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">aifaq_public_faq + _prev + _lock — opublikowane pary</text>
+<text x="1230.0" y="392.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">aifaq_page_id / _state / _ok — podstrona generatora</text>
+<text x="1230.0" y="409.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">aifaq_menu_item_id / _state — pozycja w menu</text>
+<text x="1230.0" y="426.5" font-size="11.5" font-weight="400" fill="#4C1D95" text-anchor="middle">aifaq_daily_usage · aifaq_index_signature · aifaq_crawl_state</text>
+<rect x="40" y="500" width="420" height="62" rx="9" fill="#EFF4FF" stroke="#1D4ED8" stroke-width="2"/>
+<text x="250.0" y="526.5" font-size="12.5" font-weight="700" fill="#1E3A8A" text-anchor="middle">wp_posts / wp_postmeta</text>
+<text x="250.0" y="543.5" font-size="11.5" font-weight="400" fill="#1E3A8A" text-anchor="middle">zrodlo tresci do indeksowania</text>
+<rect x="520" y="500" width="420" height="62" rx="9" fill="#ECFDF5" stroke="#047857" stroke-width="2"/>
+<text x="730.0" y="526.5" font-size="12.5" font-weight="700" fill="#064E3B" text-anchor="middle">Kto pisze i czyta</text>
+<text x="730.0" y="543.5" font-size="11.5" font-weight="400" fill="#064E3B" text-anchor="middle">Indexer (zapis) · Retriever (odczyt)</text>
+<rect x="1000" y="500" width="460" height="80" rx="9" fill="#FFF7ED" stroke="#EA580C" stroke-width="2"/>
+<text x="1230.0" y="527.0" font-size="12.5" font-weight="700" fill="#7C2D12" text-anchor="middle">uninstall.php</text>
+<text x="1230.0" y="544.0" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">kasuje 5 tabel, 25+ opcji, 2 crony i transienty</text>
+<text x="1230.0" y="561.0" font-size="11.5" font-weight="400" fill="#7C2D12" text-anchor="middle">— odinstalowanie nie zostawia sladu</text>
+<rect x="174.0" y="360.0" width="152.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="250.0" y="374.0" font-size="11" fill="#334155" text-anchor="middle">chunking + embedding</text>
+<rect x="880.0" y="165.0" width="180.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="970.0" y="179.0" font-size="11" fill="#334155" text-anchor="middle">trafienie = wpis 'cache'</text>
+<rect x="675.0" y="362.3" width="110.0" height="19" rx="4" fill="#FFFFFF" stroke="#CBD5E1"/>
+<text x="730.0" y="376.3" font-size="11" fill="#334155" text-anchor="middle">publikacja par</text>
+<rect x="24" y="643" width="26" height="14" rx="4" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2"/>
+<text x="58" y="654" font-size="11.5" fill="#334155">Tabela / opcje uzywane produkcyjnie</text>
+<rect x="24" y="663" width="26" height="14" rx="4" fill="#F1F5F9" stroke="#475569" stroke-width="2"/>
+<text x="58" y="674" font-size="11.5" fill="#334155">Zaszlosc — zostaje do migracji w v1.0.0</text>
+<rect x="24" y="683" width="26" height="14" rx="4" fill="#FFF7ED" stroke="#EA580C" stroke-width="2"/>
+<text x="58" y="694" font-size="11.5" fill="#334155">Sprzatanie po odinstalowaniu</text>
+</svg>

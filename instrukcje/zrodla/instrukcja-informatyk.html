@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Instrukcja dla informatyka (Functional) — AI FAQ Generator</title>
+<link rel="stylesheet" href="styl-tech.css">
+</head>
+<body>
+
+<!-- ============ OKŁADKA ============ -->
+<section class="strona okladka">
+	<span class="okladka__etykieta">Functional</span>
+	<h1 class="okladka__tytul">Instrukcja dla informatyka</h1>
+	<p class="okladka__podtytul">AI FAQ Generator — co system robi</p>
+
+	<div class="okladka__ramka">
+		<p><strong>Zakres dokumentu.</strong> Opis <em>funkcjonalny</em>: jakie zadania wtyczka
+		   wykonuje, w jakiej kolejności i pod jakimi warunkami. Bez opisu wyglądu okien
+		   — ten jest w instrukcji wprowadzającej dla klienta.</p>
+		<p><strong>Dokumenty towarzyszące</strong></p>
+		<p>• <strong>Wymagania niefunkcjonalne</strong> — wydajność, bezpieczeństwo, limity, koszty.<br>
+		   • <strong>Schema</strong> — format danych wejściowych i wyjściowych, tabele, REST.<br>
+		   • <strong>Instrukcje systemowe</strong> — cykl życia wtyczki w środowisku klienta.</p>
+		<p><strong>Diagramy</strong> pochodzą z plików źródłowych <code>.drawio</code> dołączonych
+		   do paczki (katalog <code>schematy/</code>) — można je otworzyć i edytować
+		   na <code>app.diagrams.net</code> lub we wtyczce Draw.io do VS Code.</p>
+	</div>
+
+	<p class="okladka__stopka">
+		AI FAQ Generator 1.0.0 · Wymaga WordPress 6.4+ i PHP 8.0+ · Licencja GPLv2
+	</p>
+</section>
+
+<!-- ============ SPIS ============ -->
+<section class="strona">
+	<h1 class="rozdzial">Spis treści</h1>
+	<ol class="spis">
+		<li><span class="spis__nr">1</span><span><strong>Czym jest ten system</strong>
+			<span class="spis__opis">Dwie połówki produktu i granice odpowiedzialności.</span></span></li>
+		<li><span class="spis__nr">2</span><span><strong>Architektura wykonawcza</strong>
+			<span class="spis__opis">Warstwy, komponenty i przepływ danych między nimi.</span></span></li>
+		<li><span class="spis__nr">3</span><span><strong>F1 — Budowa bazy wiedzy (indeksowanie)</strong>
+			<span class="spis__opis">Pobranie treści, podział na fragmenty, embeddingi.</span></span></li>
+		<li><span class="spis__nr">4</span><span><strong>F2 — Odpowiadanie na pytania gościa</strong>
+			<span class="spis__opis">Ścieżka RAG z bramką tematyczną i odmową.</span></span></li>
+		<li><span class="spis__nr">5</span><span><strong>F3 — Generowanie zestawów FAQ</strong>
+			<span class="spis__opis">Temat → pary pytanie/odpowiedź w ustalonej strukturze.</span></span></li>
+		<li><span class="spis__nr">6</span><span><strong>F4 — Publikacja i dane strukturalne</strong>
+			<span class="spis__opis">Publiczne FAQ i JSON-LD FAQPage dla wyszukiwarek.</span></span></li>
+		<li><span class="spis__nr">7</span><span><strong>F5 — Eksport</strong>
+			<span class="spis__opis">Pięć formatów wyjściowych.</span></span></li>
+		<li><span class="spis__nr">8</span><span><strong>F6 — Dzienniki i historia</strong>
+			<span class="spis__opis">Pytania gości i zapis generowań.</span></span></li>
+		<li><span class="spis__nr">9</span><span><strong>F7 — Zadania cykliczne</strong>
+			<span class="spis__opis">Dwa zadania WP-Cron i warunki ich uruchomienia.</span></span></li>
+		<li><span class="spis__nr">10</span><span><strong>F8 — Uprawnienia i role</strong>
+			<span class="spis__opis">Kto co może zrobić.</span></span></li>
+		<li><span class="spis__nr">11</span><span><strong>Wdrożenie i weryfikacja</strong>
+			<span class="spis__opis">Kolejność czynności i jak sprawdzić, że działa.</span></span></li>
+	</ol>
+</section>
+
+<!-- ============ 1. CZYM JEST ============ -->
+<section class="strona">
+	<h1 class="rozdzial">1. Czym jest ten system</h1>
+	<p class="rozdzial__wstep">Wtyczka WordPressa dokładająca witrynie dwie odrębne zdolności,
+	   oparte na jednej bazie wiedzy i jednym kluczu dostawcy AI.</p>
+
+	<h2>Połówka publiczna — generator zawężony do tematu strony</h2>
+	<p>Na witrynie powstaje podstrona (domyślnie <code>/faqgenerator</code>), na której
+	   <strong>niezalogowany gość</strong> zadaje pytanie i otrzymuje odpowiedź zbudowaną
+	   <em>wyłącznie</em> z treści tej witryny. Pytanie spoza tematu kończy się jawną odmową,
+	   nie zaś odpowiedzią z wiedzy ogólnej modelu.</p>
+
+	<h2>Połówka administracyjna — narzędzie FAQ w kokpicie</h2>
+	<p>Redakcja podaje temat, a system zwraca zestaw par pytanie/odpowiedź w ustalonej
+	   strukturze. Zestaw można wyeksportować albo opublikować na podstronie publicznej wraz
+	   z danymi strukturalnymi dla wyszukiwarek.</p>
+
+	<h2>Granice odpowiedzialności</h2>
+	<table class="tech">
+		<thead><tr><th>Obszar</th><th>Po stronie wtyczki</th><th>Po stronie klienta</th></tr></thead>
+		<tbody>
+			<tr><td>Treść odpowiedzi</td><td>Zawężenie do treści witryny, odmowa poza tematem</td>
+				<td>Jakość i aktualność treści na stronie</td></tr>
+			<tr><td>Klucz dostawcy AI</td><td>Przechowywanie, maskowanie w interfejsie, wysyłka w nagłówku</td>
+				<td>Wygenerowanie klucza i pilnowanie jego poufności</td></tr>
+			<tr><td>Koszt zapytań</td><td>Limity, pamięć podręczna, sufit dobowy</td>
+				<td>Wybór modelu i ewentualne przejście na plan płatny</td></tr>
+			<tr><td>Dane</td><td>Tabele własne z prefiksem <code>wp_aifaq_</code>, sprzątanie przy deinstalacji</td>
+				<td>Kopie zapasowe bazy</td></tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Zasada nadrzędna.</strong> System nigdy nie odpowiada z wiedzy ogólnej modelu.
+		   Brak pokrycia w bazie wiedzy skutkuje odmową — jest to zachowanie zamierzone
+		   i objęte testami.</p>
+	</div>
+</section>
+
+<!-- ============ 2. ARCHITEKTURA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">2. Architektura wykonawcza</h1>
+	<p class="rozdzial__wstep">Pięć warstw: wejście WordPressa, przestrzeń REST, rdzeń RAG,
+	   rdzeń treści oraz dane na hostingu klienta. Dostawca AI jest jedyną zależnością zewnętrzną.</p>
+
+	<p><em>Diagram architektury znajduje się na następnej stronie w układzie poziomym.</em></p>
+
+	<h2>Warstwy</h2>
+	<table class="tech">
+		<thead><tr><th>Warstwa</th><th>Odpowiedzialność</th><th>Główne klasy</th></tr></thead>
+		<tbody>
+			<tr><td>Wejście</td><td>Podstrona publiczna, panel właściciela, ekrany kokpitu, metabox</td>
+				<td><code>PublicUi\GeneratorPage</code>, <code>App\AppShell</code>, <code>Admin\Menu</code></td></tr>
+			<tr><td>REST</td><td>15 tras w przestrzeni <code>aifaq/v1</code>, walidacja i bramki uprawnień</td>
+				<td><code>Rest\RouteRegistrar</code>, <code>Rest\RestController</code> i pięć usług</td></tr>
+			<tr><td>Rdzeń RAG</td><td>Wyszukanie fragmentów, próg tematyczny, redakcja odpowiedzi</td>
+				<td><code>Rag\RagService</code>, <code>Rag\Retriever</code>, <code>Rag\TopicGuard</code>, <code>Rag\Answerer</code></td></tr>
+			<tr><td>Rdzeń treści</td><td>Indeksowanie, generowanie FAQ, eksport, dane strukturalne</td>
+				<td><code>Index\Indexer</code>, <code>Faq\FaqGenerator</code>, <code>Faq\Exporter</code>, <code>Seo\PageSchema</code></td></tr>
+			<tr><td>Dane</td><td>Pięć tabel własnych oraz opcje WordPressa</td>
+				<td><code>Data\KnowledgeRepository</code> i repozytoria towarzyszące</td></tr>
+		</tbody>
+	</table>
+
+	<h2>Zależność zewnętrzna</h2>
+	<p>Jedynym punktem wyjścia na zewnątrz jest dostawca AI (Google Gemini), wołany przez
+	   <code>Providers\GeminiProvider</code> po HTTPS, z kluczem w nagłówku żądania.
+	   Wykorzystywane są dwie odrębne zdolności: <strong>embeddingi</strong> (zamiana tekstu
+	   na wektor) oraz <strong>generowanie treści</strong>. Reszta systemu nie wywołuje
+	   dostawcy bezpośrednio — interfejs dostawcy jest wymienny.</p>
+</section>
+
+
+<section class="strona--diagram">
+	<img src="../schematy/druk/01-architektura-runtime.png" alt="Architektura wykonawcza AI FAQ Generator">
+	<figcaption>Architektura wykonawcza AI FAQ Generator · pełna skala w pliku źródłowym <code>schematy/01-architektura-runtime.drawio</code></figcaption>
+</section>
+
+<!-- ============ 3. F1 INDEKSOWANIE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">3. F1 — Budowa bazy wiedzy</h1>
+	<p class="rozdzial__wstep">Warunek konieczny działania obu połówek. Bez zbudowanej bazy
+	   wiedzy system odmawia odpowiedzi na każde pytanie.</p>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F1.1</span>
+			<p class="wym__tytul">Pobranie treści witryny</p></div>
+		<div class="wym__tresc">
+			<p>System pozyskuje treść czterema źródłami ułożonymi w kaskadę, stosowanymi
+			   w kolejności aż do uzyskania niepustego wyniku:</p>
+			<ol class="zwarte">
+				<li><code>post_content</code> — surowa treść wpisu lub strony,</li>
+				<li>pola dodatkowe (<code>postmeta</code>) — treść budowniczych stron,</li>
+				<li>pobranie wyrenderowanej strony po HTTP,</li>
+				<li>filtr programistyczny dla przypadków nietypowych.</li>
+			</ol>
+			<p class="wym__meta">Kaskada rozwiązuje problem witryn, w których treść nie znajduje się
+			   w <code>post_content</code> (Elementor, WPBakery i podobne).</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F1.2</span>
+			<p class="wym__tytul">Podział na fragmenty i pomijanie niezmienionych</p></div>
+		<div class="wym__tresc">
+			<p>Treść dzielona jest na fragmenty zapisywane w <code>wp_aifaq_knowledge</code>.
+			   Dla każdego fragmentu liczona jest suma kontrolna <code>content_hash</code>.</p>
+			<p>Przy ponownym indeksowaniu fragmenty o niezmienionej sumie kontrolnej
+			   <strong>nie są wysyłane do dostawcy</strong> — oszczędza to dobowy przydział.
+			   Fragmenty osierocone (po usunięciu wpisu) są kasowane.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F1.3</span>
+			<p class="wym__tytul">Wyliczenie embeddingów</p></div>
+		<div class="wym__tresc">
+			<p>Każdy nowy lub zmieniony fragment trafia do dostawcy w celu wyliczenia wektora,
+			   zapisywanego w kolumnie <code>embedding</code>. Zapytania wysyłane są paczkami.</p>
+			<p>Parametry indeksu zapisuje sygnatura <code>aifaq_index_signature</code>
+			   (dostawca, model, wymiar wektora, wersja źródeł). Zmiana któregokolwiek z nich
+			   wymusza przebudowę — wektory z różnych modeli nie są porównywalne.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F1.4</span>
+			<p class="wym__tytul">Przerwanie i wznowienie</p></div>
+		<div class="wym__tresc">
+			<p>Indeksowanie przerywa się samo po przekroczeniu budżetu czasu, zapisując stan.
+			   Ponowne uruchomienie kontynuuje od miejsca zatrzymania.</p>
+			<p>Jeżeli powodem przerwania był <strong>wyłącznie budżet czasu</strong>, system
+			   planuje zdarzenie <code>aifaq_reindex_continue</code>, które wznawia pracę
+			   automatycznie. Przerwanie z powodu błędu lub limitu dostawcy nie jest wznawiane
+			   samoczynnie.</p>
+		</div>
+	</div>
+</section>
+
+<!-- ============ 4. F2 ODPOWIADANIE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">4. F2 — Odpowiadanie na pytania gościa</h1>
+	<p class="rozdzial__wstep">Ścieżka publiczna, dostępna bez logowania. Trasa
+	   <code>POST /aifaq/v1/ask</code>.</p>
+
+	<p><em>Diagram przepływu znajduje się na następnej stronie w układzie poziomym.</em></p>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F2.1</span>
+			<p class="wym__tytul">Bramki przed wywołaniem dostawcy</p></div>
+		<div class="wym__tresc">
+			<p>Żądanie przechodzi kolejno przez: walidację treści pytania → pamięć podręczną
+			   → limit częstotliwości dla gościa → dobowy sufit zapytań. Odpowiedź z pamięci
+			   podręcznej oraz odrzucenie przez limit <strong>nie zużywają przydziału dostawcy</strong>.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F2.2</span>
+			<p class="wym__tytul">Dobór fragmentów</p></div>
+		<div class="wym__tresc">
+			<p>Pytanie zamieniane jest na wektor, po czym <code>Rag\Retriever</code> wybiera
+			   <code>rag_top_k</code> fragmentów o najwyższym podobieństwie kosinusowym
+			   (domyślnie 5).</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F2.3</span>
+			<p class="wym__tytul">Bramka tematyczna i odmowa</p></div>
+		<div class="wym__tresc">
+			<p><code>Rag\TopicGuard</code> porównuje najlepsze dopasowanie z dwoma progami:
+			   miękkim <code>rag_threshold</code> (domyślnie 0,70) i twardym
+			   <code>rag_threshold_hard</code> (domyślnie 0,65).</p>
+			<ul class="zwarte">
+				<li>poniżej progu twardego — natychmiastowa odmowa, <strong>bez wywołania dostawcy</strong>,</li>
+				<li>między progami — odpowiedź opatrzona ostrzeżeniem o niskim dopasowaniu,</li>
+				<li>powyżej progu miękkiego — odpowiedź zwykła.</li>
+			</ul>
+			<p class="wym__meta">Treść odmowy jest konfigurowalna osobno dla języka polskiego,
+			   angielskiego i niemieckiego.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F2.4</span>
+			<p class="wym__tytul">Redakcja odpowiedzi</p></div>
+		<div class="wym__tresc">
+			<p><code>Rag\Answerer</code> przekazuje dostawcy wyłącznie wybrane fragmenty
+			   i poleca zbudowanie odpowiedzi tylko z nich. Treść pobrana z witryny traktowana
+			   jest jako dane, nie jako polecenie — zabezpiecza to przed wstrzyknięciem
+			   instrukcji w treść strony.</p>
+			<p>Każde pytanie odnotowywane jest w <code>wp_aifaq_qa_log</code> wraz ze statusem,
+			   źródłem odpowiedzi i wynikiem dopasowania.</p>
+		</div>
+	</div>
+</section>
+
+
+<section class="strona--diagram">
+	<img src="../schematy/druk/02-przeplyw-pytania-goscia.png" alt="Przepływ pytania gościa — kolejność bramek">
+	<figcaption>Przepływ pytania gościa — kolejność bramek · pełna skala w pliku źródłowym <code>schematy/02-przeplyw-pytania-goscia.drawio</code></figcaption>
+</section>
+
+<!-- ============ 5. F3 GENEROWANIE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">5. F3 — Generowanie zestawów FAQ</h1>
+	<p class="rozdzial__wstep">Ścieżka administracyjna. Trasa
+	   <code>POST /aifaq/v1/admin/generate-faq</code>.</p>
+
+	<p><em>Diagram przebiegu znajduje się na następnej stronie w układzie poziomym.</em></p>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F3.1</span>
+			<p class="wym__tytul">Dane wejściowe</p></div>
+		<div class="wym__tresc">
+			<p>Wymagany <strong>temat</strong> oraz opcjonalny <strong>opis uzupełniający</strong>.
+			   Liczba par ograniczona jest ustawieniem: zakres <strong class="nolam">5–20</strong>,
+			   wartość domyślna <strong>20</strong>. Język zestawu bierze się z ustawień wtyczki.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F3.2</span>
+			<p class="wym__tytul">Osadzenie w treści witryny</p></div>
+		<div class="wym__tresc">
+			<p>Temat służy do wybrania fragmentów z bazy wiedzy — tak samo jak przy pytaniu gościa.
+			   Zestaw powstaje więc z treści witryny, a nie z wiedzy ogólnej modelu.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F3.3</span>
+			<p class="wym__tytul">Struktura wyniku i zapis</p></div>
+		<div class="wym__tresc">
+			<p>Dostawca zwraca dane w ustalonej strukturze (pary pytanie/odpowiedź).
+			   Wynik jest sprawdzany pod kątem zgodności ze strukturą, normalizowany
+			   i zapisywany w <code>wp_aifaq_generations</code> wraz z tematem, opisem,
+			   językiem i autorem.</p>
+			<p class="wym__meta">Dokładny format opisuje osobny dokument <strong>Schema</strong>.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F3.4</span>
+			<p class="wym__tytul">Zakres dla pojedynczej strony</p></div>
+		<div class="wym__tresc">
+			<p>Ten sam mechanizm dostępny jest w edytorze wpisu lub strony (metabox).
+			   Wynik wiązany jest wtedy z konkretnym wpisem, co pozwala prowadzić osobne
+			   zestawy FAQ dla wybranych podstron.</p>
+		</div>
+	</div>
+</section>
+
+
+<section class="strona--diagram">
+	<img src="../schematy/druk/05-generator-faq.png" alt="Przebieg generowania zestawu FAQ">
+	<figcaption>Przebieg generowania zestawu FAQ · pełna skala w pliku źródłowym <code>schematy/05-generator-faq.drawio</code></figcaption>
+</section>
+
+<!-- ============ 6. F4 PUBLIKACJA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">6. F4 — Publikacja i dane strukturalne</h1>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F4.1</span>
+			<p class="wym__tytul">Publikacja zestawu</p></div>
+		<div class="wym__tresc">
+			<p>Trasy <code>POST /admin/faq/publish</code> oraz <code>POST /admin/faq/unpublish</code>
+			   przenoszą wybrany zestaw do tabeli <code>wp_aifaq_faq</code> i udostępniają go
+			   na podstronie publicznej, pod polem zadawania pytań.</p>
+			<p>Publikacja jest operacją zastępującą — poprzedni zestaw przechodzi do zapasu
+			   (<code>aifaq_public_faq</code> zachowuje poprzedni stan), więc możliwy jest powrót.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F4.2</span>
+			<p class="wym__tytul">Zamek publikacji</p></div>
+		<div class="wym__tresc">
+			<p>Równoległe publikacje są szeregowane. Gdy dwie osoby publikują naraz, przechodzi
+			   jedna, a pozostałe otrzymują odpowiedź o konflikcie (HTTP 409). Zapobiega to
+			   cichej utracie zmian.</p>
+		</div>
+	</div>
+
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F4.3</span>
+			<p class="wym__tytul">Dane strukturalne dla wyszukiwarek</p></div>
+		<div class="wym__tresc">
+			<p><code>Seo\PageSchema</code> dokłada do podstrony publicznej dane strukturalne
+			   <strong>JSON-LD typu FAQPage</strong> (Schema.org), zbudowane z aktualnie
+			   opublikowanych par. Puste FAQ nie generuje danych strukturalnych.</p>
+			<p class="wym__meta">Dzięki temu opublikowane pytania mogą pojawić się w wynikach
+			   wyszukiwania jako rozwijane odpowiedzi.</p>
+		</div>
+	</div>
+</section>
+
+<!-- ============ 7-10. POZOSTAŁE FUNKCJE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">7. F5 — Eksport</h1>
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F5.1</span>
+			<p class="wym__tytul">Pięć formatów wyjściowych</p></div>
+		<div class="wym__tresc">
+			<p>Trasa <code>POST /admin/export</code> zwraca wybrany zestaw w jednym z pięciu
+			   formatów, przeznaczonych do wykorzystania poza witryną (wklejenie do strony,
+			   przekazanie dalej, dane strukturalne).</p>
+			<p class="wym__meta">Lista formatów wraz z układem pól znajduje się w dokumencie
+			   <strong>Schema</strong>.</p>
+		</div>
+	</div>
+
+	<h1 class="rozdzial" style="margin-top:9mm">8. F6 — Dzienniki i historia</h1>
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F6.1</span>
+			<p class="wym__tytul">Dziennik pytań</p></div>
+		<div class="wym__tresc">
+			<p><code>wp_aifaq_qa_log</code> gromadzi pytania gości: treść, odpowiedź, status,
+			   źródło (dostawca lub pamięć podręczna), wynik dopasowania oraz autora, jeśli
+			   pytanie zadał użytkownik zalogowany. Dostęp przez <code>GET /admin/history</code>,
+			   czyszczenie przez <code>POST /admin/history/clear</code>.</p>
+			<p class="wym__meta">Wartość operacyjna: powtarzające się pytania bez pokrycia
+			   wskazują luki w treści witryny.</p>
+		</div>
+	</div>
+	<div class="wym">
+		<div class="wym__glowa"><span class="wym__id">F6.2</span>
+			<p class="wym__tytul">Historia generowań</p></div>
+		<div class="wym__tresc">
+			<p><code>wp_aifaq_generations</code> przechowuje każdy wygenerowany zestaw.
+			   Obsługa: <code>GET /admin/generations</code>, <code>GET /admin/generations/detail</code>,
+			   <code>POST /admin/generations/delete</code>.</p>
+			<p>Usunięcie pozycji czyści również powiązane wpisy w bazie wiedzy — nie zostają
+			   dane osierocone.</p>
+		</div>
+	</div>
+
+	<h1 class="rozdzial" style="margin-top:9mm">9. F7 — Zadania cykliczne</h1>
+	<table class="tech">
+		<thead><tr><th>Zdarzenie</th><th>Wyzwalacz</th><th>Działanie</th></tr></thead>
+		<tbody>
+			<tr><td><code>aifaq_reindex_continue</code></td>
+				<td>Przerwanie indeksowania <strong>wyłącznie</strong> z powodu budżetu czasu</td>
+				<td>Wznawia indeksowanie od zapisanego miejsca</td></tr>
+			<tr><td>zadanie obsługi kolejki treści</td>
+				<td>Pobieranie wyrenderowanych stron</td>
+				<td>Przetwarza kolejkę porcjami, by nie blokować żądania</td></tr>
+		</tbody>
+	</table>
+	<div class="uwaga">
+		<p><strong>Oba zdarzenia są zdejmowane przy deinstalacji.</strong> Jest to sprawdzane
+		   testem — w bazie klienta nie zostaje osierocone zadanie cykliczne.</p>
+	</div>
+</section>
+
+<!-- ============ 10. UPRAWNIENIA ============ -->
+<section class="strona">
+	<h1 class="rozdzial">10. F8 — Uprawnienia i role</h1>
+	<p class="rozdzial__wstep">Trzy poziomy dostępu. Bramka sprawdzana jest po stronie serwera
+	   dla każdej trasy — ukrycie przycisku w interfejsie nie jest zabezpieczeniem.</p>
+
+	<table class="tech">
+		<thead><tr><th>Poziom</th><th>Wymaganie</th><th>Zakres tras</th></tr></thead>
+		<tbody>
+			<tr><td>Publiczny</td><td>brak logowania</td>
+				<td><code>POST /ask</code> — jedyna trasa otwarta</td></tr>
+			<tr><td>Narzędzie</td><td>uprawnienie do publikowania treści (Autor i wyżej)</td>
+				<td><code>/admin/generate-faq</code>, <code>/admin/export</code></td></tr>
+			<tr><td>Publikacja</td><td>uprawnienie redaktorskie</td>
+				<td><code>/admin/faq/publish</code>, <code>/admin/faq/unpublish</code></td></tr>
+			<tr><td>Administracja</td><td><code>manage_options</code></td>
+				<td>pozostałe 12 tras <code>/admin/*</code></td></tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Zawężenie względem wersji wcześniejszych.</strong> Publikacja treści widocznej
+		   publicznie wymaga uprawnień redaktorskich, a nie samego dostępu do narzędzia.
+		   Autor może wygenerować i wyeksportować zestaw, ale nie opublikuje go samodzielnie.</p>
+	</div>
+
+	<h2>Ochrona żądań</h2>
+	<ul class="zwarte">
+		<li>trasy administracyjne wymagają ważnego znacznika <code>wp_rest</code>,</li>
+		<li>trasa publiczna posiada własny limit częstotliwości oparty o rozpoznanie gościa,</li>
+		<li>parametry przechodzą walidację i oczyszczanie po stronie serwera,</li>
+		<li>klucz dostawcy nigdy nie jest zwracany w odpowiedzi ani wypisywany w interfejsie.</li>
+	</ul>
+</section>
+
+<!-- ============ 11. WDROŻENIE ============ -->
+<section class="strona">
+	<h1 class="rozdzial">11. Wdrożenie i weryfikacja</h1>
+
+	<h2>Wymagania środowiska</h2>
+	<table class="tech">
+		<thead><tr><th>Składnik</th><th>Wymaganie</th><th>Uwagi</th></tr></thead>
+		<tbody>
+			<tr><td>WordPress</td><td>6.4 lub nowszy</td><td>wymagane trasy REST i mechanizm zdarzeń</td></tr>
+			<tr><td>PHP</td><td>8.0 lub nowszy</td><td>rozszerzenia standardowe; wymagany <code>mbstring</code></td></tr>
+			<tr><td>Baza</td><td>MySQL 5.7+ / MariaDB 10.3+</td><td>pięć tabel z prefiksem witryny</td></tr>
+			<tr><td>Ruch wychodzący</td><td>HTTPS do API dostawcy</td><td>zapora musi przepuszczać połączenia wychodzące</td></tr>
+			<tr><td>Zadania cykliczne</td><td>działający WP-Cron</td><td>bez nich wznowienie indeksowania wymaga ręcznego kliknięcia</td></tr>
+			<tr><td>Wgrywanie plików</td><td>limit ≥ 2 MB</td><td>paczka wtyczki mieści się poniżej 1 MB</td></tr>
+		</tbody>
+	</table>
+
+	<h2>Kolejność wdrożenia</h2>
+	<ol class="zwarte">
+		<li>wgranie paczki i włączenie wtyczki — tworzy tabele i podstronę publiczną,</li>
+		<li>zapisanie klucza dostawcy i sprawdzenie połączenia,</li>
+		<li>weryfikacja ustawień: model, język, adres podstrony,</li>
+		<li>uruchomienie indeksowania i odczekanie do zakończenia,</li>
+		<li>test kontrolny: pytanie z pokryciem w treści oraz pytanie spoza tematu.</li>
+	</ol>
+
+	<h2>Kryteria odbioru</h2>
+	<table class="tech">
+		<thead><tr><th>Sprawdzenie</th><th>Oczekiwany wynik</th></tr></thead>
+		<tbody>
+			<tr><td>Pytanie z pokryciem w treści witryny</td><td>odpowiedź zbudowana z treści strony</td></tr>
+			<tr><td>Pytanie spoza tematu</td><td>jawna odmowa, brak zmyślonej odpowiedzi</td></tr>
+			<tr><td>Podstrona publiczna jako gość</td><td>pole pytania widoczne, panel właściciela niewidoczny</td></tr>
+			<tr><td>Publikacja zestawu</td><td>pary widoczne publicznie, w źródle strony obecny JSON-LD FAQPage</td></tr>
+			<tr><td>Ponowne indeksowanie bez zmian w treści</td><td>brak nowych zapytań do dostawcy</td></tr>
+		</tbody>
+	</table>
+
+	<div class="uwaga">
+		<p><strong>Gdy podstrona zwraca 404</strong> — po zmianie adresu podstrony należy przebudować
+		   reguły bezpośrednich odnośników (Ustawienia → Bezpośrednie odnośniki → Zapisz).</p>
+	</div>
+</section>
+
+</body>
+</html>
