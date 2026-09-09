@@ -365,14 +365,14 @@ drugi raz); **realny `score` przy trafieniu cache** (dotąd log zapisywał zmyś
 | 3. Testy segmenty ✅ | 11 segmentów, **157 nowych asercji**; złapany bug produkcyjny: generator nie przycinał świeżo wygenerowanych par przed zapisem |
 | 4. Testy obciążeniowe ✅ | 7 segmentów; lock reindeksu był TOCTOU (**3 z 10** procesów zdobywało go naraz → 1/10), paginacja bez pasującego indeksu (**do 31× szybciej**), `DB_VERSION` 5→6 |
 | 5. Testy while ✅ | przejście całego cyklu życia produktu **na żywo**, 151 asercji; `uninstall.php` zostawiał jeden z dwóch cronów, skutki zapisu ustawień siedziały w `if ( is_admin() )` (nowy slug dawał 404 bezterminowo); wsad 8 napraw, w tym **zamek publikacji FAQ** (HTTP 409 zamiast cichego nadpisania) |
-| 6. Dokumentacja ✅ | pięć dokumentów PDF dla klienta i informatyka (**poza tym repo**, w katalogu `instrukcje/` obok wtyczki) + 37 zrzutów ekranu i 5 diagramów Draw.io |
+| 6. Dokumentacja ✅ | pięć dokumentów PDF dla klienta i informatyka (w katalogu [instrukcje/](instrukcje/) tego repozytorium) + 37 zrzutów ekranu i 5 diagramów Draw.io |
 | 7. Kompatybilność Batch ✅ | całe README zderzone z wykonywalnym kodem: **107 twierdzeń**, z tego 8 mijało się z implementacją — wszystkie naprawione. Najpoważniejsze: tabela uprawnień obiecywała Redaktorowi ekran „Narzędzie FAQ", który wymaga `manage_options`; README zaniżało liczbę filtrów (19 zamiast 24); zdanie „właściciel nie jest blokowany przez sufit" było nieprawdą |
 | 8. LICENSE / readme.txt ✅ | `LICENSE` z dosłownym tekstem GNU GPL v2 (339 linii) i `readme.txt` dla klienta — z ujawnieniem usługi zewnętrznej (Google Gemini), modelu BYOK i dziennika z hashem IP |
 | 9. Audyt ❌ | **NIE WYKONANY — świadomie zdjęty z zakresu** decyzją właściciela projektu (2026-08-03). Nie jest to etap „zaliczony po cichu": osobnego audytu przed v1.0.0 nie było. Warto pamiętać, że pełny audyt bezpieczeństwa całej wtyczki przeszedł wcześniej, w **v0.26.0**, a etapy 1–5 tego Kroku były w praktyce ciągiem audytów (red team, wydajność, architektura, obciążenie, cykl życia na żywo) |
 | 10. Domknięcie ✅ | `AIFAQ_VERSION` → **1.0.0**, tag i release |
 
-**Testy.** W `tests/` leży **60 zestawów** spinanych własnym runnerem (`zasoby/run-tests.sh` —
-**poza tym repo**, w katalogu roboczym projektu obok wtyczki): **60/60 przechodzi**. W repo jest
+**Testy.** W `tests/` leży **61 zestawów** spinanych własnym runnerem (`zasoby/run-tests.sh` —
+**poza tym repo**, w katalogu roboczym projektu obok wtyczki): **61/61 przechodzi**. W repo jest
 jego CI-owa kopia [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) — ta sama lista
 zestawów i to samo kryterium; woła ją workflow „Testy" (sekcja „CI" na górze). Runner nie
 jest PHPUnitem — to zwykłe skrypty PHP z atrapami WordPressa, uruchamiane bez bazy danych.
@@ -552,7 +552,7 @@ i `readme.txt`. `License URI` w obu: `https://www.gnu.org/licenses/gpl-2.0.html`
 
 Instrukcje dla odbiorcy (pięć dokumentów PDF: instrukcja wprowadzająca dla klienta, instrukcja
 dla informatyka, wymagania niefunkcjonalne, format danych, instrukcje systemowe) powstały
-w **Kroku 23 etap 6** i leżą **poza tym repozytorium** — w katalogu `instrukcje/` w folderze
-roboczym projektu, razem ze źródłami HTML i diagramami Draw.io. (Inaczej niż przy wtyczce 2,
-której dokumentacja PDF jest wersjonowana w `ai-news-portal/instrukcje/`.) Ten `README.md`
+w **Kroku 23 etap 6** i leżą w katalogu [instrukcje/](instrukcje/) tego repozytorium, razem ze
+źródłami HTML i diagramami Draw.io — symetrycznie do wtyczki 2, której dokumentacja PDF stoi
+w `ai-news-portal/instrukcje/`. Ten `README.md`
 jest dokumentacją **dla programisty**, nie dla klienta.
