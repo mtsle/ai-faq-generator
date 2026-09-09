@@ -2,7 +2,7 @@
 Requires at least: 6.5
 Tested up to: 7.0.2
 Requires PHP: 8.1
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -215,6 +215,23 @@ Tak, dwiema drogami: filtrem `ainp_security_headers` (pusta tablica) albo stał�
 == Changelog ==
 
 Skrót wydań. Pełna historia zmian znajduje się w repozytorium projektu.
+
+= 1.1.0 =
+* **Wydanie po audycie całości obu wtyczek.** Opis procesu i wynik: katalog `audyt/` w repozytorium.
+* **Wtyczka dostała ścieżkę aktualizacji struktury bazy, której NIE MIAŁA WCALE.** Numer wersji
+  struktury rośnie dopiero po udanej przebudowie, potwierdzonej odczytem z bazy.
+* Nierówność budżetów czasu (mechanizm strażniczy automatu) znikała na każdym hostingu z limitem
+  do 31 sekund — czyli na wartości typowej. Liczona jest teraz na budżetach efektywnych.
+* Przy bardzo małym limicie czasu faza publikacji nie jest już spychana poniżej progu wejścia
+  modelu: albo dostaje swoje minimum, albo jest pomijana z jawnym powodem.
+* Licznik wywołań AI mierzy żądania faktycznie wysłane, nie wywołania metody — panel przestał
+  pokazywać zużycie, którego nie było.
+* Sufit 20 000 znaków treści obowiązuje bezwzględnie, także na ścieżkach awaryjnych.
+* Nieudane pobranie `robots.txt` nie zapisuje już zgody na pobieranie na 12 godzin.
+* Odstęp 3 sekund między żądaniami do tego samego serwera — wcześniej nie istniał w ogóle.
+* Odinstalowanie obejmuje całą sieć wielowitrynową; wcześniej sprzątało wyłącznie bieżącą witrynę.
+* Lista Centrum Wiedzy nie pyta już dysku o zdjęcie kategorii przy każdej karcie z osobna.
+* Aktualizacja z 1.0.0 nie wymaga żadnych działań — przebudowa struktury dzieje się sama.
 
 = 1.0.0 =
 * Wydanie końcowe po audycie całości: przegląd kodu według dziewięciu osi, niezależni krytycy, odbiór na żywym WordPressie.

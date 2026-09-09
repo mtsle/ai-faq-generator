@@ -2,15 +2,16 @@
 
 [![Testy](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml/badge.svg)](https://github.com/mtsle/ai-faq-generator/actions/workflows/testy.yml)
 
-To repozytorium zawiera **dwie niezależne wtyczki WordPress**, obie wydane jako **v1.0.0**.
+To repozytorium zawiera **dwie niezależne wtyczki WordPress**, obie wydane jako **v1.1.0** —
+wydanie po audycie całości obu wtyczek.
 Ten plik jest jednocześnie README całego repozytorium i dokumentacją wtyczki 1.
 
 ## Dwie wtyczki w jednym repozytorium
 
 | Wtyczka | Folder | Wersja | Tagi wydań | README |
 |---|---|---|---|---|
-| **AI FAQ Generator** | korzeń repo | 1.0.0 | `v0.1.0`–`v1.0.0` (historyczne); ewentualne kolejne wydania: prefiks `aifaq-` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
-| **AI News Portal** | `ai-news-portal/` | 1.0.0 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.0.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
+| **AI FAQ Generator** | korzeń repo | 1.1.0 | `v0.1.0`–`v1.0.0` (historyczne, bez prefiksu); od 1.1.0 prefiks `aifaq-`, czyli `aifaq-v1.1.0` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
+| **AI News Portal** | `ai-news-portal/` | 1.1.0 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.1.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
 
 **Układ „korzeń = wtyczka 1, podfolder = wtyczka 2" jest decyzją architektoniczną.**
 WordPress skanuje katalog `wp-content/plugins/` tylko dwa poziomy w głąb, więc plik główny

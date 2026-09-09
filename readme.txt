@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Tested up to: 7.0.2
 Requires PHP: 8.0
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -154,6 +154,22 @@ narzędzia. Ekran „Narzędzie FAQ" w kokpicie pozostaje przy uprawnieniach adm
 == Changelog ==
 
 Skrót najważniejszych wydań. Pełna historia zmian znajduje się w repozytorium projektu.
+
+= 1.1.0 =
+* **Wydanie po audycie całości obu wtyczek.** Opis procesu i wynik: katalog `audyt/` w repozytorium.
+* **Naprawą o największej wadze jest retencja dziennika pytań.** Granica kasowania szła po numerze
+  wiersza, a nie po dacie — na witrynie, przez którą przeszła migracja historii, sprzątanie usuwało
+  wpisy NAJNOWSZE, a zostawiało najstarsze. Dziennik jest jedynym miejscem tych danych.
+* Aktualizacja wtyczki przez podmianę plików: numer schematu bazy rośnie dopiero po UDANYM
+  przeniesieniu danych. Wcześniej mógł urosnąć bez niego i trwale zamknąć drugą próbę.
+* Odinstalowanie obejmuje całą sieć wielowitrynową także przy ponad 10 000 witryn (lista witryn
+  pobierana stronicowaniem, wcześniej nadmiar był pomijany po cichu).
+* Deklaracja najdłuższego czasu życia danych tymczasowych doprowadzona do prawdy: doba, nie godzina.
+* Domknięte galęzie błędu tam, gdzie ich nie było — nieudany zapis, nieudane kasowanie i wyjątek
+  z ponowienia pobrań przestają być nieodróżnialne od sukcesu.
+* Naprawione testy, które świeciły na zielono przy zepsutym kodzie; zamek ponownego indeksowania
+  dostał pierwsze pokrycie testowe.
+* Bez zmian w schemacie bazy. Aktualizacja z 1.0.0 nie wymaga żadnych działań.
 
 = 1.0.0 =
 * **Wydanie domykające produkt.** Zakres ze zlecenia zamknięty, wtyczka gotowa do oddania.
