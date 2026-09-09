@@ -76,7 +76,7 @@ PHP 8.2 z `mbstring`) wołają CI-owe kopie runnerów z `.github/ci/`:
 | job | runner | kryterium zaliczenia |
 |---|---|---|
 | Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **62 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
-| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2305 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
+| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2306 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
 
 Te same skrypty działają lokalnie (wymagany PHP CLI z rozszerzeniem `mbstring`):
 

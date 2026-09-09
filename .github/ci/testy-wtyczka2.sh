@@ -29,7 +29,7 @@ segments=(
   "S9  Automatyzacja czasowa (cron ainp_tick)|krok5-cron-test.php:137"
   "S10 Kokpit: akcje, nonce, uprawnienia (Admin.php, Admin_Screen.php)|krok2-panel-test.php:81 krok4-akcje-test.php:100"
   "S11 Ustawienia i klucz API (Settings.php)|krok4-ustawienia-test.php:28"
-  "S12 Front Centrum Wiedzy (Portal.php, szablony)|krok6-portal-test.php:37 krok6-karty-test.php:136 etap83-szablony-test.php:76"
+  "S12 Front Centrum Wiedzy (Portal.php, szablony)|krok6-portal-test.php:37 krok6-karty-test.php:137 etap83-szablony-test.php:76"
   "S13 Naglowki bezpieczenstwa (Security.php)|krok7-naglowki-test.php:70"
   "S14 Usuwanie bez sladu (uninstall.php)|krok1-uninstall-test.php:45 krok4-uninstall-test.php:30"
   "S15 Zgodnosc dokumentacji z kodem (README.md + readme.txt)|etap85-readme-test.php:147"

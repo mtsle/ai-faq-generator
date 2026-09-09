@@ -235,6 +235,11 @@ foreach ( $pliki as $plik ) {
 	}
 }
 
+// `===` na tablicach porownuje TAKZE kolejnosc kluczy, a ta pochodzi z kolejnosci
+// plikow zwracanej przez system plikow: Windows dawal Activator przed Plugin,
+// Linux odwrotnie. Bez `ksort` asercja przechodzila u autora i czerwieniala na CI,
+// nie majac nic wspolnego z tym, czego pilnuje.
+ksort( $zapisy );
 check( array( 'Core/Activator.php' => 1, 'Core/Plugin.php' => 1 ) === $zapisy, 'I1 (KONTROLA POZYTYWNA): w src/ są DOKŁADNIE dwa zapisy aifaq_db_version — Plugin i Activator (znaleziono: ' . json_encode( $zapisy ) . ')' );
 
 $plugin_src = (string) file_get_contents( $src_dir . '/Core/Plugin.php' );

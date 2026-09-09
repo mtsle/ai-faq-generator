@@ -829,7 +829,37 @@ echo "\n=== J. F8 — kotwice dokumentacyjne dostawcy (RAU-R12-001/002/003) ===\
 // końce naraz — zachowanie kodu ORAZ zdanie dokumentu, które je opisuje.
 // Zerwanie któregokolwiek z nich zapala tę sekcję.
 
-$sciezka_reg = dirname( dirname( dirname( __DIR__ ) ) ) . '/projektAUDYT/dokumentacja/DOKUMENTACJA-FUNKCJONALNA-3-REGULY-I-PROGI.txt';
+$sciezka_reg = dirname( __DIR__ ) . '/audyt/dokumentacja/DOKUMENTACJA-FUNKCJONALNA-3-REGULY-I-PROGI.txt';
+/**
+ * Zderza kopie dokumentu w repozytorium z kanonem w `projektAUDYT/dokumentacja/`.
+ *
+ * PO CO: straznicy dokumentacyjni czytali dotad WYLACZNIE kanon, ktory lezy POZA
+ * repozytorium. Lokalnie bylo zielono, a pierwsze zderzenie z GitHub Actions
+ * przewrocilo cztery zestawy naraz — CI tego katalogu nie widzi. Dokument jest
+ * teraz kopiowany do repo i to kopie czytaja asercje, wiec straznik chodzi
+ * takze w CI. Ta funkcja pilnuje, zeby kopia nie rozjechala sie z kanonem.
+ *
+ * Asercja wykonuje sie w OBU galeziach, takze gdy kanonu nie ma. Liczba asercji
+ * musi byc identyczna w kazdym srodowisku, bo runner wtyczki 2 zalicza zestaw
+ * dopiero przy DOKLADNEJ rownosci liczby wykonanych asercji.
+ *
+ * @param string $w_repo Sciezka kopii w repozytorium.
+ * @param string $nazwa  Nazwa pliku dokumentu.
+ *
+ * @return void
+ */
+function aifaq_doc_zgodna( $w_repo, $nazwa ) {
+	$kanon = dirname( dirname( dirname( __DIR__ ) ) ) . '/projektAUDYT/dokumentacja/' . $nazwa;
+	if ( ! is_file( $kanon ) ) {
+		check( is_file( $w_repo ), 'kopia ' . $nazwa . ' jest w repo (kanon spoza repo niedostepny w tym srodowisku)' );
+		return;
+	}
+	check(
+		is_file( $w_repo ) && md5_file( $kanon ) === md5_file( $w_repo ),
+		'kopia ' . $nazwa . ' w repo zgodna co do bajtu z kanonem w projektAUDYT'
+	);
+}
+aifaq_doc_zgodna( $sciezka_reg, 'DOKUMENTACJA-FUNKCJONALNA-3-REGULY-I-PROGI.txt' );
 $doc_reg     = is_readable( $sciezka_reg ) ? (string) file_get_contents( $sciezka_reg ) : '';
 
 // --- J1. RAU-R12-002 — REG-W1-34 to budżet CZASU, a sufit prób ma własną kotwicę ---

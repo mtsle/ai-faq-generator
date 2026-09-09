@@ -22,7 +22,7 @@ Wymagania: PHP 8.2 z rozszerzeniem `mbstring`. Nic więcej.
 | Segmenty | 54 | 15 |
 | Zestawy | **62** po naprawach (przed: 60) | 29 |
 | Kryterium zaliczenia | kod wyjścia zestawu | **dokładna równość liczby asercji** |
-| Asercje | nieliczone globalnie | **2305** po naprawach (przed: 2083) |
+| Asercje | nieliczone globalnie | **2306** po naprawach (przed: 2083) |
 
 ---
 

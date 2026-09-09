@@ -147,10 +147,10 @@ regułę techniczną. Zrobione zostały obie.
 |---|---|---|
 | Zestawy testowe W1 | 60 | **62** |
 | Zestawy testowe W2 | 29 | 29 |
-| Asercje W2 (liczone co do jednej) | 2083 | **2305** |
+| Asercje W2 (liczone co do jednej) | 2083 | **2306** |
 | Pozycje otwarte z audytu | 48 | **0** |
 
-Wzrost o 222 asercje to nie „więcej testów dla samych testów" — to strażnicy
+Wzrost o 223 asercje to nie „więcej testów dla samych testów" — to strażnicy
 wymagani punktem 2 kontraktu, każdy z dowodem, że potrafi zaczerwienić się
 na żądanie.
 

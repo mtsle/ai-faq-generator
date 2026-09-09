@@ -38,7 +38,7 @@ i łapią różne błędy.
 
 **Poziom 1 — testy, które chodzą same.**
 91 zestawów testowych, uruchamianych przy każdym pushu przez GitHub Actions.
-Wtyczka 1: 62 zestawy. Wtyczka 2: 29 zestawów i **2305 asercji**, liczonych
+Wtyczka 1: 62 zestawy. Wtyczka 2: 29 zestawów i **2306 asercji**, liczonych
 co do jednej — runner nie zalicza segmentu, jeśli liczba wykonanych asercji nie
 zgadza się z zadeklarowaną. To brzmi drobiazgowo, dopóki nie zobaczy się, do
 czego służy: test, który po cichu przestał cokolwiek sprawdzać, dalej świeci
