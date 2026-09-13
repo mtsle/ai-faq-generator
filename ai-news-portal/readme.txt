@@ -2,7 +2,7 @@
 Requires at least: 6.5
 Tested up to: 7.0.2
 Requires PHP: 8.1
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -215,6 +215,18 @@ Tak, dwiema drogami: filtrem `ainp_security_headers` (pusta tablica) albo stał�
 == Changelog ==
 
 Skrót wydań. Pełna historia zmian znajduje się w repozytorium projektu.
+
+= 1.2.0 =
+* **Kolejka nie pali już dobowej puli AI na tej samej pozycji.** Nieudany zapis statusu oddawał
+  wiersz do kolejki, a ten sam przebieg brał go ponownie — do trzech wywołań modelu na jeden błąd.
+  Teraz taki zapis przerywa partię i jest widoczny w podsumowaniu.
+* Artykuł opublikowany mimo nieudanego zapisu statusu jest zgłaszany jako rozjazd, zamiast cicho
+  rozjeżdżać kolejkę z treścią portalu.
+* Błąd bazy przy zapisie odcisku treści albo adresu kanonicznego przestał udawać duplikat —
+  pozycja wraca do kolejki, zamiast trwale wypaść jako pominięta z fałszywym powodem.
+* Nieudany zapis licznika prób nie udaje ponowienia: bez tego strona była pobierana w nieskończoność.
+* „Wznów pozycje" pokazuje błąd zamiast komunikatu „Wznowionych pozycji: 0", a nieudany odzysk
+  porzuconych pozycji trafia do podsumowania przebiegu.
 
 = 1.1.0 =
 * **Wydanie po audycie całości obu wtyczek.** Opis procesu i wynik: katalog `audyt/` w repozytorium.

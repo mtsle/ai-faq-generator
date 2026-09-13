@@ -38,14 +38,20 @@ Ten plik jest jednocześnie README całego repozytorium i dokumentacją wtyczki 
 
 | Wtyczka | Folder | Wersja | WordPress | PHP | Tagi wydań | README |
 |---|---|---|---|---|---|---|
-| **AI FAQ Generator** | korzeń repo | 1.1.0 | ≥ 6.4 | ≥ 8.0 | `v0.1.0`–`v1.0.0` (historyczne, bez prefiksu); od 1.1.0 prefiks `aifaq-`, czyli `aifaq-v1.1.0` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
-| **AI News Portal** | `ai-news-portal/` | 1.1.0 | ≥ 6.5 | ≥ 8.1 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.1.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
+| **AI FAQ Generator** | korzeń repo | 1.2.0 | ≥ 6.4 | ≥ 8.0 | `v0.1.0`–`v1.0.0` (historyczne, bez prefiksu); od 1.1.0 prefiks `aifaq-`, czyli `aifaq-v1.2.0` | ten dokument (od sekcji „Dokumentacja wtyczki 1") |
+| **AI News Portal** | `ai-news-portal/` | 1.2.0 | ≥ 6.5 | ≥ 8.1 | `ai-news-portal-v0.1.0`–`ai-news-portal-v1.2.0` | [ai-news-portal/README.md](ai-news-portal/README.md) |
 
 Obie wtyczki są testowane do WordPressa **7.0.2**. Obie są na licencji **GPLv2** — wyłącznie
 wersja druga, bez klauzuli „or later"; pełny tekst w [LICENSE](LICENSE).
 
 Wersja 1.1.0 to wydanie po audycie całości obu wtyczek. Co audyt znalazł i co z tego
 naprawiono, opisuje katalog [audyt/](audyt/).
+
+Wersja 1.2.0 domyka klasę błędów, której audyt nie miał jak zgłosić, bo nie było wobec czego:
+**wynik zapisu do bazy**. `$wpdb` nie zgłasza błędu wyjątkiem — błąd to `false`, a „nic nie
+zmieniono" to `0` — i kod mylił te dwa stany. Przy okazji nagłówki proxy przestały być brane
+od dowolnego nadawcy. Reguła ma teraz strażnika w obu wtyczkach
+([`wynik-zapisu-guard-test.php`](tests/wynik-zapisu-guard-test.php)).
 
 ## Co robi każda wtyczka
 
