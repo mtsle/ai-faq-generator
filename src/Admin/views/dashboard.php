@@ -392,6 +392,30 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 		<p><?php esc_html_e( 'Co się dzieje na publicznej stronie generatora. „Odmowy" to pytania spoza tematu Twojej strony — bramka tematu zadziałała. „Z cache" to powtórzone pytania, za które nie zapłaciłeś.', 'ai-faq-generator' ); ?></p>
 
 		<?php
+		// Naprawa Z4/R10: tożsamość gościa zza proxy. Sygnał `aifaq_proxy_seen` miał dotąd
+		// wyłącznie zapis — ten blok jest jego czytelnikiem; drugi stan to przełącznik
+		// włączony przy pustej liście zaufanych proxy (nagłówki ignorowane, decyzja D1).
+		$aifaq_proxy_notice = class_exists( '\AIFAQ\Rest\GuestIdentity' ) && method_exists( '\AIFAQ\Rest\GuestIdentity', 'proxy_notice' )
+			? \AIFAQ\Rest\GuestIdentity::proxy_notice()
+			: '';
+		?>
+		<?php if ( 'unconfigured' === $aifaq_proxy_notice ) : ?>
+			<div class="notice notice-warning inline">
+				<p>
+					<strong><?php esc_html_e( 'Zaufany proxy jest włączony, ale nieskonfigurowany.', 'ai-faq-generator' ); ?></strong>
+					<?php esc_html_e( 'Lista zaufanych adresów proxy jest pusta, więc nagłówki z adresem gościa są ignorowane i wszyscy goście trafiają do jednego wspólnego licznika pytań. Wpisz adresy swojego proxy w Ustawieniach.', 'ai-faq-generator' ); ?>
+				</p>
+			</div>
+		<?php elseif ( 'proxy_seen' === $aifaq_proxy_notice ) : ?>
+			<div class="notice notice-warning inline">
+				<p>
+					<strong><?php esc_html_e( 'Witryna wygląda na stojącą za proxy.', 'ai-faq-generator' ); ?></strong>
+					<?php esc_html_e( 'Żądania przychodzą z nagłówkami proxy, a opcja „Adres gościa zza proxy" jest wyłączona — wszyscy goście trafiają do jednego wspólnego licznika pytań. Jeśli witryna stoi za Cloudflare albo load balancerem, włącz opcję i wpisz adresy proxy w Ustawieniach.', 'ai-faq-generator' ); ?>
+				</p>
+			</div>
+		<?php endif; ?>
+
+		<?php
 		$aifaq_tiles = array(
 			array( 'n' => (string) $aifaq_qa['total'], 'l' => __( 'Wszystkich pytań', 'ai-faq-generator' ) ),
 			array( 'n' => (string) $aifaq_qa['today'], 'l' => __( 'Dziś', 'ai-faq-generator' ) ),

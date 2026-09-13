@@ -626,7 +626,9 @@ więc te dwa nie mają jak się rozjechać.
 | **Okno limitu** (`rag_rate_window`) | godzina | godzina albo doba |
 | **Limit pytań na gościa** (`rag_rate_limit`) | **10** (było 30) | w oknie jak wyżej |
 | **Dobowy sufit witryny** (`rag_daily_budget`) | **12** | łączna liczba pytań na dobę; `0` = wyłączony (klucz płatny) |
-| **Zaufany proxy** (`rag_trusted_proxy`) | wyłączony | czytaj IP z `CF-Connecting-IP` / `X-Forwarded-For` |
+| **Zaufany proxy** (`rag_trusted_proxy`) | wyłączony | czytaj adres gościa z nagłówka proxy — wyłącznie od nadawcy z listy niżej |
+| **Zaufane adresy proxy** (`rag_trusted_proxies`) | **pusta = nagłówki ignorowane** | adresy IP i zakresy CIDR (IPv4/IPv6) proxy przed witryną; żądanie spoza listy nie ma prawa podać adresu gościa |
+| **Nagłówek z adresem gościa** (`rag_proxy_header`) | Cloudflare | `CF-Connecting-IP` albo `X-Forwarded-For` (czytany od prawej, z pominięciem adresów z listy) |
 
 > **Retencja jest opt-in.** Obie wartości domyślne to `0`, czyli „nie kasuj nic". Włączenie kasuje
 > wiersze **trwale**, bez kosza.

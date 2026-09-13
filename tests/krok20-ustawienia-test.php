@@ -231,9 +231,12 @@ if ( $has_set && method_exists( $SET, 'defaults' ) ) {
 	check( '0' === (string) ( $d['rag_trusted_proxy'] ?? '' ), "rag_trusted_proxy domyślnie '0' (§2.3 — włączony bez proxy = obejście limitera)" );
 	check( 10 === (int) ( $d['rag_rate_limit'] ?? -1 ), 'rag_rate_limit: wartość domyślna zmieniona 30 -> 10 (§2)' );
 	check( 8 === count( array_intersect_key( $d, $K20_NEW ) ), 'defaults() ma DOKŁADNIE osiem nowych kluczy §2' );
+	// Naprawa Z4 (D1): lista zaufanych proxy PUSTA = nagłówki ignorowane (zamknięta bezpieczna).
+	check( '' === ( $d['rag_trusted_proxies'] ?? null ), "Z4: rag_trusted_proxies domyślnie '' (bez listy nagłówki są ignorowane)" );
+	check( 'cf' === ( $d['rag_proxy_header'] ?? null ), "Z4: rag_proxy_header domyślnie 'cf'" );
 	unset( $d );
 } else {
-	skip( 19, 'sekcja A pominięta — brak Settings::defaults()' );
+	skip( 21, 'sekcja A pominięta — brak Settings::defaults()' );
 }
 
 // ===========================================================================
@@ -260,6 +263,14 @@ if ( $has_set && method_exists( $SET, 'sanitize' ) ) {
 	check( '1' === (string) $o['rag_trusted_proxy'], "rag_trusted_proxy '1' → '1'" );
 	$o = k20s_sanitize( array( 'rag_trusted_proxy' => 'on' ) );
 	check( '0' === (string) $o['rag_trusted_proxy'], "rag_trusted_proxy 'on' (śmieć) → '0'" );
+
+	// Naprawa Z4 (D1): lista zaufanych proxy — tylko poprawne IP/CIDR v4 i v6, znormalizowane.
+	$o = k20s_sanitize( array( 'rag_trusted_proxies' => "10.0.0.1, zly-wpis\n10.0.0.0/33;2001:DB8::1/64 10.0.0.1\n192.0.2.0/24" ) );
+	check( "10.0.0.1\n2001:db8::1/64\n192.0.2.0/24" === (string) $o['rag_trusted_proxies'], 'Z4: lista proxy — śmieć i prefiks /33 odrzucone, IPv6 znormalizowany, duplikat zwinięty' );
+	$o = k20s_sanitize( array( 'rag_proxy_header' => 'xff' ) );
+	check( 'xff' === (string) $o['rag_proxy_header'], "Z4: rag_proxy_header 'xff' → 'xff'" );
+	$o = k20s_sanitize( array( 'rag_proxy_header' => 'x-real-ip' ) );
+	check( 'cf' === (string) $o['rag_proxy_header'], "Z4: rag_proxy_header spoza listy → 'cf'" );
 
 	// menu_label — sanitize_text_field + obcięcie do 60, pusty → domyślna.
 	$o = k20s_sanitize( array( 'menu_label' => str_repeat( 'a', 100 ) ) );
@@ -315,7 +326,7 @@ if ( $has_set && method_exists( $SET, 'sanitize' ) ) {
 
 	unset( $o, $w0 );
 } else {
-	skip( 27, 'sekcja B1 pominięta — brak Settings::sanitize()' );
+	skip( 30, 'sekcja B1 pominięta — brak Settings::sanitize()' );
 }
 
 // ===========================================================================
@@ -351,6 +362,8 @@ if ( $has_set && method_exists( $SET, 'sanitize' ) ) {
 			'generations_keep_days' => 90,
 			'rag_rate_window'       => 'doba',
 			'rag_daily_budget'      => 50,
+			'rag_trusted_proxies'   => '10.0.0.5',
+			'rag_proxy_header'      => 'xff',
 		)
 	);
 	// Dokładnie te cztery pola przysyła `RestController::handle_settings_save()` (§2.0).
@@ -365,6 +378,8 @@ if ( $has_set && method_exists( $SET, 'sanitize' ) ) {
 	check( 90 === (int) $o['generations_keep_days'], 'zapis z frontu nie rusza generations_keep_days' );
 	check( 'doba' === (string) $o['rag_rate_window'], 'zapis z frontu nie rusza rag_rate_window' );
 	check( 50 === (int) $o['rag_daily_budget'], 'zapis z frontu nie rusza rag_daily_budget' );
+	check( '10.0.0.5' === (string) $o['rag_trusted_proxies'], 'Z4: zapis z frontu NIE kasuje listy zaufanych proxy (P-10)' );
+	check( 'xff' === (string) $o['rag_proxy_header'], 'Z4: zapis z frontu nie rusza rag_proxy_header' );
 
 	// Odznaczenie checkboxa MUSI działać — dzięki ukrytemu inputowi value="0" klucz JEST w wejściu.
 	$o = k20s_sanitize( array( 'menu_link_enabled' => '0', 'rag_trusted_proxy' => '0' ) );
@@ -373,7 +388,7 @@ if ( $has_set && method_exists( $SET, 'sanitize' ) ) {
 
 	unset( $o, $front );
 } else {
-	skip( 10, 'sekcja C pominięta — brak Settings::sanitize()' );
+	skip( 12, 'sekcja C pominięta — brak Settings::sanitize()' );
 }
 
 // ===========================================================================
@@ -461,6 +476,11 @@ if ( file_exists( $view ) ) {
 		);
 	}
 
+	// Naprawa Z4 (D1): lista zaufanych proxy i wybór nagłówka — pola widoczne w Ustawieniach.
+	foreach ( array( 'rag_trusted_proxies', 'rag_proxy_header' ) as $k ) {
+		check( 1 === substr_count( $src, 'aifaq_settings[' . $k . ']' ), "Z4: pole `$k` występuje w widoku DOKŁADNIE raz" );
+	}
+
 	// Dwa checkboxy — DWA wystąpienia: ukryty input value="0" + sam checkbox (§2.0; patrz O-102).
 	foreach ( array( 'menu_link_enabled', 'rag_trusted_proxy' ) as $k ) {
 		$n = substr_count( $src, 'aifaq_settings[' . $k . ']' );
@@ -484,7 +504,7 @@ if ( file_exists( $view ) ) {
 
 	unset( $src, $present, $pos_hidden, $pos_last, $before, $n );
 } else {
-	skip( 12, 'sekcja F pominięta — brak pliku views/settings.php' );
+	skip( 14, 'sekcja F pominięta — brak pliku views/settings.php' );
 }
 
 // ===========================================================================
@@ -604,7 +624,7 @@ check(
 );
 
 $floor = $ran;
-check( $floor >= 40, 'wykonano co najmniej 40 asercji (było ' . $floor . ')' );
+check( $floor >= 49, 'wykonano co najmniej 49 asercji (było ' . $floor . ')' );
 
 // Wartownik końca pliku — chroni przed cichym Fatalem w środku.
 check( true, 'plik dobiegł końca' );
