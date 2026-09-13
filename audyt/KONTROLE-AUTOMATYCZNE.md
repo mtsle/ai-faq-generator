@@ -19,10 +19,10 @@ Wymagania: PHP 8.2 z rozszerzeniem `mbstring`. Nic więcej.
 
 | | Wtyczka 1 | Wtyczka 2 |
 |---|---|---|
-| Segmenty | 54 | 15 |
-| Zestawy | **62** po naprawach (przed: 60) | 29 |
+| Segmenty | 58 | 16 |
+| Zestawy | **64** po naprawie wyniku zapisu (po przebiegu 2: 62, przed nim: 60) | 30 |
 | Kryterium zaliczenia | kod wyjścia zestawu | **dokładna równość liczby asercji** |
-| Asercje | nieliczone globalnie | **2306** po naprawach (przed: 2083) |
+| Asercje | nieliczone globalnie | **2357** po naprawie wyniku zapisu (po przebiegu 2: 2306, przed nim: 2083) |
 
 ---
 
@@ -70,6 +70,21 @@ porównywać zdania, test **wylicza wartość ze źródła** i zderza ją z dekl
 
 To ten trzeci rodzaj wykrył, że prawdziwy najdłuższy czas życia transientu
 wynosi 24 godziny, a nie 12, jak mówiło zgłoszenie audytu.
+
+**Wynik zapisu `$wpdb`.** Po jednym strażniku na wtyczkę
+([`tests/wynik-zapisu-guard-test.php`](../tests/wynik-zapisu-guard-test.php),
+[`ai-news-portal/tests/wynik-zapisu-guard-test.php`](../ai-news-portal/tests/wynik-zapisu-guard-test.php)).
+`$wpdb` nie rzuca wyjątków — błąd SQL to `false`, a „nic nie zmieniono" to `0` —
+więc strażnik klasyfikuje **na tokenach PHP** każde `query|update|delete|insert|replace`:
+wynik wyrzucony, rzutowany `(int)`/`(bool)` albo przypisany bez porównania z `false`
+czerwieni runner. Wyjątek wymaga markera `WYNIK-ZAPISU-POMINIETY` w kodzie **i** wpisu
+w jawnej tablicy z sufitem; marker bez wpisu i wpis bez markera to też naruszenia.
+Strażnik sprawdza sam siebie na syntetycznych fragmentach i ma podłogę liczby
+znalezionych wywołań, żeby zmiana katalogu nie wyzerowała skanu. Stan dziś:
+W1 26 wywołań i 9 świadomych pominięć, W2 24 wywołania i 10 pominięć, zero pozycji
+do naprawy. Zachowanie przy awarii pilnują osobno asercje behawioralne z atrapą
+`$wpdb` zwracającą `false` — statyczny strażnik nie widzi jawnego zamiecenia
+`false === $x ? 0 : (int) $x`.
 
 **Rozdzielność wtyczek.** Klient dostaje jedną paczkę z dwiema wtyczkami, więc
 osobna kontrola pilnuje, żeby odinstalowanie jednej nie tknęło danych drugiej.

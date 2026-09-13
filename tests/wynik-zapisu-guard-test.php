@@ -83,7 +83,7 @@ const WZ1_SUFIT = 9;
  */
 const WZ1_DO_NAPRAWY = array();
 
-/** Liczba wpisów DO NAPRAWY z dnia wdrożenia — może tylko maleć. */
+/** Liczba wpisów DO NAPRAWY z dnia wdrożenia (historia trybu przejściowego, F1). */
 const WZ1_DO_NAPRAWY_START = 13;
 
 /** Podłoga liczby wywołań zapisu znalezionych w skanie (dzień wdrożenia: 26). */
@@ -523,7 +523,10 @@ wz1_check( array() === $wynik['martwe'], 'zero martwych wpisow w tablicach (mart
 wz1_check( array() === $wynik['sufit'], 'swiadomych pominiec nie wiecej niz sufit ' . WZ1_SUFIT );
 
 $do_naprawy = array_sum( array_column( WZ1_DO_NAPRAWY, 0 ) );
-wz1_check( $do_naprawy <= WZ1_DO_NAPRAWY_START, "wpisow DO NAPRAWY nie przybylo ({$do_naprawy} <= " . WZ1_DO_NAPRAWY_START . ')' );
+// ZMIENIONA JAWNIE w fazie F6: tryb przejsciowy zamkniety. Wszystkie pozycje DO NAPRAWY
+// z dnia wdrozenia sa naprawione, wiec zamiast „nie przybylo" pilnujemy pustej tablicy —
+// nowe naruszenie da sie odtad dopuscic wylacznie markerem i wpisem swiadomego pominiecia.
+wz1_check( 0 === $do_naprawy, "zero wpisow DO NAPRAWY (tryb przejsciowy zamkniety; na starcie: " . WZ1_DO_NAPRAWY_START . ", jest: {$do_naprawy})" );
 
 // ---------------------------------------------------------------------------
 // Z. Podłoga pokrycia i wartownik końca pliku.
