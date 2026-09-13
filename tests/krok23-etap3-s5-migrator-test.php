@@ -76,9 +76,11 @@ class S5Wpdb {
 		$this->select_calls++;
 		return $this->read_fails ? null : $this->rows;
 	}
+	public $commit_ret        = true;      // wynik COMMIT (N9): true = sukces, false = błąd SQL
+
 	public function query( $sql ) {
 		$this->queries[] = (string) $sql;
-		return true;
+		return ( 'COMMIT' === (string) $sql ) ? $this->commit_ret : true;
 	}
 	public function insert( $table, array $data ) {
 		$this->inserts[] = array( 'table' => $table, 'data' => $data );
@@ -209,6 +211,16 @@ check( 1 === (int) ( $GLOBALS['__opt'][ Migrator::FLAG_HISTORY ] ?? 0 ), 'H3: fl
 $GLOBALS['__opt'] = array();
 $wpdb = new S5Wpdb( false );
 check( true === Migrator::run(), 'H4: świeża instalacja (brak starej tabeli) też zwraca true' );
+
+// N9 — nieudany COMMIT. Przed naprawą wynik był wyrzucany, a FLAG_HISTORY zapadała
+// nieodwracalnie: migracja „wykonana" bez przeniesionych wierszy.
+$GLOBALS['__opt']   = array();
+$wpdb               = new S5Wpdb( true, array( array( 'created_at' => '2026-01-15 09:00:00', 'topic' => 'x', 'user_id' => 1 ) ) );
+$wpdb->commit_ret   = false;
+$wynik_n9           = Migrator::run();
+check( in_array( 'COMMIT', $wpdb->queries, true ), 'H5 kontrola: COMMIT wykonany' );
+check( false === $wynik_n9, 'H5 (N9): COMMIT → false → run() zwraca false' );
+check( ! isset( $GLOBALS['__opt'][ Migrator::FLAG_HISTORY ] ), 'H6 (N9, KLUCZOWA): COMMIT padł → FLAG_HISTORY NIE zapisana, migracja ponowi się' );
 
 // ===========================================================================
 echo "

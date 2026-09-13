@@ -120,6 +120,7 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 		delete_option( 'aifaq_daily_usage' );  // Licznik dobowego sufitu witryny.
 		delete_option( 'aifaq_budget_hit' );   // Znacznik przekroczenia sufitu (komunikat).
 		delete_option( 'aifaq_proxy_seen' );   // Sygnał „witryna stoi za proxy" przy wyłączonym przełączniku.
+		delete_option( 'aifaq_retention_failed' ); // Sygnał porażki retencji dla kokpitu (Repository::RETENTION_FAILED_OPTION).
 
 		// --- Transienty o STAŁEJ nazwie ----------------------------------
 		if ( function_exists( 'delete_transient' ) ) {

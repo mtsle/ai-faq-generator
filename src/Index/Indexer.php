@@ -167,6 +167,10 @@ class Indexer {
 		$map     = array();   // Równoległa mapa: indeks w $flat => post_id + chunk_index.
 		$pending = array();   // post_id => array{pieces, hashes} — wpisy do zapisania.
 
+		// Nieudane odświeżenia `updated_at` przy skip-unchanged (N8) — jedno zbiorcze
+		// ostrzeżenie zamiast N identycznych linii w raporcie.
+		$touch_failed = 0;
+
 		foreach ( $this->source->documents() as $doc ) {
 			++$report['posts'];
 			$post_id          = (int) ( $doc['post_id'] ?? 0 );
@@ -220,7 +224,12 @@ class Indexer {
 				// sprawdzony teraz — odświeżamy `updated_at`, żeby licznik świeżości
 				// (FreshnessNotice) nie oznaczał wpisu jako „zmieniony od indeksowania”
 				// tylko dlatego, że zmieniła się np. kategoria, nie treść. Zero API.
-				$this->repo->touch_post( $post_id );
+				// Nieudany UPDATE zostawiał stary znacznik bez śladu: licznik świeżości
+				// pokazywał wpis jako zmieniony, a kolejny reindeks znów go pomijał.
+				// Porażką jest WYŁĄCZNIE false — 0 z UPDATE to ta sama sekunda.
+				if ( false === $this->repo->touch_post( $post_id ) ) {
+					++$touch_failed;
+				}
 				continue;
 			}
 
@@ -380,6 +389,11 @@ class Indexer {
 			$report['warnings'][] = __( 'Indeksowanie przerwane po wyczerpaniu budżetu czasu — uruchom je ponownie, żeby dokończyć.', 'ai-faq-generator' );
 		}
 
+		if ( $touch_failed > 0 ) {
+			/* translators: %d: liczba wpisów z nieodświeżonym znacznikiem czasu */
+			$report['warnings'][] = sprintf( __( 'Nie udało się odświeżyć znacznika czasu dla %d niezmienionych wpisów — licznik zmienionych od indeksowania może je pokazywać, dopóki zapis się nie powiedzie.', 'ai-faq-generator' ), $touch_failed );
+		}
+
 		if ( $prune_blocked ) {
 			// Pruning pominięty: $seen jest NIEPUSTE także przy przebiegu częściowym
 			// (buduje je pętla po dokumentach, która przechodzi cała), więc zabezpieczenie
@@ -390,7 +404,17 @@ class Indexer {
 			// H1: pruning tylko, gdy źródło COKOLWIEK zwróciło. Pusty wynik to prawie
 			// zawsze bug/wyścig/filtr wtyczki, więc NIE kasujemy całej bazy — chronimy
 			// (drogie) embeddingi. Pełny reset zostaje jawną akcją „Wyczyść bazę".
-			$report['pruned'] = $this->repo->delete_missing( array_keys( $seen ) );
+			// Nieudany DELETE dawał `pruned = 0` i czysty raport, a Retriever dalej
+			// serwował treść wpisów, których właściciel już nie publikuje. Porażka
+			// idzie do ostrzeżeń — `$complete` i `partial_reason` zostają bez zmian.
+			$pruned = $this->repo->delete_missing( array_keys( $seen ) );
+
+			if ( false === $pruned ) {
+				$report['pruned']     = 0;
+				$report['warnings'][] = __( 'Nie udało się usunąć fragmentów wpisów usuniętych lub odpublikowanych — mogą nadal trafiać do odpowiedzi. Uruchom indeksowanie ponownie.', 'ai-faq-generator' );
+			} else {
+				$report['pruned'] = (int) $pruned;
+			}
 		} else {
 			$report['warnings'][] = __( 'Źródło nie zwróciło żadnych wpisów — pominięto usuwanie osieroconych. Baza wiedzy nietknięta.', 'ai-faq-generator' );
 		}

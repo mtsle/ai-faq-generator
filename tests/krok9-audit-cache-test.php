@@ -60,6 +60,9 @@ class SpyWpdb {
 	/** Sterowana awaria zapytania — potrzebna dla RAU-R06-004 i RAU-R06-003. */
 	public $query_ret = 1;
 	public $delete_ret = 1;
+	/** Wynik $wpdb->update() — touch_post() (N8): false = błąd SQL, 0 = ta sama sekunda. */
+	public $update_ret = 1;
+	public function update( $table, $data, $where, $f = null, $wf = null ) { $this->queries[] = 'UPDATE ' . $table; return $this->update_ret; }
 	public $inserts = 0;
 	/** Wyniki per fragment SQL, zdejmowane po kolei: `'TRUNCATE' => array( true, false )`. */
 	public $ret_by_needle = array();
@@ -240,6 +243,28 @@ k9_scenariusz( array() );
 $ajax = null;
 try { ( new IndexController() )->ajax_clear(); } catch ( K9JsonExit $e ) { $ajax = $e; }
 check( null !== $ajax && true === $ajax->success && isset( $ajax->payload['removed'], $ajax->payload['stats'] ), 'N1 AJAX: sukces bez zmiany kształtu (removed + stats)' );
+
+// ===========================================================================
+echo "\n=== N6/N8/N9: repozytorium wiedzy odróżnia false od 0 ===\n";
+// ===========================================================================
+k9_scenariusz( array() );
+$GLOBALS['wpdb']->update_ret = false;
+check( false === $know_repo->touch_post( 7 ), 'N8: UPDATE updated_at → false → touch_post() === false' );
+$GLOBALS['wpdb']->update_ret = 0;
+check( true === $know_repo->touch_post( 7 ), 'N8/T-1: UPDATE → 0 (ta sama sekunda / brak fragmentów) → touch_post() === true, to NIE porażka' );
+$GLOBALS['wpdb']->update_ret = 1;
+
+k9_scenariusz( array( 'NOT IN' => array( false ) ) );
+check( false === $know_repo->delete_missing( array( 1, 2 ) ), 'N6: DELETE osieroconych → false → delete_missing() === false (nie 0)' );
+k9_scenariusz( array( 'NOT IN' => array( 0 ) ) );
+check( 0 === $know_repo->delete_missing( array( 1, 2 ) ), 'N6/T-1: DELETE osieroconych → 0 → delete_missing() === 0 (nie było czego kasować)' );
+
+k9_scenariusz( array( 'COMMIT' => array( false ) ) );
+$GLOBALS['wpdb']->delete_ret = 1;
+check( 0 === $know_repo->replace_for_post( 5, array( array( 'content' => 'A', 'embedding' => array( 0.1 ) ) ) ), 'N9: COMMIT → false → replace_for_post() === 0 (zestaw NIE zapisany, nie liczba wstawionych)' );
+k9_scenariusz( array( 'COMMIT' => array( true ) ) );
+check( 1 === $know_repo->replace_for_post( 5, array( array( 'content' => 'A', 'embedding' => array( 0.1 ) ) ) ), 'N9/T-1: COMMIT → true → replace_for_post() === 1 (true to sukces bez licznika)' );
+k9_scenariusz( array() );
 
 echo "\n=== " . ( 0 === $fail ? 'WSZYSTKIE OK' : "BŁĘDÓW: {$fail}" ) . " ===\n";
 exit( $fail > 0 ? 1 : 0 );

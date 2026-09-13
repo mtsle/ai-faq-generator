@@ -300,7 +300,11 @@ final class Plugin {
 			return;
 		}
 
-		self::set_option_autoload_no( Settings::OPTION );
+		// Znacznik „zrobione" WYŁĄCZNIE po potwierdzonej zmianie. Zapisany po nieudanym
+		// UPDATE zostawiał klucz API w `alloptions` na zawsze, bez ponowienia.
+		if ( ! self::set_option_autoload_no( Settings::OPTION ) ) {
+			return;
+		}
 
 		// Flaga autoładowana świadomie (jak `aifaq_cache_flushed_for`): czyta ją
 		// każde żądanie, a wartość „już zrobione" nie ma prawa kosztować SELECT-a.
@@ -319,20 +323,31 @@ final class Plugin {
 	 * cache obiektowym) dalej widziałoby opcję jako autoładowaną.
 	 *
 	 * @param string $name Nazwa opcji.
+	 *
+	 * @return bool `true`, gdy opcja NIE jest już autoładowana (zmieniona teraz albo
+	 *              wcześniej). `false` = zmiana niepotwierdzona — znacznik nie powstaje.
 	 */
-	private static function set_option_autoload_no( string $name ): void {
+	private static function set_option_autoload_no( string $name ): bool {
 		if ( function_exists( 'wp_set_option_autoload' ) ) {
-			wp_set_option_autoload( $name, false );
-			return;
+			if ( wp_set_option_autoload( $name, false ) ) {
+				return true;
+			}
+
+			// `false` znaczy „nie zmieniono" — także wtedy, gdy autoload JUŻ był
+			// wyłączony. Rozstrzyga `alloptions`: opcji, której tam nie ma, nie
+			// autoładuje żadne żądanie. Bez tego rozróżnienia świeża instalacja
+			// nigdy nie dostałaby znacznika i płaciła zapytanie przy każdym żądaniu.
+			return function_exists( 'wp_load_alloptions' )
+				&& ! array_key_exists( $name, (array) wp_load_alloptions() );
 		}
 
 		global $wpdb;
 
 		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) || ! method_exists( $wpdb, 'update' ) ) {
-			return;
+			return false;
 		}
 
-		$wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$wynik = $wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 			$wpdb->options,
 			array( 'autoload' => 'no' ),
 			array( 'option_name' => $name ),
@@ -340,10 +355,17 @@ final class Plugin {
 			array( '%s' )
 		);
 
+		// 0 = autoload już był `no` albo opcji nie ma — oba stany są docelowe.
+		if ( false === $wynik ) {
+			return false;
+		}
+
 		if ( function_exists( 'wp_cache_delete' ) ) {
 			wp_cache_delete( 'alloptions', 'options' );
 			wp_cache_delete( $name, 'options' );
 		}
+
+		return true;
 	}
 
 	/**

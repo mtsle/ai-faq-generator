@@ -317,10 +317,22 @@ class GeneratorService {
 
 		$deleted = ( new GenerationRepository() )->delete( $id );
 
+		// Błąd SQL i „nie było wiersza" dawały to samo `deleted:false` przy 200.
+		// Brak wiersza zostaje odpowiedzią 200 (idempotentne usunięcie), błąd — 500.
+		if ( false === $deleted ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Nie udało się usunąć wpisu historii — błąd zapisu w bazie danych.', 'ai-faq-generator' ),
+				),
+				500
+			);
+		}
+
 		return new WP_REST_Response(
 			array(
 				'status'  => 'ok',
-				'deleted' => $deleted,
+				'deleted' => $deleted > 0,
 			),
 			200
 		);

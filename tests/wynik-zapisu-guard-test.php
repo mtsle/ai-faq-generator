@@ -81,17 +81,7 @@ const WZ1_SUFIT = 9;
  * usuwa swoje wpisy. Klucz: `plik|funkcja`, wartość: [liczba naruszeń, pozycja].
  * Wpis musi odpowiadać DOKŁADNIE liczbie naruszeń bez markera.
  */
-const WZ1_DO_NAPRAWY = array(
-	'src/Data/QaLogRepository.php|prune'                  => array( 2, 'N7' ),
-	'src/Data/GenerationRepository.php|prune'             => array( 2, 'N7' ),
-	'src/Data/KnowledgeRepository.php|touch_post'         => array( 1, 'N8' ),
-	'src/Data/KnowledgeRepository.php|delete_missing'     => array( 1, 'N6' ),
-	'src/Data/KnowledgeRepository.php|replace_for_post'   => array( 1, 'N9' ),
-	'src/Data/Migrator.php|migrate_history_to_qa_log'     => array( 1, 'N9' ),
-	'src/Core/Plugin.php|set_option_autoload_no'          => array( 1, 'N10' ),
-	'src/Data/Repository.php|delete'                      => array( 1, 'N11' ),
-	'src/Data/Repository.php|insert'                      => array( 1, 'N11b' ),
-);
+const WZ1_DO_NAPRAWY = array();
 
 /** Liczba wpisów DO NAPRAWY z dnia wdrożenia — może tylko maleć. */
 const WZ1_DO_NAPRAWY_START = 13;

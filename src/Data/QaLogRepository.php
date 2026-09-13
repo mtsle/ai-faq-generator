@@ -75,7 +75,8 @@ class QaLogRepository extends Repository {
 					$rows = (int) \AIFAQ\Core\Settings::get_field( 'qa_log_keep_rows', 0 );
 					$days = (int) \AIFAQ\Core\Settings::get_field( 'qa_log_keep_days', 0 );
 					if ( $rows > 0 || $days > 0 ) {
-						$this->prune( $rows, $days );
+						// Wynik nie zmienia wyniku log(), ale zostawia trwały ślad dla kokpitu.
+						$this->note_retention( $this->prune( $rows, $days ) );
 					}
 				}
 			} catch ( \Throwable $e ) {
@@ -99,8 +100,11 @@ class QaLogRepository extends Repository {
 	 *
 	 * @param int $keep_rows Ile najnowszych wpisów zachować (0 = bez limitu).
 	 * @param int $keep_days Ile dni historii zachować (0 = bez limitu).
+	 *
+	 * @return int|false Liczba usuniętych; `false`, gdy którekolwiek DELETE padło
+	 *                   (stare dane ZOSTAŁY dłużej, niż obiecuje ustawienie).
 	 */
-	public function prune( int $keep_rows, int $keep_days ): int {
+	public function prune( int $keep_rows, int $keep_days ): int|false {
 		$keep_rows = max( 0, $keep_rows );
 		$keep_days = max( 0, $keep_days );
 
@@ -111,6 +115,7 @@ class QaLogRepository extends Repository {
 		global $wpdb;
 		$table   = static::table();
 		$deleted = 0;
+		$blad    = false; // Któreś DELETE padło — drugie i tak próbujemy wykonać.
 
 		// 1) Wiek — po indeksowanej kolumnie created_at (KEY created_at w Schema).
 		if ( $keep_days > 0 ) {
@@ -121,7 +126,12 @@ class QaLogRepository extends Repository {
 				$n = $wpdb->query(
 					$wpdb->prepare( "DELETE FROM {$table} WHERE created_at < %s", $cutoff ) // phpcs:ignore WordPress.DB
 				);
-				$deleted += max( 0, (int) $n );
+				// false = DELETE padł; (int) zamieniał awarię w „nic do skasowania".
+				if ( false === $n ) {
+					$blad = true;
+				} else {
+					$deleted += (int) $n;
+				}
 			}
 		}
 
@@ -151,11 +161,16 @@ class QaLogRepository extends Repository {
 						(int) $granica['id']
 					)
 				);
-				$deleted += max( 0, (int) $n );
+				// false = DELETE padł; (int) zamieniał awarię w „nic do skasowania".
+				if ( false === $n ) {
+					$blad = true;
+				} else {
+					$deleted += (int) $n;
+				}
 			}
 		}
 
-		return $deleted;
+		return $blad ? false : $deleted;
 	}
 
 	/**

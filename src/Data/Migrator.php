@@ -125,7 +125,14 @@ class Migrator {
 		}
 
 		if ( $transakcja ) {
-			$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB
+			$zatwierdzone = $wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB
+
+			// Nieudany COMMIT = wiersze NIE przeniesione. FLAG_HISTORY jest
+			// nieodwracalna, więc zapisana tutaj zamknęłaby migrację na zawsze
+			// bez danych. Bez ROLLBACK — patrz KnowledgeRepository::replace_for_post().
+			if ( false === $zatwierdzone ) {
+				return false;
+			}
 		}
 
 		update_option( self::FLAG_HISTORY, 1 );

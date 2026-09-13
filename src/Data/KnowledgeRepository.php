@@ -128,7 +128,15 @@ class KnowledgeRepository extends Repository {
 				return 0;
 			}
 
-			$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB
+			$zatwierdzone = $wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB
+
+			// Nieudany COMMIT = zestaw NIE zapisany, a metoda raportowała liczbę
+			// wstawionych jak przy sukcesie. Bez ROLLBACK: transakcji, której COMMIT
+			// padł, InnoDB już nie trzyma otwartej (wycofał ją albo sesja nie żyje).
+			if ( false === $zatwierdzone ) {
+				return 0;
+			}
+
 			return $inserted;
 		} catch ( \Throwable $e ) {
 			// WYNIK-ZAPISU-POMINIETY: ROLLBACK w galezi bledu — metoda juz zwraca porazke, nie ma dokad eskalowac
@@ -168,15 +176,19 @@ class KnowledgeRepository extends Repository {
 	 *
 	 * @param int $post_id ID wpisu źródłowego.
 	 */
-	public function touch_post( int $post_id ): void {
+	public function touch_post( int $post_id ): bool {
 		global $wpdb;
-		$wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$wynik = $wpdb->update( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 			static::table(),
 			array( 'updated_at' => current_time( 'mysql' ) ),
 			array( 'post_id' => $post_id ),
 			array( '%s' ),
 			array( '%d' )
 		);
+
+		// `false` = błąd SQL. `0` jest NORMALNE: drugi zapis w tej samej sekundzie
+		// (MySQL liczy wiersze zmienione, nie dopasowane) albo wpis bez fragmentów.
+		return false !== $wynik;
 	}
 
 	/**
@@ -235,9 +247,10 @@ class KnowledgeRepository extends Repository {
 	 * decyzja „skasuj wszystko" — pełny reset musi iść jawnie przez {@see clear_all()}.
 	 *
 	 * @param array<int,int> $keep_post_ids ID wpisów, które MAJĄ zostać.
-	 * @return int Liczba usuniętych fragmentów.
+	 * @return int|false Liczba usuniętych fragmentów; `false` = błąd SQL (osierocone
+	 *                   fragmenty ZOSTAŁY i dalej trafiają do odpowiedzi).
 	 */
-	public function delete_missing( array $keep_post_ids ): int {
+	public function delete_missing( array $keep_post_ids ): int|false {
 		global $wpdb;
 
 		if ( array() === $keep_post_ids ) {
@@ -248,9 +261,15 @@ class KnowledgeRepository extends Repository {
 		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
 		$table        = static::table();
 
-		return (int) $wpdb->query( // phpcs:ignore WordPress.DB
+		$wynik = $wpdb->query( // phpcs:ignore WordPress.DB
 			$wpdb->prepare( "DELETE FROM {$table} WHERE post_id NOT IN ({$placeholders})", ...$ids ) // phpcs:ignore WordPress.DB
 		);
+
+		if ( false === $wynik ) {
+			return false;
+		}
+
+		return (int) $wynik;
 	}
 
 	// -----------------------------------------------------------------------
