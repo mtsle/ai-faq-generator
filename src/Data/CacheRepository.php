@@ -98,13 +98,23 @@ class CacheRepository extends Repository {
 	 * odpowiedź (z pominięciem retrievera i bramki tematu). Cache to funkcja
 	 * bazy wiedzy: znika razem z nią.
 	 *
-	 * @return int Liczba usuniętych wierszy (0, gdy pusto/nieznane).
+	 * TRUNCATE zwraca `true`, nie liczbę — sukces rozpoznajemy WYŁĄCZNIE po
+	 * `false !==`, nigdy po `> 0`. TRUNCATE wymaga uprawnienia DROP, więc na
+	 * hostingu z okrojonymi uprawnieniami potrafi paść tam, gdzie DELETE działa.
+	 *
+	 * @return int|false Liczba wierszy sprzed czyszczenia (0, gdy pusto/nieznane);
+	 *                   `false` = TRUNCATE padł i cache NADAL serwuje stare odpowiedzi.
 	 */
-	public function clear_all(): int {
+	public function clear_all(): int|false {
 		global $wpdb;
 		$table = static::table();
 		$count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" ); // phpcs:ignore WordPress.DB
-		$wpdb->query( "TRUNCATE TABLE {$table}" ); // phpcs:ignore WordPress.DB
+		$wynik = $wpdb->query( "TRUNCATE TABLE {$table}" ); // phpcs:ignore WordPress.DB
+
+		if ( false === $wynik ) {
+			return false;
+		}
+
 		return $count;
 	}
 

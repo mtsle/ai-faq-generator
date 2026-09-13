@@ -257,7 +257,10 @@ final class Plugin {
 		// TRUNCATE padło (hosting bez uprawnień, tabela jeszcze nieutworzona, baza
 		// w read-only) → flagi NIE zapisujemy i spróbujemy przy następnym żądaniu.
 		// Zapis „zrobione" mimo porażki odbierałby klientowi drugą szansę po cichu.
-		if ( null === $rows ) {
+		// `null` = wyjątek, `false` = błąd SQL z clear_all(). Do naprawy wyniku zapisu
+		// clear_all() zwracał liczbę sprzed TRUNCATE nawet po porażce, więc sama
+		// gałąź `null` była martwa, a flaga powstawała po nieudanym czyszczeniu.
+		if ( null === $rows || false === $rows ) {
 			return;
 		}
 
@@ -727,7 +730,12 @@ final class Plugin {
 		try {
 			$removed = ( new \AIFAQ\Data\KnowledgeRepository() )->delete_by_post( (int) $post_id );
 			if ( $removed > 0 && class_exists( '\AIFAQ\Data\CacheRepository' ) ) {
-				( new \AIFAQ\Data\CacheRepository() )->clear_all();
+				// Nieudany TRUNCATE zostawiłby odpowiedzi zbudowane z usuniętego wpisu.
+				// Skasowana flaga każe maybe_flush_cache() ponowić czyszczenie przy
+				// następnym żądaniu — tym samym mechanizmem i z tym samym zamkiem.
+				if ( false === ( new \AIFAQ\Data\CacheRepository() )->clear_all() && function_exists( 'delete_option' ) ) {
+					delete_option( 'aifaq_cache_flushed_for' );
+				}
 			}
 		} catch ( \Throwable $e ) {
 			unset( $e );

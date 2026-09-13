@@ -206,12 +206,21 @@ class KnowledgeRepository extends Repository {
 	/**
 	 * Czyści całą bazę wiedzy (twardy reset przed pełnym re-indeksowaniem).
 	 *
-	 * @return int Liczba usuniętych fragmentów.
+	 * @return int|false Liczba usuniętych fragmentów; `false` = błąd SQL, baza NIE
+	 *                   została wyczyszczona. Zero to pusta baza, nie awaria.
 	 */
-	public function clear_all(): int {
+	public function clear_all(): int|false {
 		global $wpdb;
 		$table = static::table();
-		return (int) $wpdb->query( "DELETE FROM {$table}" ); // phpcs:ignore WordPress.DB
+		$wynik = $wpdb->query( "DELETE FROM {$table}" ); // phpcs:ignore WordPress.DB
+
+		// `(int)` na wyniku zamieniał awarię w „nie było czego kasować", a `run_clear()`
+		// kasował potem podpis indeksu przy fragmentach, które zostały w bazie.
+		if ( false === $wynik ) {
+			return false;
+		}
+
+		return (int) $wynik;
 	}
 
 	/**

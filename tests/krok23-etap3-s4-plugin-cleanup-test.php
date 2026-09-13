@@ -30,6 +30,9 @@
  */
 
 if ( ! defined( 'ABSPATH' ) ) { define( 'ABSPATH', __DIR__ . '/' ); }
+// Naprawa wyniku zapisu (N3): przy nieudanym TRUNCATE metoda kasuje flagę cache.
+$GLOBALS['s4_deleted'] = array();
+if ( ! function_exists( 'delete_option' ) ) { function delete_option( $k ) { $GLOBALS['s4_deleted'][] = $k; return true; } }
 
 require __DIR__ . '/../src/Data/Schema.php';
 require __DIR__ . '/../src/Data/Repository.php';
@@ -50,6 +53,8 @@ class S4Wpdb {
 	public $delete_return; // liczba "usuniętych wierszy" zwracana przez delete().
 	public $count_var = 0;
 	public $fail_mode = false;
+	/** Wynik TRUNCATE: true = sukces (bez licznika), false = błąd SQL (N3). */
+	public $query_return = true;
 
 	public function __construct( int $delete_return, int $count_var = 0 ) {
 		$this->delete_return = $delete_return;
@@ -61,7 +66,7 @@ class S4Wpdb {
 		return $this->delete_return;
 	}
 	public function get_var( $sql ) { return $this->count_var; }
-	public function query( $sql ) { $this->truncate_calls++; return true; }
+	public function query( $sql ) { $this->truncate_calls++; return $this->query_return; }
 }
 
 $fail = 0;
@@ -102,6 +107,20 @@ try {
 }
 check( false === $threw, 'C1: wyjątek z delete_by_post() NIE propaguje się na zewnątrz metody (złapany w try/catch)' );
 check( 0 === $wpdb->truncate_calls, 'C2: przy wyjątku cache NIE jest czyszczony (linia clear_all() nie zostaje osiągnięta)' );
+
+// ===========================================================================
+echo "\n=== D. N3: TRUNCATE po usunięciu wpisu padł → flaga cache skasowana (ponowienie) ===\n";
+// ===========================================================================
+$GLOBALS['s4_deleted'] = array();
+$wpdb                  = new S4Wpdb( 3, 12 );
+$wpdb->query_return    = false;
+$plugin->on_knowledge_post_removed( 42 );
+check( 1 === $wpdb->truncate_calls, 'D1: TRUNCATE wywołany (kontrola scenariusza)' );
+check( in_array( 'aifaq_cache_flushed_for', $GLOBALS['s4_deleted'], true ), 'D2 (N3): TRUNCATE zwrócił false → aifaq_cache_flushed_for skasowana, maybe_flush_cache() ponowi czyszczenie' );
+$GLOBALS['s4_deleted'] = array();
+$wpdb                  = new S4Wpdb( 3, 12 );
+$plugin->on_knowledge_post_removed( 42 );
+check( array() === $GLOBALS['s4_deleted'], 'D3 (N3/T-1): TRUNCATE zwrócił true → flaga nietknięta (true to sukces, nie brak liczby)' );
 
 // ===========================================================================
 echo "\n=== PODSUMOWANIE ===\n";

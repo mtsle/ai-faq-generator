@@ -280,13 +280,21 @@ class QaLogRepository extends Repository {
 	 *
 	 * Dziennik to dane gości — właściciel musi móc je usunąć (RODO), dlatego
 	 * czyszczenie jest osobną, jawną operacją (nie skutkiem ubocznym reindeksu).
+	 *
+	 * @return int|false Liczba usuniętych wpisów; `false` = błąd SQL, dane gości
+	 *                   ZOSTAŁY. Dawniej błąd zamiatany był do 0 i REST odpowiadał
+	 *                   200 „ok" przy nieusuniętym dzienniku.
 	 */
-	public function purge(): int {
+	public function purge(): int|false {
 		global $wpdb;
 		$table = static::table();
 		$done  = $wpdb->query( "DELETE FROM {$table}" ); // phpcs:ignore WordPress.DB
 
-		return ( false === $done ) ? 0 : (int) $done;
+		if ( false === $done ) {
+			return false;
+		}
+
+		return (int) $done;
 	}
 
 	/**

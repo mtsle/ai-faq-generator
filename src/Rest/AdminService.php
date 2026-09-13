@@ -269,6 +269,18 @@ class AdminService {
 		$repo    = new QaLogRepository();
 		$removed = $repo->purge();
 
+		// Usunięcie danych gości to obowiązek (RODO) — nieudane NIE może wyglądać
+		// na udane. Kształt błędu jak w clear(); app.js ma gałąź błędu.
+		if ( false === $removed ) {
+			return new WP_REST_Response(
+				array(
+					'status'  => 'error',
+					'message' => __( 'Nie udało się wyczyścić dziennika pytań — wpisy nadal są w bazie. Spróbuj ponownie.', 'ai-faq-generator' ),
+				),
+				500
+			);
+		}
+
 		return new WP_REST_Response(
 			array(
 				'status'  => 'ok',

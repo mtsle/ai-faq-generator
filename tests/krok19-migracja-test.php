@@ -127,6 +127,8 @@ class FakeWpdb {
 	public $insert_id = 0;
 	public $queries = array();
 	public $throw_on_truncate = false;
+	/** Wynik TRUNCATE (naprawa wyniku zapisu, N2/N4): true = sukces bez licznika, false = błąd SQL. */
+	public $truncate_ret = 0;
 	public $rows = array();
 	public function insert( $t, $d ) { $this->rows[] = $d; return 1; }
 	public function delete( $t, $w, $f = null ) { return 1; }
@@ -134,6 +136,9 @@ class FakeWpdb {
 		$this->queries[] = $sql;
 		if ( $this->throw_on_truncate && false !== stripos( (string) $sql, 'TRUNCATE' ) ) {
 			throw new \RuntimeException( 'TRUNCATE odmowa hostingu' );
+		}
+		if ( false !== stripos( (string) $sql, 'TRUNCATE' ) ) {
+			return $this->truncate_ret;
 		}
 		return 0;
 	}
@@ -511,6 +516,21 @@ if ( $has_plugin && method_exists( 'AIFAQ\Core\Plugin', 'maybe_flush_cache' ) ) 
 	check( $okc, 'NOWE — C26a: wyjątek z clear_all() nie wychodzi na zewnątrz' );
 	check( '' === (string) get_option( 'aifaq_cache_flushed_for', '' ), 'NOWE — C26a: TRUNCATE padł → flaga NIE zapisana, będzie druga szansa (cicha porażka zakazana, §1 pkt 10)' );
 
+	// N2 — martwa ochrona ożywiona. clear_all() zwracał liczbę sprzed TRUNCATE także
+	// po porażce, a gałąź czekała na `null`, więc flaga powstawała po NIEUDANYM czyszczeniu.
+	k19_reset_env();
+	$GLOBALS['__opt']['aifaq_cache_flushed_for'] = '';
+	$GLOBALS['wpdb']->truncate_ret = false;
+	\AIFAQ\Core\Plugin::maybe_flush_cache();
+	check( 1 === $GLOBALS['wpdb']->count_found( 'TRUNCATE TABLE wp_aifaq_cache' ), 'N2: TRUNCATE wykonany (jest: ' . $GLOBALS['wpdb']->count_found( 'TRUNCATE TABLE wp_aifaq_cache' ) . ')' );
+	check( '' === (string) get_option( 'aifaq_cache_flushed_for', '' ), 'N2: TRUNCATE zwrócił false → flaga aifaq_cache_flushed_for NIE zapisana (druga szansa przy następnym żądaniu)' );
+
+	k19_reset_env();
+	$GLOBALS['__opt']['aifaq_cache_flushed_for'] = '';
+	$GLOBALS['wpdb']->truncate_ret = true;
+	\AIFAQ\Core\Plugin::maybe_flush_cache();
+	check( AIFAQ_VERSION === (string) get_option( 'aifaq_cache_flushed_for', '' ), 'N2/T-1: TRUNCATE zwrócił true (sukces bez licznika, nie liczba) → flaga zapisana' );
+
 	k19_reset_env();
 	$GLOBALS['__opt']['aifaq_cache_flushed_for'] = '';
 	$GLOBALS['__aifaq_transients']['aifaq_cache_flush_lock'] = 1;
@@ -696,6 +716,31 @@ if ( $has_ic && method_exists( 'AIFAQ\Admin\IndexController', 'run_reindex' ) ) 
 	$GLOBALS['__filters']['aifaq_index_complete'] = static function () { return true; };
 	( new \AIFAQ\Admin\IndexController() )->run_reindex();
 	check( (string) \AIFAQ\Admin\IndexController::index_signature() === (string) get_option( 'aifaq_index_signature', '' ), 'NOWE — C38: aifaq_index_complete=true → podpis pełny zapisany (furtka awaryjna właściciela)' );
+
+	// N4 — pełny przebieg, TRUNCATE cache po nim pada. Przed naprawą: wynik wyrzucony,
+	// raport czysty, flaga cache nietknięta → `/ask` serwuje odpowiedzi sprzed zmiany treści.
+	$k19_n4 = static function ( $truncate ) {
+		k19_reset_env();
+		$GLOBALS['__posts'] = array();
+		$GLOBALS['__opt']['aifaq_settings']           = array( 'provider' => 'gemini', 'api_key' => 'K', 'model' => 'gemini-2.5-flash', 'embed_model' => 'gemini-embedding-001', 'crawl_enabled' => '0' );
+		$GLOBALS['__opt']['aifaq_cache_flushed_for']  = AIFAQ_VERSION;
+		$GLOBALS['__filters']['aifaq_index_complete'] = static function () { return true; };
+		$GLOBALS['wpdb']->truncate_ret                = $truncate;
+		return ( new \AIFAQ\Admin\IndexController() )->run_reindex();
+	};
+	$k19_ostrzega = static function ( $wynik ) {
+		foreach ( (array) ( $wynik['report']['warnings'] ?? array() ) as $w ) {
+			if ( false !== strpos( (string) $w, 'pamięci podręcznej odpowiedzi po indeksowaniu' ) ) { return true; }
+		}
+		return false;
+	};
+	$wynik_n4 = $k19_n4( false );
+	check( 1 === $GLOBALS['wpdb']->count_found( 'TRUNCATE TABLE wp_aifaq_cache' ), 'N4: przebieg pełny → TRUNCATE cache wykonany (kontrola scenariusza)' );
+	check( $k19_ostrzega( $wynik_n4 ), 'N4: TRUNCATE po pełnym reindeksie zwrócił false → ostrzeżenie w raporcie' );
+	check( ! array_key_exists( 'aifaq_cache_flushed_for', $GLOBALS['__opt'] ), 'N4: TRUNCATE padł → flaga aifaq_cache_flushed_for skasowana (ponowienie przez maybe_flush_cache)' );
+	check( true === ( $wynik_n4['ok'] ?? null ) && 200 === ( $wynik_n4['status'] ?? 0 ), 'N4: kształt sukcesu reindeksu bez zmian (ok, 200) — ostrzeżenie addytywne' );
+	$wynik_n4 = $k19_n4( true );
+	check( ! $k19_ostrzega( $wynik_n4 ) && AIFAQ_VERSION === (string) get_option( 'aifaq_cache_flushed_for', '' ), 'N4/T-1: TRUNCATE → true → bez ostrzeżenia, flaga nietknięta' );
 } else {
 	check( false, 'NOWE — C38/C35 pominięte: brak metody IndexController::run_reindex()' );
 }
