@@ -137,7 +137,7 @@ Księgowość różni się między wtyczkami:
 > i nie podnosisz liczby — segment jest czerwony. To celowe: test, który po cichu przestał
 > cokolwiek sprawdzać, dalej świeciłby na zielono.
 
-Dodatkowo **23 zestawy wtyczki 1 mają własną podłogę pokrycia w środku pliku** (`$ran >= N`).
+Dodatkowo **24 zestawy wtyczki 1 mają własną podłogę pokrycia w środku pliku** (`$ran >= N`).
 Jeśli dokładasz do takiego zestawu asercję, podnieś tam N w tym samym commicie.
 
 Nowy zestaw testów wpina się jako segment do **obu kopii runnera** — tej w `.github/ci/`
@@ -204,6 +204,15 @@ Jeśli czegoś świadomie nie robisz, napisz to wprost w opisie zmiany, razem z 
 7. **Strażnik musi dać się uruchomić wszędzie tam, gdzie chodzą testy.** Asercja czytająca plik
    spoza repozytorium jest w CI martwa — cztery zestawy padły z tego powodu przy pierwszym
    zderzeniu z GitHub Actions.
+8. **Wynik każdego zapisu `$wpdb` jest rozstrzygany względem `false`.** `$wpdb` nie rzuca
+   wyjątków: błąd SQL to `false`, a UPDATE czy DELETE bez zmienionych wierszy to `0` — i to
+   **nie** jest błąd. Metoda zapisująca zwraca `int|false` albo `bool`, nigdy `void`; nigdy
+   `(int)`, `(bool)` ani `max( 0, … )` przed `false ===`. Pilnuje tego strażnik na tokenach
+   w obu wtyczkach (`wynik-zapisu-guard-test.php`). Świadome pominięcie — tylko tam, gdzie
+   wynik nie ma dokąd trafić — wymaga komentarza `// WYNIK-ZAPISU-POMINIETY: <powód>`
+   w linii wywołania albo nad nią **oraz** wpisu w tablicy strażnika; sufit pominięć rośnie
+   wyłącznie jawną decyzją. Każda naprawiona ścieżka dostaje też asercję behawioralną:
+   atrapa zwraca `false`, a test sprawdza skutek u konsumenta (status HTTP, flaga, raport).
 
 ## Pułapki środowiska
 

@@ -510,12 +510,29 @@ if ( $has_repo && $has_set && method_exists( 'AIFAQ\Data\GenerationRepository', 
 	check( false === $thrown, 'wyjątek w prune() NIE wychodzi z log()' );
 	check( 123 === $id, 'wyjątek w prune() nie zmienia wartości zwracanej przez log()' );
 
+	// E6 — N7 i decyzja D2 (naprawa wyniku zapisu): nieudany DELETE to false, nie 0,
+	// a log() zostawia trwały sygnał dla kokpitu. Przed naprawą `max( 0, (int) false )`.
+	k20_settings( array( 'generations_keep_rows' => 200, 'generations_keep_days' => 90 ) );
+	$GLOBALS['wpdb']            = new K20PruneWpdb();
+	$GLOBALS['wpdb']->query_ret = false;
+	$repo                       = new \AIFAQ\Data\GenerationRepository();
+	check( false === $repo->prune( 200, 90 ), 'N7: DELETE → false → GenerationRepository::prune() === false (nie 0)' );
+	$GLOBALS['wpdb']->query_ret = 0;
+	check( 0 === $repo->prune( 200, 90 ), 'N7/T-1: DELETE → 0 → prune() === 0 (nie było czego kasować)' );
+	unset( $GLOBALS['__opt'][ \AIFAQ\Data\Repository::RETENTION_FAILED_OPTION ] );
+	$GLOBALS['wpdb']->query_ret = false;
+	$id                         = k20_log( $repo, $pairs );
+	check( 123 === $id && isset( $GLOBALS['__opt'][ \AIFAQ\Data\Repository::RETENTION_FAILED_OPTION ]['aifaq_generations'] ), 'D2: nieudana retencja historii → sygnał aifaq_retention_failed[aifaq_generations], log() nadal 123' );
+	$GLOBALS['wpdb']->query_ret = 7;
+	k20_log( $repo, $pairs );
+	check( ! array_key_exists( \AIFAQ\Data\Repository::RETENTION_FAILED_OPTION, $GLOBALS['__opt'] ), 'D2: następne udane czyszczenie kasuje sygnał' );
+
 	// E5 — brak warningów na całej ścieżce.
 	check( 0 === $GLOBALS['aifaq_warnings'], 'zero warningów/notice PHP na ścieżce log()+prune() (było: ' . $GLOBALS['aifaq_warnings'] . ')' );
 
 	unset( $repo, $id, $pairs, $thrown );
 } else {
-	skip( 9, 'sekcja E pominięta — brak GenerationRepository::prune() albo Settings' );
+	skip( 13, 'sekcja E pominięta — brak GenerationRepository::prune() albo Settings' );
 }
 
 // ===========================================================================
@@ -551,7 +568,7 @@ if ( $has_gen ) {
 // ===========================================================================
 echo "\n== Podłoga pokrycia ==\n";
 $floor = $ran;
-check( $floor >= 30, 'wykonano co najmniej 30 asercji (było ' . $floor . ')' );
+check( $floor >= 34, 'wykonano co najmniej 34 asercji (było ' . $floor . ')' );
 
 // Wartownik końca pliku — chroni przed cichym Fatalem w środku.
 check( true, 'plik dobiegł końca' );

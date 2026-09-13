@@ -360,8 +360,36 @@ ________________________________________________________________________________
     Stan                        : REALIZOWANE
     Waga                        : DUŻY
 
+  ID: TECH-89
+  -------------
+    Reguła techniczna           : Wynik każdego zapisu $wpdb (query, update, delete, insert,
+                                  replace) jest rozstrzygany względem false — błąd SQL (false) nie
+                                  może prowadzić tam, gdzie brak zmian (0)
+    Wtyczka                     : A+B
+    Realizacja w projekcieAUDYT : $wpdb nie rzuca wyjątków: błąd to false, UPDATE/DELETE bez
+                                  zmienionych wierszy to 0, a TRUNCATE i COMMIT zwracają true.
+                                  Metody zapisujące zwracają int|false albo bool, nigdy void;
+                                  konsumenci mają gałąź błędu: odpowiedź 500 z komunikatem
+                                  („Wyczyść bazę", „Wyczyść dziennik", usunięcie generacji),
+                                  ostrzeżenie w raporcie indeksowania, przerwanie partii kolejki
+                                  wtyczki 2, flaga „zrobione" niezapisana albo skasowana do
+                                  ponowienia. Zero przy UPDATE/DELETE nie jest błędem. Wyjątek
+                                  wyłącznie z markerem WYNIK-ZAPISU-POMINIETY w kodzie ORAZ wpisem
+                                  w tablicy strażnika z sufitem (START TRANSACTION, ROLLBACK
+                                  w gałęzi błędu, oba uninstall.php, zdjęcie zamka i oddanie pozycji
+                                  leczone przez TTL).
+                                  HISTORIA: reguła dopisana po przebiegu 2. Bez niej audyt nie miał
+                                  względem czego zgłosić 30 wyrzuconych i 3 rzutowanych wyników
+                                  (projektAUDYT/audyt/NOTATKA-BLEDY-WYNIKU-ZAPISU.txt). Naprawa na
+                                  gałęzi naprawy-wynik-zapisu.
+    Kotwica                     : tests/wynik-zapisu-guard-test.php;
+                                  ai-news-portal/tests/wynik-zapisu-guard-test.php (klasyfikacja na
+                                  tokenach PHP, marker + tablica + sufit)
+    Stan                        : REALIZOWANE
+    Waga                        : DUŻY
 
-✅ TECH-15..24 — 7 REALIZOWANE, 3 DO ROZSTRZYGNIĘCIA
+
+✅ TECH-15..24, TECH-89 — 8 REALIZOWANE, 3 DO ROZSTRZYGNIĘCIA
 
 
 ____________________________________________________________________________________________________

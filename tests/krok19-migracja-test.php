@@ -127,6 +127,8 @@ class FakeWpdb {
 	public $insert_id = 0;
 	public $queries = array();
 	public $throw_on_truncate = false;
+	/** Wynik TRUNCATE (naprawa wyniku zapisu, N2/N4): true = sukces bez licznika, false = błąd SQL. */
+	public $truncate_ret = 0;
 	public $rows = array();
 	public function insert( $t, $d ) { $this->rows[] = $d; return 1; }
 	public function delete( $t, $w, $f = null ) { return 1; }
@@ -134,6 +136,9 @@ class FakeWpdb {
 		$this->queries[] = $sql;
 		if ( $this->throw_on_truncate && false !== stripos( (string) $sql, 'TRUNCATE' ) ) {
 			throw new \RuntimeException( 'TRUNCATE odmowa hostingu' );
+		}
+		if ( false !== stripos( (string) $sql, 'TRUNCATE' ) ) {
+			return $this->truncate_ret;
 		}
 		return 0;
 	}
@@ -511,6 +516,21 @@ if ( $has_plugin && method_exists( 'AIFAQ\Core\Plugin', 'maybe_flush_cache' ) ) 
 	check( $okc, 'NOWE — C26a: wyjątek z clear_all() nie wychodzi na zewnątrz' );
 	check( '' === (string) get_option( 'aifaq_cache_flushed_for', '' ), 'NOWE — C26a: TRUNCATE padł → flaga NIE zapisana, będzie druga szansa (cicha porażka zakazana, §1 pkt 10)' );
 
+	// N2 — martwa ochrona ożywiona. clear_all() zwracał liczbę sprzed TRUNCATE także
+	// po porażce, a gałąź czekała na `null`, więc flaga powstawała po NIEUDANYM czyszczeniu.
+	k19_reset_env();
+	$GLOBALS['__opt']['aifaq_cache_flushed_for'] = '';
+	$GLOBALS['wpdb']->truncate_ret = false;
+	\AIFAQ\Core\Plugin::maybe_flush_cache();
+	check( 1 === $GLOBALS['wpdb']->count_found( 'TRUNCATE TABLE wp_aifaq_cache' ), 'N2: TRUNCATE wykonany (jest: ' . $GLOBALS['wpdb']->count_found( 'TRUNCATE TABLE wp_aifaq_cache' ) . ')' );
+	check( '' === (string) get_option( 'aifaq_cache_flushed_for', '' ), 'N2: TRUNCATE zwrócił false → flaga aifaq_cache_flushed_for NIE zapisana (druga szansa przy następnym żądaniu)' );
+
+	k19_reset_env();
+	$GLOBALS['__opt']['aifaq_cache_flushed_for'] = '';
+	$GLOBALS['wpdb']->truncate_ret = true;
+	\AIFAQ\Core\Plugin::maybe_flush_cache();
+	check( AIFAQ_VERSION === (string) get_option( 'aifaq_cache_flushed_for', '' ), 'N2/T-1: TRUNCATE zwrócił true (sukces bez licznika, nie liczba) → flaga zapisana' );
+
 	k19_reset_env();
 	$GLOBALS['__opt']['aifaq_cache_flushed_for'] = '';
 	$GLOBALS['__aifaq_transients']['aifaq_cache_flush_lock'] = 1;
@@ -666,6 +686,63 @@ if ( $has_idx && class_exists( 'K19_Batcher' ) && class_exists( 'K19_Source' ) &
 }
 
 // ===========================================================================
+echo "\n=== G2. Wynik zapisu w Indexerze: pruning (N6) i odświeżenie znacznika (N8) ===\n";
+// ===========================================================================
+/*
+ * Nieudany DELETE osieroconych dawał `pruned = 0` i czysty raport; nieudany UPDATE
+ * `updated_at` przy skip-unchanged nie zostawiał nic. Atrapa repozytorium steruje
+ * wynikami, a pierwszy przebieg zapisuje hashe, żeby drugi trafił w skip-unchanged.
+ */
+if ( $has_idx && class_exists( 'K19_Batcher' ) && class_exists( 'K19_Source' ) && class_exists( 'AIFAQ\Data\KnowledgeRepository' ) ) {
+	class K19_KnowledgeZapis extends \AIFAQ\Data\KnowledgeRepository {
+		public $prune_ret = 0;
+		public $touch_ret = true;
+		public $touches   = 0;
+		public $hashes    = array();
+		public $zapisane  = array();
+		public function __construct() {}
+		public function delete_missing( array $keep_post_ids ): int|false { return $this->prune_ret; }
+		public function touch_post( int $post_id ): bool { ++$this->touches; return $this->touch_ret; }
+		public function hashes_for_post( int $post_id ): array { return $this->hashes[ $post_id ] ?? array(); }
+		public function delete_by_post( int $post_id ) { return 0; }
+		public function replace_for_post( int $post_id, array $chunks ): int {
+			foreach ( $chunks as $c ) { $this->zapisane[ $post_id ][ (int) $c['chunk_index'] ] = (string) $c['content_hash']; }
+			return count( $chunks );
+		}
+		public function stats(): array { return array( 'chunks' => 3, 'posts' => 3, 'embedded' => 3 ); }
+	}
+	$k19_z_ostrzezenie = static function ( array $rep, string $fragment ) {
+		$n = 0;
+		foreach ( (array) ( $rep['warnings'] ?? array() ) as $w ) { if ( false !== strpos( (string) $w, $fragment ) ) { ++$n; } }
+		return $n;
+	};
+
+	k19_reset_env();
+	$GLOBALS['__filters']['aifaq_index_budget'] = static function () { return 0; };
+	$GLOBALS['__filters']['aifaq_index_pace']   = static function () { return 0; };
+	$src_z       = new K19_Source();
+	$src_z->docs = k19_corpus( 3 );
+	$kz          = new K19_KnowledgeZapis();
+	k19_indexer( $src_z, new K19_Batcher(), $kz )->run();
+	$kz->hashes    = $kz->zapisane;
+	$kz->touch_ret = false;
+	$kz->prune_ret = false;
+	$rep_z         = k19_indexer( $src_z, new K19_Batcher(), $kz )->run();
+	check( 3 === $kz->touches && 3 === (int) $rep_z['skipped'], 'G2 kontrola: drugi przebieg trafia w skip-unchanged dla 3 wpisów (touch: ' . $kz->touches . ')' );
+	check( 1 === $k19_z_ostrzezenie( $rep_z, 'znacznika czasu dla 3 ' ), 'N8: 3 nieudane touch_post → JEDNO zbiorcze ostrzeżenie z liczbą 3' );
+	check( 1 === $k19_z_ostrzezenie( $rep_z, 'fragmentów wpisów usuniętych lub odpublikowanych' ), 'N6: delete_missing() → false → ostrzeżenie w raporcie' );
+	check( 0 === $rep_z['pruned'] && false === $rep_z['incomplete'], 'N6: pruned 0, a `incomplete` bez zmian — semantyka $complete nietknięta' );
+
+	$kz->touches   = 0;
+	$kz->touch_ret = true;   // UPDATE zwrócił 0 (ta sama sekunda) → touch_post() === true
+	$kz->prune_ret = 0;
+	$rep_z         = k19_indexer( $src_z, new K19_Batcher(), $kz )->run();
+	check( 0 === $k19_z_ostrzezenie( $rep_z, 'znacznika czasu' ) && 0 === $k19_z_ostrzezenie( $rep_z, 'fragmentów wpisów usuniętych' ), 'N6/N8 T-1: pruning 0 i odświeżenie udane → zero nowych ostrzeżeń' );
+} else {
+	check( false, 'G2 pominięta: brak Indexera albo atrap K19_Batcher/K19_Source' );
+}
+
+// ===========================================================================
 echo "\n=== H. run_clear() i furtka aifaq_index_complete (C33, C38) ===\n";
 // ===========================================================================
 if ( $has_ic && method_exists( 'AIFAQ\Admin\IndexController', 'run_clear' ) ) {
@@ -696,6 +773,31 @@ if ( $has_ic && method_exists( 'AIFAQ\Admin\IndexController', 'run_reindex' ) ) 
 	$GLOBALS['__filters']['aifaq_index_complete'] = static function () { return true; };
 	( new \AIFAQ\Admin\IndexController() )->run_reindex();
 	check( (string) \AIFAQ\Admin\IndexController::index_signature() === (string) get_option( 'aifaq_index_signature', '' ), 'NOWE — C38: aifaq_index_complete=true → podpis pełny zapisany (furtka awaryjna właściciela)' );
+
+	// N4 — pełny przebieg, TRUNCATE cache po nim pada. Przed naprawą: wynik wyrzucony,
+	// raport czysty, flaga cache nietknięta → `/ask` serwuje odpowiedzi sprzed zmiany treści.
+	$k19_n4 = static function ( $truncate ) {
+		k19_reset_env();
+		$GLOBALS['__posts'] = array();
+		$GLOBALS['__opt']['aifaq_settings']           = array( 'provider' => 'gemini', 'api_key' => 'K', 'model' => 'gemini-2.5-flash', 'embed_model' => 'gemini-embedding-001', 'crawl_enabled' => '0' );
+		$GLOBALS['__opt']['aifaq_cache_flushed_for']  = AIFAQ_VERSION;
+		$GLOBALS['__filters']['aifaq_index_complete'] = static function () { return true; };
+		$GLOBALS['wpdb']->truncate_ret                = $truncate;
+		return ( new \AIFAQ\Admin\IndexController() )->run_reindex();
+	};
+	$k19_ostrzega = static function ( $wynik ) {
+		foreach ( (array) ( $wynik['report']['warnings'] ?? array() ) as $w ) {
+			if ( false !== strpos( (string) $w, 'pamięci podręcznej odpowiedzi po indeksowaniu' ) ) { return true; }
+		}
+		return false;
+	};
+	$wynik_n4 = $k19_n4( false );
+	check( 1 === $GLOBALS['wpdb']->count_found( 'TRUNCATE TABLE wp_aifaq_cache' ), 'N4: przebieg pełny → TRUNCATE cache wykonany (kontrola scenariusza)' );
+	check( $k19_ostrzega( $wynik_n4 ), 'N4: TRUNCATE po pełnym reindeksie zwrócił false → ostrzeżenie w raporcie' );
+	check( ! array_key_exists( 'aifaq_cache_flushed_for', $GLOBALS['__opt'] ), 'N4: TRUNCATE padł → flaga aifaq_cache_flushed_for skasowana (ponowienie przez maybe_flush_cache)' );
+	check( true === ( $wynik_n4['ok'] ?? null ) && 200 === ( $wynik_n4['status'] ?? 0 ), 'N4: kształt sukcesu reindeksu bez zmian (ok, 200) — ostrzeżenie addytywne' );
+	$wynik_n4 = $k19_n4( true );
+	check( ! $k19_ostrzega( $wynik_n4 ) && AIFAQ_VERSION === (string) get_option( 'aifaq_cache_flushed_for', '' ), 'N4/T-1: TRUNCATE → true → bez ostrzeżenia, flaga nietknięta' );
 } else {
 	check( false, 'NOWE — C38/C35 pominięte: brak metody IndexController::run_reindex()' );
 }
@@ -714,7 +816,11 @@ if ( file_exists( $uninstall ) ) {
 	// publikacji przeciw cichej utracie równoległych publikacji — znalezisko D1).
 	// Liczba jest ZAMROŻONA świadomie: każdy nowy klucz ma przejść przez tę asercję,
 	// żeby nie dało się dołożyć opcji i zapomnieć o sprzątaniu.
-	check( 30 === $GLOBALS['__optc']->deletes, 'NOWE — C24: DOKŁADNIE 30 wywołań delete_option (16 + 9 opcji K20 + 2 opcje v0.24.0: aifaq_site_profile, aifaq_public_faq + 1 opcja audytu: aifaq_autoload_hardened + 1 opcja K23 etap 1: aifaq_public_faq_prev + 1 opcja K23 etap 5: aifaq_public_faq_lock; jest: ' . $GLOBALS['__optc']->deletes . ')' );
+	// ZMIENIONA JAWNIE (naprawa wyniku zapisu, decyzja D2): 30 → 31. Nowa opcja
+	// `aifaq_retention_failed` (sygnał porażki retencji dla kokpitu) ma jawne
+	// delete_option w uninstall.php — sama asercja pilnuje, że liczba nie rozjedzie się po cichu.
+	check( 31 === $GLOBALS['__optc']->deletes, 'NOWE — C24: DOKŁADNIE 31 wywołań delete_option (16 + 9 opcji K20 + 2 opcje v0.24.0: aifaq_site_profile, aifaq_public_faq + 1 opcja audytu: aifaq_autoload_hardened + 1 opcja K23 etap 1: aifaq_public_faq_prev + 1 opcja K23 etap 5: aifaq_public_faq_lock + 1 opcja naprawy wyniku zapisu: aifaq_retention_failed; jest: ' . $GLOBALS['__optc']->deletes . ')' );
+	check( in_array( 'aifaq_retention_failed', $deleted, true ), 'D2: uninstall.php kasuje aifaq_retention_failed (sygnał porażki retencji nie zostaje sierotą)' );
 } else {
 	check( false, 'NOWE — C24 pominięta: brak pliku uninstall.php' );
 }
@@ -723,7 +829,7 @@ if ( file_exists( $uninstall ) ) {
 echo "\n=== Z. Podłoga pokrycia i wartownik ===\n";
 // ===========================================================================
 $floor = $ran;
-check( $floor >= 28, 'NOWE — wykonano co najmniej 28 asercji (było ' . $floor . ')' );
+check( $floor >= 42, 'NOWE — wykonano co najmniej 42 asercji (było ' . $floor . ')' );
 
 echo "\nplik dobiegł końca\n";
 echo 'Asercje: ' . $ran . ', niezaliczone: ' . $fail . "\n";

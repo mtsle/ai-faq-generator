@@ -130,7 +130,15 @@ check( null === $repo->find( 999 ), "brak wiersza → null" );
 
 echo "\n=== E. delete()/count() dziedziczone ===\n";
 $wpdb->deleted = 1;
-check( true === $repo->delete( 5 ), "delete() zwraca true gdy usunięto" );
+// ZMIENIONA JAWNIE (naprawa wyniku zapisu, N11). Poprzednio `true === delete( 5 )`:
+// `(bool)` na wyniku sklejał błąd SQL z „nie było wiersza" i REST odpowiadał 200
+// przy awarii. Kontrakt to int|false — liczba usuniętych albo false przy błędzie.
+check( 1 === $repo->delete( 5 ), "delete() zwraca liczbę usuniętych (1), nie bool" );
+$wpdb->deleted = 0;
+check( 0 === $repo->delete( 5 ), "N11/T-1: brak wiersza → 0 (nie false) — to nie błąd" );
+$wpdb->deleted = false;
+check( false === $repo->delete( 5 ), "N11: błąd SQL → false (nie 0) — odróżniony od braku wiersza" );
+$wpdb->deleted = 1;
 $wpdb->var = 42;
 check( 42 === $repo->count(), "count() zwraca liczbę wierszy" );
 

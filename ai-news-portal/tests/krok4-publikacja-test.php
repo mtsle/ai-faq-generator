@@ -451,8 +451,22 @@ namespace {
 			return $out;
 		}
 
+		/** Fragment SQL => ile razy zwrocic `false` bez zapisu (naprawa wyniku zapisu, N12). */
+		public $awarie     = array();
+		/** Fragment SQL => ile razy zwrocic `0` bez zapisu — T-1: zero to nie blad. */
+		public $zera       = array();
+
 		public function query( $sql ) {
 			$this->updates[] = $sql;
+
+			foreach ( array( 'awarie' => false, 'zera' => 0 ) as $pole => $zwrot ) {
+				foreach ( $this->$pole as $fragment => $ile ) {
+					if ( $ile > 0 && false !== strpos( $sql, $fragment ) ) {
+						$this->{$pole}[ $fragment ] = $ile - 1;
+						return $zwrot;
+					}
+				}
+			}
 
 			// Licznik AI: `UPDATE wp_options SET option_value = ... WHERE option_name = ... AND option_value = ...`
 			if ( false !== strpos( $sql, 'wp_options' ) ) {
@@ -929,6 +943,108 @@ namespace {
 	$wynik = Runner::publish_batch( 5, 10.0 );
 	k4x_check( 0 === $wynik['taken'], 'pusta tabela: zero wzietych pozycji' );
 	k4x_check( 0 === $wynik['calls'], 'i zero wywolan modelu' );
+
+	// ------------------------------------------------------------------
+	echo "\n-- NAPRAWA WYNIKU ZAPISU (Z2): nieudany zapis statusu kolejki --\n";
+	/*
+	 * `finish()`, `mark()` i `set_post_id()` wyrzucaly wynik `$wpdb->query()`.
+	 * Najgrozniejsza sciezka: nieudany `mark(FAILED)` oddawal wiersz jako `new`,
+	 * a `ORDER BY id` podawal go W TEJ SAMEJ PARTII ponownie — kolejne sloty
+	 * z dobowej puli na ten sam blad. Atrapa zwraca `false` bez zapisu.
+	 */
+
+	// N12-A: artykul opublikowany, finish(DONE) pada.
+	$db                = k4x_reset();
+	$db->wiersze[5]    = k4x_wiersz();
+	$db->awarie        = array( "status = 'done'" => 1 );
+	$GLOBALS['__plan'] = array( k4x_odp( k4x_json() ) );
+	$los               = Runner::process_item( $db->wiersze[5], null );
+	k4x_check( 'published' === $los['outcome'] && true === ( $los['write_failed'] ?? null ), 'N12-A: finish(DONE) → false → los `published` (to prawda) Z flaga rozjazdu' );
+	k4x_check( 'done' !== $db->wiersze[5]->status, 'N12-A kontrola: status `done` naprawde NIE zostal zapisany' );
+
+	// N12-A2: status zapisany, ale numer wpisu (`set_post_id`) pada — tez rozjazd.
+	$db                = k4x_reset();
+	$db->wiersze[5]    = k4x_wiersz();
+	$db->awarie        = array( 'SET post_id' => 1 );
+	$GLOBALS['__plan'] = array( k4x_odp( k4x_json() ) );
+	$los               = Runner::process_item( $db->wiersze[5], null );
+	k4x_check( 'published' === $los['outcome'] && true === ( $los['write_failed'] ?? null ), 'N12-A2: set_post_id() → false → los `published` Z flaga rozjazdu' );
+
+	// N12-A3: sciezka idempotencji (`exists`) z nieudanym finish(DONE).
+	$db             = k4x_reset();
+	$db->wiersze[5] = k4x_wiersz();
+	wp_insert_post(
+		array(
+			'post_type'   => Plugin::CPT,
+			'post_status' => 'publish',
+			'post_title'  => 'Wpis z przerwanego przebiegu',
+			'meta_input'  => array( Plugin::META_ITEM => 5 ),
+		),
+		true
+	);
+	$db->awarie = array( "status = 'done'" => 1 );
+	$los        = Runner::process_item( $db->wiersze[5], null );
+	k4x_check( 'exists' === $los['outcome'] && true === ( $los['write_failed'] ?? null ) && 0 === $los['calls'], 'N12-A3: `exists` z nieudanym finish(DONE) → flaga rozjazdu, zero wywolan modelu' );
+
+	// N12-A4: Publisher zwrocil blad (szkic), a mark(FAILED) pada → `error`, nie `failed`.
+	$db                = k4x_reset();
+	$db->wiersze[5]    = k4x_wiersz();
+	$GLOBALS['__plan'] = array( k4x_odp( k4x_json() ) );
+	$GLOBALS['__psuj'] = array( 'terms' );
+	$db->awarie        = array( "status = 'failed'" => 1 );
+	$los               = Runner::process_item( $db->wiersze[5], null );
+	$GLOBALS['__psuj'] = array();
+	k4x_check( 'error' === $los['outcome'] && true === ( $los['write_failed'] ?? null ), 'N12-A4: porazka Publishera + mark(FAILED) → false → los `error` z flaga (jest: ' . $los['outcome'] . ')' );
+
+	// N12 / T-1: UPDATE zwraca 0 zmienionych wierszy — to NIE porazka zapisu.
+	$db                = k4x_reset();
+	$db->wiersze[5]    = k4x_wiersz();
+	$db->zera          = array( "status = 'done'" => 1 );
+	$GLOBALS['__plan'] = array( k4x_odp( k4x_json() ) );
+	$los               = Runner::process_item( $db->wiersze[5], null );
+	k4x_check( 'published' === $los['outcome'] && false === ( $los['write_failed'] ?? null ), 'N12/T-1: finish(DONE) → 0 → bez flagi rozjazdu (0 to nie false)' );
+
+	// N12-B: porazka terminalna modelu, mark(FAILED) pada. Najpierw kontrola bez awarii.
+	$k4x_zly = static function () {
+		return array( k4x_odp( '{"urwany' ), k4x_odp( '{"znowu urwany' ) );
+	};
+	// Koszt JEDNEJ porazki mierzony na `process_item()`, nie na partii: `release()`
+	// w tej atrapie nie sprawdza `AND status = 'processing'`, wiec partia bez awarii
+	// tez oddawalaby wiersz — kontrola partia-bez-awarii mierzylaby atrape.
+	$db                = k4x_reset();
+	$db->wiersze[5]    = k4x_wiersz();
+	$GLOBALS['__plan'] = $k4x_zly();
+	$los_b0            = Runner::process_item( $db->wiersze[5], null );
+	$jedna_porazka     = count( $GLOBALS['__zadania'] );
+	k4x_check( 'failed' === $los_b0['outcome'] && $jedna_porazka >= 1, 'N12-B kontrola: jedna porazka terminalna kosztuje ' . $jedna_porazka . ' zadan do modelu' );
+
+	$db                = k4x_reset();
+	$db->wiersze[5]    = k4x_wiersz();
+	$db->awarie        = array( "status = 'failed'" => 99 );
+	$GLOBALS['__plan'] = array_merge( $k4x_zly(), $k4x_zly(), $k4x_zly() );
+	$wynik_b           = Runner::publish_batch( 3, 10.0 );
+	k4x_check( $jedna_porazka === count( $GLOBALS['__zadania'] ), 'N12-B (KLUCZOWA): mark(FAILED) → false → ta sama pozycja NIE idzie do modelu drugi raz w partii (zadan: ' . count( $GLOBALS['__zadania'] ) . ', jedna porazka: ' . $jedna_porazka . ')' );
+	k4x_check( 1 === $wynik_b['taken'] && 1 === $wynik_b['error'] && 1 === ( $wynik_b['status_failed'] ?? 0 ), 'N12-B: partia przerwana po pierwszej pozycji — taken 1, error 1, status_failed 1' );
+	k4x_check( '' !== $wynik_b['note'] && '' !== (string) ( $wynik_b['errors'][5] ?? '' ), 'N12-B: podsumowanie niesie notatke wstrzymania i blad pozycji #5' );
+	k4x_check( 'new' === $db->wiersze[5]->status && 0 === $wynik_b['failed'], 'N12-B: pozycja wrocila do kolejki i NIE jest liczona jako `failed`' );
+
+	// N12-C: pierwszy artykul opublikowany z nieudanym statusem — druga pozycja czeka na nastepny przebieg.
+	$db                = k4x_reset();
+	$db->wiersze[1]    = k4x_wiersz( 1, 'https://psy.pl/1/', 'Szczeniak w domu' );
+	$db->wiersze[2]    = k4x_wiersz( 2, 'https://psy.pl/2/', 'Jamnik na spacerze' );
+	$db->awarie        = array( "status = 'done'" => 1 );
+	$GLOBALS['__plan'] = array( k4x_odp( k4x_json() ), k4x_odp( k4x_json() ) );
+	$wynik_c           = Runner::publish_batch( 5, 10.0 );
+	k4x_check( 1 === $wynik_c['published'] && 1 === $wynik_c['taken'], 'N12-C: nieudany status po publikacji przerywa partie — druga pozycja NIE wzieta' );
+	k4x_check( 1 === ( $wynik_c['status_failed'] ?? 0 ) && '' !== (string) ( $wynik_c['errors'][1] ?? '' ), 'N12-C: blad pozycji #1 opisuje rozjazd, status_failed 1' );
+
+	// N12-D: nieudane odsianie pozycji poza tematem w pick_for_ai().
+	$db                      = k4x_reset();
+	$db->wiersze[1]          = k4x_wiersz( 1, 'https://psy.pl/1/', 'Najlepsza pizza w mieście' );
+	$db->wiersze[1]->excerpt = 'Przepis na ciasto';
+	$db->awarie              = array( "status = 'skipped'" => 99 );
+	$wynik_d                 = Runner::publish_batch( 5, 10.0 );
+	k4x_check( 0 === $wynik_d['offtopic'] && '' !== (string) ( $wynik_d['errors'][1] ?? '' ), 'N12-D: nieudane odsianie NIE liczy sie jako odsiane (rundy nie mnoza licznika) i zostawia blad pozycji' );
 
 	// ------------------------------------------------------------------
 	echo "\n";

@@ -31,6 +31,26 @@ if ( ! function_exists( 'wp_json_encode' ) ) { function wp_json_encode( $d, $f =
 if ( ! function_exists( 'sanitize_text_field' ) ) { function sanitize_text_field( $s ) { return is_string( $s ) ? trim( strip_tags( $s ) ) : ''; } }
 if ( ! function_exists( 'wp_strip_all_tags' ) ) { function wp_strip_all_tags( $s, $b = false ) { return strip_tags( (string) $s ); } }
 if ( ! function_exists( 'register_shutdown_function_shim' ) ) { /* placeholder */ }
+// Naprawa wyniku zapisu (N1): run_clear() kasuje podpis indeksu, flagę cache i zamek
+// przez delete_option() — rejestr pozwala sprawdzić, CZEGO NIE skasował przy awarii.
+$GLOBALS['k9_deleted'] = array();
+if ( ! function_exists( 'delete_option' ) ) { function delete_option( $k ) { $GLOBALS['k9_deleted'][] = $k; return true; } }
+// Transport AJAX: wp_send_json_* kończy żądanie — tu rzuca, żeby test złapał odpowiedź.
+class K9JsonExit extends \Exception { public $payload; public $status; public $success;
+	public function __construct( $success, $payload, $status ) { parent::__construct( 'json' ); $this->success = $success; $this->payload = $payload; $this->status = (int) $status; } }
+if ( ! function_exists( 'check_ajax_referer' ) ) { function check_ajax_referer( $a, $q = false ) { return true; } }
+if ( ! function_exists( 'current_user_can' ) ) { function current_user_can( $c ) { return true; } }
+if ( ! function_exists( 'wp_send_json_error' ) ) { function wp_send_json_error( $d = null, $s = 200 ) { throw new K9JsonExit( false, $d, $s ); } }
+if ( ! function_exists( 'wp_send_json_success' ) ) { function wp_send_json_success( $d = null, $s = 200 ) { throw new K9JsonExit( true, $d, $s ); } }
+if ( ! class_exists( 'WP_REST_Response' ) ) {
+	class WP_REST_Response { public $data; public $status;
+		public function __construct( $data = null, $status = 200 ) { $this->data = $data; $this->status = (int) $status; }
+		public function get_data() { return $this->data; }
+		public function get_status() { return $this->status; } }
+}
+// Atrapa tematu witryny — run_clear() woła SiteProfile::forget() tylko, gdy klasa istnieje.
+class K9FakeSiteProfile { public static $forgot = 0; public static function forget() { ++self::$forgot; } }
+class_alias( 'K9FakeSiteProfile', 'AIFAQ\Seo\SiteProfile' );
 
 // Spy $wpdb — rejestruje wszystkie zapytania.
 class SpyWpdb {
@@ -40,8 +60,26 @@ class SpyWpdb {
 	/** Sterowana awaria zapytania — potrzebna dla RAU-R06-004 i RAU-R06-003. */
 	public $query_ret = 1;
 	public $delete_ret = 1;
+	/** Wynik $wpdb->update() — touch_post() (N8): false = błąd SQL, 0 = ta sama sekunda. */
+	public $update_ret = 1;
+	public function update( $table, $data, $where, $f = null, $wf = null ) { $this->queries[] = 'UPDATE ' . $table; return $this->update_ret; }
 	public $inserts = 0;
-	public function query( $sql ) { $this->queries[] = $sql; return $this->query_ret; }
+	/** Wyniki per fragment SQL, zdejmowane po kolei: `'TRUNCATE' => array( true, false )`. */
+	public $ret_by_needle = array();
+	public function query( $sql ) {
+		$this->queries[] = $sql;
+		foreach ( $this->ret_by_needle as $needle => $kolejka ) {
+			if ( array() !== $kolejka && false !== stripos( $sql, $needle ) ) {
+				return array_shift( $this->ret_by_needle[ $needle ] );
+			}
+		}
+		return $this->query_ret;
+	}
+	public function count_found( $needle ) {
+		$n = 0;
+		foreach ( $this->queries as $q ) { if ( false !== stripos( $q, $needle ) ) { ++$n; } }
+		return $n;
+	}
 	public function delete( $table, $where, $fmt = null ) { $this->queries[] = 'DELETE ' . $table; return $this->delete_ret; }
 	public function insert( $table, $data, $fmt = null ) { $this->inserts++; $this->insert_id = 100 + $this->inserts; return 1; }
 	public function get_var( $sql ) { $this->queries[] = $sql; return 5; }
@@ -63,6 +101,7 @@ require __DIR__ . '/../src/Data/Repository.php';
 require __DIR__ . '/../src/Data/KnowledgeRepository.php';
 require __DIR__ . '/../src/Data/CacheRepository.php';
 require __DIR__ . '/../src/Admin/IndexController.php';
+require __DIR__ . '/../src/Rest/AdminService.php';
 
 use AIFAQ\Data\CacheRepository;
 use AIFAQ\Admin\IndexController;
@@ -142,6 +181,90 @@ check( $GLOBALS['wpdb']->found( 'COMMIT' ), 'kontrola: zero skasowanych to NIE a
 check( $wynik_zero > 0, 'kontrola: i fragmenty zostały wstawione (jest: ' . $wynik_zero . ')' );
 
 $GLOBALS['wpdb']->delete_ret = 1;
+
+// ===========================================================================
+echo "\n=== N1: wynik zapisu w „Wyczyść bazę” — awaria to 500, nie 200 „Gotowe” ===\n";
+// ===========================================================================
+/*
+ * Oba clear_all() wyrzucały albo rzutowały wynik, a run_clear() odpowiadał 200
+ * i kasował podpis indeksu oraz temat witryny także przy fragmentach, które
+ * zostały w bazie. Kolejność CACHE → BAZA WIEDZY: awaria cache nie rusza bazy.
+ */
+/**
+ * Czyści rejestry i ustawia wyniki zapytań dla jednego scenariusza.
+ *
+ * @param array $ret Wyniki per fragment SQL.
+ */
+function k9_scenariusz( array $ret ) {
+	$GLOBALS['wpdb']->queries       = array();
+	$GLOBALS['wpdb']->query_ret     = 1;
+	$GLOBALS['wpdb']->ret_by_needle = $ret;
+	$GLOBALS['k9_deleted']          = array();
+	K9FakeSiteProfile::$forgot      = 0;
+}
+
+k9_scenariusz( array( 'FROM wp_aifaq_knowledge' => array( false ) ) );
+$r = ( new IndexController() )->run_clear();
+check( false === ( $r['ok'] ?? null ) && 500 === ( $r['status'] ?? 0 ), 'N1a: DELETE bazy wiedzy padł → ok:false, 500 (jest: ' . var_export( $r['status'] ?? null, true ) . ')' );
+check( '' !== (string) ( $r['message'] ?? '' ), 'N1a: DELETE padł → komunikat dla właściciela' );
+check( ! in_array( 'aifaq_index_signature', $GLOBALS['k9_deleted'], true ), 'N1a: DELETE padł → podpis indeksu NIE skasowany (fragmenty zostały w bazie)' );
+check( 0 === K9FakeSiteProfile::$forgot, 'N1a: DELETE padł → temat witryny NIE zapomniany' );
+check( in_array( IndexController::LOCK, $GLOBALS['k9_deleted'], true ), 'N1a: DELETE padł → zamek zwolniony (release_lock)' );
+
+k9_scenariusz( array( 'TRUNCATE' => array( false ) ) );
+$r = ( new IndexController() )->run_clear();
+check( false === ( $r['ok'] ?? null ) && 500 === ( $r['status'] ?? 0 ), 'N1b: TRUNCATE cache padł → ok:false, 500' );
+check( ! $GLOBALS['wpdb']->found( 'FROM wp_aifaq_knowledge' ), 'N1b: TRUNCATE padł → baza wiedzy NIETKNIĘTA (kolejność CACHE → BAZA, Z-7)' );
+check( ! in_array( 'aifaq_index_signature', $GLOBALS['k9_deleted'], true ) && 0 === K9FakeSiteProfile::$forgot, 'N1b: TRUNCATE padł → podpis i temat NIE ruszone' );
+check( in_array( IndexController::LOCK, $GLOBALS['k9_deleted'], true ), 'N1b: TRUNCATE padł → zamek zwolniony' );
+
+k9_scenariusz( array( 'FROM wp_aifaq_knowledge' => array( 0 ), 'TRUNCATE' => array( true, true ) ) );
+$r = ( new IndexController() )->run_clear();
+check( true === ( $r['ok'] ?? null ) && 200 === ( $r['status'] ?? 0 ) && 0 === ( $r['removed'] ?? null ), 'N1c/T-1: pusta baza (DELETE → 0) i TRUNCATE → true to SUKCES: ok, 200, removed 0' );
+check( in_array( 'aifaq_index_signature', $GLOBALS['k9_deleted'], true ) && 1 === K9FakeSiteProfile::$forgot, 'N1c: po udanym kasowaniu podpis skasowany i temat zapomniany' );
+check( 2 === $GLOBALS['wpdb']->count_found( 'TRUNCATE' ), 'N1c: cache czyszczony DWA razy — przed bazą i po niej (wyścig z /ask)' );
+check( ! in_array( 'aifaq_cache_flushed_for', $GLOBALS['k9_deleted'], true ), 'N1c: udane drugie czyszczenie → flaga cache nietknięta' );
+
+k9_scenariusz( array( 'TRUNCATE' => array( true, false ) ) );
+$r = ( new IndexController() )->run_clear();
+check( true === ( $r['ok'] ?? null ), 'N1d: drugie czyszczenie cache padło po udanym kasowaniu bazy → nadal ok (baza wyczyszczona)' );
+check( in_array( 'aifaq_cache_flushed_for', $GLOBALS['k9_deleted'], true ), 'N1d: drugie czyszczenie padło → flaga aifaq_cache_flushed_for skasowana (ponowienie przez maybe_flush_cache)' );
+
+k9_scenariusz( array( 'FROM wp_aifaq_knowledge' => array( false ) ) );
+$rest = ( new \AIFAQ\Rest\AdminService() )->clear();
+check( 500 === $rest->get_status() && 'error' === ( $rest->get_data()['status'] ?? '' ), 'N1 REST: /admin/clear przy awarii bazy → 500 + status error (jest: ' . $rest->get_status() . ')' );
+
+k9_scenariusz( array( 'TRUNCATE' => array( false ) ) );
+$ajax = null;
+try { ( new IndexController() )->ajax_clear(); } catch ( K9JsonExit $e ) { $ajax = $e; }
+check( null !== $ajax && false === $ajax->success && 500 === $ajax->status && '' !== (string) ( $ajax->payload['message'] ?? '' ), 'N1 AJAX: aifaq_clear przy awarii cache → wp_send_json_error, 500, komunikat' );
+
+k9_scenariusz( array() );
+$ajax = null;
+try { ( new IndexController() )->ajax_clear(); } catch ( K9JsonExit $e ) { $ajax = $e; }
+check( null !== $ajax && true === $ajax->success && isset( $ajax->payload['removed'], $ajax->payload['stats'] ), 'N1 AJAX: sukces bez zmiany kształtu (removed + stats)' );
+
+// ===========================================================================
+echo "\n=== N6/N8/N9: repozytorium wiedzy odróżnia false od 0 ===\n";
+// ===========================================================================
+k9_scenariusz( array() );
+$GLOBALS['wpdb']->update_ret = false;
+check( false === $know_repo->touch_post( 7 ), 'N8: UPDATE updated_at → false → touch_post() === false' );
+$GLOBALS['wpdb']->update_ret = 0;
+check( true === $know_repo->touch_post( 7 ), 'N8/T-1: UPDATE → 0 (ta sama sekunda / brak fragmentów) → touch_post() === true, to NIE porażka' );
+$GLOBALS['wpdb']->update_ret = 1;
+
+k9_scenariusz( array( 'NOT IN' => array( false ) ) );
+check( false === $know_repo->delete_missing( array( 1, 2 ) ), 'N6: DELETE osieroconych → false → delete_missing() === false (nie 0)' );
+k9_scenariusz( array( 'NOT IN' => array( 0 ) ) );
+check( 0 === $know_repo->delete_missing( array( 1, 2 ) ), 'N6/T-1: DELETE osieroconych → 0 → delete_missing() === 0 (nie było czego kasować)' );
+
+k9_scenariusz( array( 'COMMIT' => array( false ) ) );
+$GLOBALS['wpdb']->delete_ret = 1;
+check( 0 === $know_repo->replace_for_post( 5, array( array( 'content' => 'A', 'embedding' => array( 0.1 ) ) ) ), 'N9: COMMIT → false → replace_for_post() === 0 (zestaw NIE zapisany, nie liczba wstawionych)' );
+k9_scenariusz( array( 'COMMIT' => array( true ) ) );
+check( 1 === $know_repo->replace_for_post( 5, array( array( 'content' => 'A', 'embedding' => array( 0.1 ) ) ) ), 'N9/T-1: COMMIT → true → replace_for_post() === 1 (true to sukces bez licznika)' );
+k9_scenariusz( array() );
 
 echo "\n=== " . ( 0 === $fail ? 'WSZYSTKIE OK' : "BŁĘDÓW: {$fail}" ) . " ===\n";
 exit( $fail > 0 ? 1 : 0 );

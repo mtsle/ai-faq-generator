@@ -448,6 +448,7 @@ final class Admin {
 			return;
 		}
 
+		// WYNIK-ZAPISU-POMINIETY: przejecie zamka po LOCK_TTL w claim_lock() leczy nieudane zdjecie
 		$wpdb->query(
 			$wpdb->prepare(
 				"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",

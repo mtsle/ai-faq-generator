@@ -72,6 +72,7 @@ $GLOBALS['__posts']        = array();
 $GLOBALS['__zadania']      = array();   // Adresy, o ktore poprosila faza zbierania.
 $GLOBALS['__http_sleep']   = 0.0;       // Sztuczne spowolnienie transportu.
 $GLOBALS['__db_sleep']     = 0.0;       // Sztuczne spowolnienie odzysku.
+$GLOBALS['__recover_ret']  = 0;         // Wynik UPDATE odzysku: false = blad zapytania (N17).
 $GLOBALS['__lock']         = null;      // Zamek jako wiersz w `options` (A5).
 $GLOBALS['__timeouty']     = array();   // Timeouty, z jakimi ruszyly zadania (A2).
 $GLOBALS['__lock_wyscig']  = null;      // Podmiana zamka miedzy odczytem a CAS-em.
@@ -302,6 +303,8 @@ class AINP_Fake_WPDB {
 			if ( $GLOBALS['__db_sleep'] > 0 ) {
 				usleep( (int) ( $GLOBALS['__db_sleep'] * 1000000 ) );
 			}
+
+			return $GLOBALS['__recover_ret'];
 		}
 
 		return 0;
@@ -1406,6 +1409,31 @@ ini_set( 'memory_limit', (string) $stara_pamiec );
 k5_check( false === $pobrane['ok'], 'budzet ponizej progu zatrzymuje pobranie juz na poziomie Article' );
 k5_check( 'budget' === ( $pobrane['reason'] ?? '' ), 'powod przechodzi w gore niezmieniony (jest: ' . var_export( $pobrane['reason'] ?? null, true ) . ')' );
 k5_check( 0 === count( $GLOBALS['__zadania'] ), 'i ZERO zadan sieciowych — budzet nie zgubil sie miedzy Article a Http' );
+
+// ---------------------------------------------------------------------------
+// N17. Odzysk porzuconych pozycji: blad zapytania nie udaje zera.
+// ---------------------------------------------------------------------------
+echo "\n=== N17. Odzysk — nieudany UPDATE trafia do bledow przebiegu ===\n";
+
+$k5_n17 = static function ( $wynik_odzysku ) {
+	$GLOBALS['__slad']       = array();
+	\AINP\Http::reset_host_gaps();
+	$GLOBALS['__zadania']    = array();
+	$GLOBALS['__transient']  = array();
+	$GLOBALS['__http_sleep'] = 0.0;
+	$GLOBALS['__recover_ret'] = $wynik_odzysku;
+	$tick                    = Runner::tick();
+	$GLOBALS['__recover_ret'] = 0;
+	return $tick;
+};
+
+$wynik = $k5_n17( false );
+k5_check( '' !== (string) ( $wynik['errors']['recover'] ?? '' ), 'N17: UPDATE odzysku → false → errors[recover] z powodem (dawniej `max( 0, (int) false )` = cisza)' );
+k5_check( 0 === $wynik['recovered'], 'N17: licznik odzyskanych zostaje zero — ale obok stoi blad' );
+k5_check( null === $GLOBALS['__lock'], 'N17: zamek zdjety mimo bledu odzysku' );
+
+$wynik = $k5_n17( 0 );
+k5_check( ! isset( $wynik['errors']['recover'] ) && 0 === $wynik['recovered'], 'N17/T-1: odzysk → 0 → zero odzyskanych BEZ bledu' );
 
 // ---------------------------------------------------------------------------
 // Podsumowanie.

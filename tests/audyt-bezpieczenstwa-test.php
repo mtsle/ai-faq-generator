@@ -250,9 +250,10 @@ echo "\n=== C. Jednorazowe zdjęcie autoloadu istniejącej instalacji ===\n";
 class SecWpdb {
 	public $options = 'wp_options';
 	public $updates = array();
+	public $update_ret = 1; // N10: false = błąd SQL, 0 = autoload już był `no`
 	public function update( $table, $data, $where, $df = null, $wf = null ) {
 		$this->updates[] = array( $table, $data, $where );
-		return 1;
+		return $this->update_ret;
 	}
 }
 $GLOBALS['wpdb'] = new SecWpdb();
@@ -267,6 +268,44 @@ check( '1' === (string) get_option( \AIFAQ\Core\Plugin::HARDEN_FLAG, '' ), 'C4: 
 
 \AIFAQ\Core\Plugin::maybe_harden_options();
 check( 1 === count( $GLOBALS['wpdb']->updates ), 'C5 (idempotencja): drugie wywołanie NIE robi już żadnego zapytania (jest: ' . count( $GLOBALS['wpdb']->updates ) . ')' );
+
+// N10 — znacznik „zrobione" wyłącznie po POTWIERDZONEJ zmianie autoloadu. Przed naprawą
+// UPDATE był wyrzucany, a znacznik zapadał bezwarunkowo: klucz API autoładowany na zawsze.
+$GLOBALS['wpdb']             = new SecWpdb();
+$GLOBALS['wpdb']->update_ret = false;
+unset( $GLOBALS['__opt'][ \AIFAQ\Core\Plugin::HARDEN_FLAG ] );
+\AIFAQ\Core\Plugin::maybe_harden_options();
+check( 1 === count( $GLOBALS['wpdb']->updates ), 'C6 kontrola: UPDATE autoloadu wykonany' );
+check( '' === (string) get_option( \AIFAQ\Core\Plugin::HARDEN_FLAG, '' ), 'C6 (N10): UPDATE → false → znacznik NIE zapisany, następne żądanie ponowi' );
+
+$GLOBALS['wpdb']             = new SecWpdb();
+$GLOBALS['wpdb']->update_ret = 0;
+unset( $GLOBALS['__opt'][ \AIFAQ\Core\Plugin::HARDEN_FLAG ] );
+\AIFAQ\Core\Plugin::maybe_harden_options();
+check( '1' === (string) get_option( \AIFAQ\Core\Plugin::HARDEN_FLAG, '' ), 'C7 (N10/T-1): UPDATE → 0 (autoload już był no) → znacznik zapisany' );
+
+// Gałąź WordPressa ≥ 6.4: wp_set_option_autoload() zwraca false TAKŻE przy „już no".
+// Funkcje zdefiniowane dopiero tutaj — C1-C7 idą ścieżką zapasową na $wpdb.
+$GLOBALS['sec_autoload_ret'] = false;
+$GLOBALS['sec_alloptions']   = array();
+if ( ! function_exists( 'wp_set_option_autoload' ) ) { function wp_set_option_autoload( $name, $autoload ) { return $GLOBALS['sec_autoload_ret']; } }
+if ( ! function_exists( 'wp_load_alloptions' ) ) { function wp_load_alloptions( $force = false ) { return $GLOBALS['sec_alloptions']; } }
+
+$GLOBALS['sec_alloptions'] = array( \AIFAQ\Core\Settings::OPTION => 'x' );
+unset( $GLOBALS['__opt'][ \AIFAQ\Core\Plugin::HARDEN_FLAG ] );
+\AIFAQ\Core\Plugin::maybe_harden_options();
+check( '' === (string) get_option( \AIFAQ\Core\Plugin::HARDEN_FLAG, '' ), 'C8 (N10): wp_set_option_autoload() → false, opcja NADAL w alloptions → znacznik NIE zapisany' );
+
+$GLOBALS['sec_alloptions'] = array();
+unset( $GLOBALS['__opt'][ \AIFAQ\Core\Plugin::HARDEN_FLAG ] );
+\AIFAQ\Core\Plugin::maybe_harden_options();
+check( '1' === (string) get_option( \AIFAQ\Core\Plugin::HARDEN_FLAG, '' ), 'C9 (N10/T-1): wp_set_option_autoload() → false, ale opcji NIE ma w alloptions (już no) → znacznik zapisany' );
+
+$GLOBALS['sec_autoload_ret'] = true;
+$GLOBALS['sec_alloptions']   = array( \AIFAQ\Core\Settings::OPTION => 'x' );
+unset( $GLOBALS['__opt'][ \AIFAQ\Core\Plugin::HARDEN_FLAG ] );
+\AIFAQ\Core\Plugin::maybe_harden_options();
+check( '1' === (string) get_option( \AIFAQ\Core\Plugin::HARDEN_FLAG, '' ), 'C10 (N10): wp_set_option_autoload() → true → znacznik zapisany' );
 
 // ===========================================================================
 echo "\n=== D. Nagłówek X-AIFAQ-Crawl uwierzytelniony tokenem ===\n";
@@ -407,7 +446,8 @@ class SecQaLogWpdb {
 	public function prepare( $sql, ...$a ) { foreach ( $a as $v ) { $sql = preg_replace( '/%[ds]/', (string) $v, $sql, 1 ); } return $sql; }
 	public function get_var( $sql ) { $this->queries[] = array( 'get_var', $sql ); return 500; } // "granica" id
 	public function get_row( $sql, $mode = null ) { $this->queries[] = array( 'get_row', $sql ); return array( 'created_at' => '2026-01-01 00:00:00', 'id' => 500 ); } // "granica" retencji: data + id
-	public function query( $sql ) { $this->queries[] = array( 'query', $sql ); return 7; } // wierszy "skasowanych"
+	public $query_ret = 7; // N7: false = DELETE padł
+	public function query( $sql ) { $this->queries[] = array( 'query', $sql ); return $this->query_ret; } // wierszy "skasowanych"
 	public function deletes() {
 		$out = array();
 		foreach ( $this->queries as $q ) { if ( 'query' === $q[0] && false !== stripos( $q[1], 'DELETE' ) ) { $out[] = $q[1]; } }
@@ -468,12 +508,44 @@ $qa_repo         = new \AIFAQ\Data\QaLogRepository();
 $qa_repo->log( array( 'question' => 'P?', 'answer' => 'O.', 'status' => 'answered' ) );
 check( 1 === count( $GLOBALS['wpdb']->deletes() ), 'I6: sam qa_log_keep_days > 0 też wyzwala prune()' );
 
-unset( $sec_settings, $qa_repo, $r, $dels, $id );
+// I7-I12 — N7 i decyzja D2: porażka retencji zostawia TRWAŁY ślad dla kokpitu.
+// Przed naprawą `max( 0, (int) false )` = 0 i log() nie wiedział o awarii nic.
+$GLOBALS['wpdb']            = new SecQaLogWpdb();
+$GLOBALS['wpdb']->query_ret = false;
+$qa_repo                    = new \AIFAQ\Data\QaLogRepository();
+check( false === $qa_repo->prune( 5000, 90 ), 'I7 (N7): którekolwiek DELETE → false → prune() === false (nie 0)' );
+check( 2 === count( $GLOBALS['wpdb']->deletes() ), 'I7: po nieudanym pierwszym DELETE drugie i tak wykonane (jest: ' . count( $GLOBALS['wpdb']->deletes() ) . ')' );
+$GLOBALS['wpdb']->query_ret = 0;
+check( 0 === $qa_repo->prune( 5000, 90 ), 'I8 (N7/T-1): DELETE → 0 → prune() === 0 (nie było czego kasować)' );
+
+unset( $GLOBALS['__opt'][ \AIFAQ\Data\Repository::RETENTION_FAILED_OPTION ] );
+$sec_settings( array( 'qa_log_keep_rows' => 5000, 'qa_log_keep_days' => 0 ) );
+$GLOBALS['wpdb']            = new SecQaLogWpdb();
+$GLOBALS['wpdb']->query_ret = false;
+$id                         = $qa_repo->log( array( 'question' => 'P?', 'answer' => 'O.', 'status' => 'answered' ) );
+$sygnal                     = $GLOBALS['__opt'][ \AIFAQ\Data\Repository::RETENTION_FAILED_OPTION ] ?? null;
+check( 123 === $id, 'I9: porażka retencji NIE zmienia wyniku log() (insert_id)' );
+check( is_array( $sygnal ) && '2026-07-26 12:00:00' === ( $sygnal['aifaq_qa_log'] ?? '' ), 'I10 (D2, KLUCZOWA): nieudana retencja → aifaq_retention_failed[aifaq_qa_log] = czas próby' );
+check( false === ( $GLOBALS['__autoload'][ \AIFAQ\Data\Repository::RETENTION_FAILED_OPTION ] ?? null ), 'I10: opcja sygnału zapisana BEZ autoloadu' );
+check( array( 'aifaq_qa_log' => '2026-07-26 12:00:00' ) === \AIFAQ\Data\Repository::retention_failures(), 'I11: czytelnik kokpitu (retention_failures) widzi porażkę' );
+
+$GLOBALS['wpdb']->query_ret = 0;
+$qa_repo->log( array( 'question' => 'P?', 'answer' => 'O.', 'status' => 'answered' ) );
+check( ! array_key_exists( \AIFAQ\Data\Repository::RETENTION_FAILED_OPTION, $GLOBALS['__opt'] ), 'I12 (D2): następne UDANE czyszczenie (0 wierszy to sukces) kasuje sygnał' );
+
+// Czytelnik w widoku — na tokenach, żeby komentarz nie zaliczał wywołania (Z-11).
+$sec_dash_calls = 0;
+foreach ( token_get_all( (string) file_get_contents( __DIR__ . '/../src/Admin/views/dashboard.php' ) ) as $sec_tok ) {
+	if ( is_array( $sec_tok ) && T_STRING === $sec_tok[0] && 'retention_failures' === $sec_tok[1] ) { ++$sec_dash_calls; }
+}
+check( $sec_dash_calls >= 1, 'I13 (Z-11): dashboard.php WOŁA retention_failures() w kodzie — sygnał ma czytelnika (wystąpień: ' . $sec_dash_calls . ')' );
+
+unset( $sec_settings, $qa_repo, $r, $dels, $id, $sygnal, $sec_dash_calls, $sec_tok );
 
 // ===========================================================================
 echo "\n=== Z. Podłoga pokrycia ===\n";
 // ===========================================================================
-check( $ran >= 33, 'wykonano co najmniej 33 asercje (jest: ' . $ran . ')' );
+check( $ran >= 48, 'wykonano co najmniej 48 asercji (jest: ' . $ran . ')' );
 
 echo "\n" . ( 0 === $fail ? '=== WSZYSTKIE OK (asercji: ' . $ran . ') ===' : "=== BŁĘDÓW: $fail (asercji: $ran) ===" ) . "\n";
 exit( 0 === $fail ? 0 : 1 );

@@ -675,8 +675,39 @@ $aifaq_refusal_langs = $aifaq_langs;
 						</label>
 						<p class="description">
 							<strong><?php esc_html_e( 'Włącz TYLKO, jeśli witryna naprawdę stoi za proxy.', 'ai-faq-generator' ); ?></strong>
-							<?php esc_html_e( 'Na witrynie bez proxy ta opcja pozwala KAŻDEMU gościowi ominąć limit pytań — wystarczy, że sam dopisze do żądania odpowiedni nagłówek. Gdy jest wyłączona, a witryna stoi za proxy, wszyscy goście trafiają do jednego wspólnego licznika (limit działa wtedy jak jeden na całą stronę). Włączenie zmienia sposób rozpoznawania gości, więc jednorazowo zeruje ich bieżące liczniki.', 'ai-faq-generator' ); ?>
+							<?php esc_html_e( 'Nagłówek z adresem gościa jest brany pod uwagę wyłącznie dla żądań, które przyszły z adresów wpisanych na liście zaufanych proxy poniżej — bez listy ta opcja niczego nie zmienia, a dopisany przez gościa nagłówek jest ignorowany. Gdy opcja jest wyłączona, a witryna stoi za proxy, wszyscy goście trafiają do jednego wspólnego licznika (limit działa wtedy jak jeden na całą stronę). Włączenie zmienia sposób rozpoznawania gości, więc jednorazowo zeruje ich bieżące liczniki.', 'ai-faq-generator' ); ?>
 						</p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row"><label for="aifaq-rag-trusted-proxies"><?php esc_html_e( 'Zaufane adresy proxy', 'ai-faq-generator' ); ?></label></th>
+					<td>
+						<?php
+						/*
+						 * Pole tekstowe jest wysyłane zawsze, więc ukryty input nie jest tu potrzebny
+						 * (to pułapka checkboxa). Ochronę przed zapisem z panelu na froncie daje
+						 * `isset()` w Settings::sanitize() — tamten formularz tego pola nie niesie.
+						 */
+						?>
+						<textarea
+							id="aifaq-rag-trusted-proxies"
+							name="aifaq_settings[rag_trusted_proxies]"
+							rows="4"
+							class="large-text code"
+						><?php echo esc_textarea( (string) ( $aifaq['rag_trusted_proxies'] ?? '' ) ); ?></textarea>
+						<p class="description"><?php esc_html_e( 'Adresy IP albo zakresy CIDR (IPv4 i IPv6) serwerów proxy stojących przed witryną, po jednym w wierszu. Niepoprawne wpisy są pomijane przy zapisie. Pusta lista oznacza, że nagłówki z adresem gościa są ignorowane także przy włączonej opcji powyżej.', 'ai-faq-generator' ); ?></p>
+					</td>
+				</tr>
+
+				<tr>
+					<th scope="row"><label for="aifaq-rag-proxy-header"><?php esc_html_e( 'Nagłówek z adresem gościa', 'ai-faq-generator' ); ?></label></th>
+					<td>
+						<select id="aifaq-rag-proxy-header" name="aifaq_settings[rag_proxy_header]">
+							<option value="cf" <?php selected( 'cf', (string) ( $aifaq['rag_proxy_header'] ?? 'cf' ) ); ?>><?php esc_html_e( 'Cloudflare (CF-Connecting-IP)', 'ai-faq-generator' ); ?></option>
+							<option value="xff" <?php selected( 'xff', (string) ( $aifaq['rag_proxy_header'] ?? 'cf' ) ); ?>><?php esc_html_e( 'Własny proxy lub load balancer (X-Forwarded-For)', 'ai-faq-generator' ); ?></option>
+						</select>
+						<p class="description"><?php esc_html_e( 'Brany jest wyłącznie wybrany nagłówek. X-Forwarded-For jest czytany od prawej: adresy z listy zaufanych proxy są pomijane, a pierwszy adres spoza listy to gość.', 'ai-faq-generator' ); ?></p>
 					</td>
 				</tr>
 

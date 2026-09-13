@@ -274,7 +274,15 @@ class IndexController {
 			// stare odpowiedzi (z pominięciem retrievera i bramki tematu). WYŁĄCZNIE po
 			// przebiegu PEŁNYM (§6.4 pkt 1): czyszczenie po przebiegu przerwanym zabierałoby
 			// nawet dobre odpowiedzi i pogarszało bota dokładnie wtedy, gdy właściciel go naprawia.
-			( new CacheRepository() )->clear_all();
+			// Porażka TRUNCATE nie jest cicha: ostrzeżenie w raporcie + skasowana flaga
+			// `aifaq_cache_flushed_for`, żeby `Plugin::maybe_flush_cache()` ponowił próbę.
+			if ( false === ( new CacheRepository() )->clear_all() ) {
+				$report['warnings'][] = __( 'Nie udało się wyczyścić pamięci podręcznej odpowiedzi po indeksowaniu — wtyczka ponowi próbę przy następnym żądaniu; do tego czasu mogą pojawiać się odpowiedzi sprzed zmiany treści.', 'ai-faq-generator' );
+
+				if ( function_exists( 'delete_option' ) ) {
+					delete_option( 'aifaq_cache_flushed_for' );
+				}
+			}
 
 			// Treść się zmieniła → przelicz TEMAT witryny (SEO podstrony ma się
 			// dostrajać do strony, na której wtyczka siedzi). Jedno wywołanie API,
@@ -337,10 +345,55 @@ class IndexController {
 		}
 		register_shutdown_function( array( $this, 'release_lock' ) );
 
+		/*
+		 * KOLEJNOŚĆ: CACHE → BAZA WIEDZY. Awaria każdego kroku zostawia stan spójny:
+		 * padnięty TRUNCATE cache nie rusza niczego (czysty błąd, wszystko jak przed
+		 * kliknięciem), a padnięty DELETE bazy wiedzy zostawia tylko pusty cache —
+		 * nieszkodliwy, bo odpowiedzi zbuduje się od nowa z tej samej bazy. Odwrotna
+		 * kolejność przy awarii TRUNCATE dawała pustą bazę i cache serwujący treść,
+		 * której właściciel już nie ma. Do tej poprawki oba wyniki były wyrzucane
+		 * i odpowiedź była zawsze 200 „Gotowe".
+		 */
+		$cache = new CacheRepository();
+
+		if ( false === $cache->clear_all() ) {
+			$this->release_lock();
+
+			return array(
+				'ok'      => false,
+				'status'  => 500,
+				'message' => __( 'Nie udało się wyczyścić pamięci podręcznej odpowiedzi — baza wiedzy nie została naruszona. Spróbuj ponownie; jeśli błąd wraca, sprawdź uprawnienia użytkownika bazy danych.', 'ai-faq-generator' ),
+			);
+		}
+
 		$removed = ( new KnowledgeRepository() )->clear_all();
 
-		// Cache odpowiedzi to funkcja bazy wiedzy — znika razem z nią.
-		( new CacheRepository() )->clear_all();
+		// Podpis indeksu i temat witryny opisują treść bazy wiedzy — przy nieudanym
+		// kasowaniu ta treść ZOSTAŁA, więc zostają też one.
+		if ( false === $removed ) {
+			$this->release_lock();
+
+			return array(
+				'ok'      => false,
+				'status'  => 500,
+				'message' => __( 'Nie udało się wyczyścić bazy wiedzy — fragmenty zostały w bazie, a podpis indeksu i temat witryny nie zostały zmienione. Spróbuj ponownie.', 'ai-faq-generator' ),
+			);
+		}
+
+		/*
+		 * DRUGIE czyszczenie cache, już po bazie wiedzy. `/ask` nie bierze zamka
+		 * indeksowania, więc pytanie zadane między TRUNCATE a DELETE odpowiada
+		 * z jeszcze istniejących fragmentów i zapisuje odpowiedź do świeżo
+		 * wyczyszczonego cache — przeżyłaby czyszczenie bazy, z której powstała.
+		 * TRUNCATE nic nie kosztuje. Jego porażka nie cofa już wykonanego kasowania
+		 * bazy (operacja, o którą prosił właściciel, się udała), ale NIE zostaje bez
+		 * śladu: skasowana flaga `aifaq_cache_flushed_for` każe
+		 * `Plugin::maybe_flush_cache()` ponowić czyszczenie przy następnym żądaniu,
+		 * z jego zamkiem.
+		 */
+		if ( false === $cache->clear_all() && function_exists( 'delete_option' ) ) {
+			delete_option( 'aifaq_cache_flushed_for' );
+		}
 
 		// Krok 19 (M5): baza wektorów przestała istnieć, więc podpis nie ma czego opisywać.
 		// Bez tego po „Wyczyść bazę" komunikat migracji dawał stan 'ok', a ścieżka pytania

@@ -392,6 +392,30 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 		<p><?php esc_html_e( 'Co się dzieje na publicznej stronie generatora. „Odmowy" to pytania spoza tematu Twojej strony — bramka tematu zadziałała. „Z cache" to powtórzone pytania, za które nie zapłaciłeś.', 'ai-faq-generator' ); ?></p>
 
 		<?php
+		// Naprawa Z4/R10: tożsamość gościa zza proxy. Sygnał `aifaq_proxy_seen` miał dotąd
+		// wyłącznie zapis — ten blok jest jego czytelnikiem; drugi stan to przełącznik
+		// włączony przy pustej liście zaufanych proxy (nagłówki ignorowane, decyzja D1).
+		$aifaq_proxy_notice = class_exists( '\AIFAQ\Rest\GuestIdentity' ) && method_exists( '\AIFAQ\Rest\GuestIdentity', 'proxy_notice' )
+			? \AIFAQ\Rest\GuestIdentity::proxy_notice()
+			: '';
+		?>
+		<?php if ( 'unconfigured' === $aifaq_proxy_notice ) : ?>
+			<div class="notice notice-warning inline">
+				<p>
+					<strong><?php esc_html_e( 'Zaufany proxy jest włączony, ale nieskonfigurowany.', 'ai-faq-generator' ); ?></strong>
+					<?php esc_html_e( 'Lista zaufanych adresów proxy jest pusta, więc nagłówki z adresem gościa są ignorowane i wszyscy goście trafiają do jednego wspólnego licznika pytań. Wpisz adresy swojego proxy w Ustawieniach.', 'ai-faq-generator' ); ?>
+				</p>
+			</div>
+		<?php elseif ( 'proxy_seen' === $aifaq_proxy_notice ) : ?>
+			<div class="notice notice-warning inline">
+				<p>
+					<strong><?php esc_html_e( 'Witryna wygląda na stojącą za proxy.', 'ai-faq-generator' ); ?></strong>
+					<?php esc_html_e( 'Żądania przychodzą z nagłówkami proxy, a opcja „Adres gościa zza proxy" jest wyłączona — wszyscy goście trafiają do jednego wspólnego licznika pytań. Jeśli witryna stoi za Cloudflare albo load balancerem, włącz opcję i wpisz adresy proxy w Ustawieniach.', 'ai-faq-generator' ); ?>
+				</p>
+			</div>
+		<?php endif; ?>
+
+		<?php
 		$aifaq_tiles = array(
 			array( 'n' => (string) $aifaq_qa['total'], 'l' => __( 'Wszystkich pytań', 'ai-faq-generator' ) ),
 			array( 'n' => (string) $aifaq_qa['today'], 'l' => __( 'Dziś', 'ai-faq-generator' ) ),
@@ -469,6 +493,34 @@ if ( class_exists( '\AIFAQ\PublicUi\PageGuard' ) ) {
 				</p>
 			</div>
 		<?php endif; ?>
+
+		<?php
+		// Naprawa wyniku zapisu (Z1a, decyzja D2): retencja, która raz padła, zostawiała
+		// dane dłużej, niż obiecuje ustawienie — bez żadnego sygnału. Czytelnik opcji
+		// `aifaq_retention_failed`; gaśnie sam po pierwszym udanym czyszczeniu tabeli.
+		$aifaq_retention_failed = class_exists( '\AIFAQ\Data\Repository' ) && method_exists( '\AIFAQ\Data\Repository', 'retention_failures' )
+			? \AIFAQ\Data\Repository::retention_failures()
+			: array();
+		$aifaq_retention_names  = array(
+			'aifaq_qa_log'      => __( 'dziennika pytań', 'ai-faq-generator' ),
+			'aifaq_generations' => __( 'historii generowań', 'ai-faq-generator' ),
+		);
+		?>
+		<?php foreach ( $aifaq_retention_failed as $aifaq_ret_table => $aifaq_ret_time ) : ?>
+			<div class="notice notice-error inline">
+				<p>
+					<strong><?php esc_html_e( 'Automatyczne czyszczenie nie powiodło się.', 'ai-faq-generator' ); ?></strong>
+					<?php
+					printf(
+						/* translators: 1: nazwa tabeli (dziennika pytań / historii generowań), 2: data ostatniej nieudanej próby */
+						esc_html__( 'Retencja %1$s nie usunęła starych wpisów (ostatnia próba: %2$s) — dane są przechowywane dłużej, niż ustawiono w Ustawieniach. Najczęstsza przyczyna to brak uprawnień użytkownika bazy danych do usuwania wierszy. Ostrzeżenie zniknie po pierwszym udanym czyszczeniu.', 'ai-faq-generator' ),
+						esc_html( $aifaq_retention_names[ $aifaq_ret_table ] ?? (string) $aifaq_ret_table ),
+						esc_html( (string) $aifaq_ret_time )
+					);
+					?>
+				</p>
+			</div>
+		<?php endforeach; ?>
 
 		<p>
 			<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=' . \AIFAQ\Admin\Menu::SLUG_HISTORY ) ); ?>">

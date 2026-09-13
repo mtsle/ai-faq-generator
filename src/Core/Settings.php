@@ -49,6 +49,12 @@ class Settings {
 	const CRAWL_NOTICE = 'aifaq_crawl_notice';
 
 	/**
+	 * Sufit liczby wpisów na liście zaufanych proxy. Lista jest sprawdzana przy każdym
+	 * pytaniu gościa — zakresy Cloudflare to kilkanaście pozycji, 50 daje zapas.
+	 */
+	const PROXY_LIST_MAX = 50;
+
+	/**
 	 * Uprawnienie wymagane do zmian ustawień.
 	 */
 	const CAPABILITY = 'manage_options';
@@ -91,6 +97,12 @@ class Settings {
 			// Czy ufać nagłówkom proxy przy ustalaniu tożsamości gościa. WYŁĄCZONY domyślnie:
 			// włączony na witrynie BEZ proxy pozwala każdemu ominąć limiter dowolnym nagłówkiem.
 			'rag_trusted_proxy'      => '0',
+			// Zaufane adresy proxy (IP albo CIDR, IPv4 i IPv6), po jednym w wierszu. Nagłówek
+			// z adresem gościa bierzemy WYŁĄCZNIE od nadawcy z tej listy. Pusta lista = nagłówki
+			// ignorowane także przy włączonym przełączniku (decyzja D1: zamknięta bezpieczna).
+			'rag_trusted_proxies'    => '',
+			// Który nagłówek niesie adres gościa: 'cf' = CF-Connecting-IP, 'xff' = X-Forwarded-For.
+			'rag_proxy_header'       => 'cf',
 			'rag_temperature'        => 0.2,   // Temperatura odpowiedzi RAG (osobna od `temperature`).
 			'rag_max_tokens'         => 500,   // Limit długości odpowiedzi (64–2048).
 			'rag_thinking_budget'    => 0,     // Budżet myślenia modelu: 0 = wyłączone, -1 = dynamiczne, 128–24576 = jawny budżet tokenów rozumowania.
@@ -251,6 +263,53 @@ class Settings {
 		}
 
 		return $min;
+	}
+
+	/**
+	 * Parsuje listę zaufanych proxy: poprawne adresy IP i zakresy CIDR (IPv4 i IPv6).
+	 *
+	 * Wpisy rozdzielone białymi znakami, przecinkiem albo średnikiem. Niepoprawne są
+	 * pomijane (a nie „naprawiane"), duplikaty zwijane, adresy normalizowane przez
+	 * inet_pton/inet_ntop. Ta sama funkcja czyści zapis i czyta listę przy żądaniu,
+	 * więc wpis, który jakimś cudem ominął sanitize, i tak nie zostanie użyty.
+	 *
+	 * @param string $raw Surowa lista.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function proxy_list( string $raw ): array {
+		$lista  = array();
+		$wpisy  = preg_split( '/[\s,;]+/', $raw, -1, PREG_SPLIT_NO_EMPTY );
+
+		foreach ( is_array( $wpisy ) ? $wpisy : array() as $wpis ) {
+			$adres   = $wpis;
+			$prefiks = null;
+
+			if ( false !== strpos( $wpis, '/' ) ) {
+				list( $adres, $dlugosc ) = explode( '/', $wpis, 2 );
+				if ( 1 !== preg_match( '/^\d{1,3}$/', $dlugosc ) ) {
+					continue;
+				}
+				$prefiks = (int) $dlugosc;
+			}
+
+			if ( false === filter_var( $adres, FILTER_VALIDATE_IP ) ) {
+				continue;
+			}
+
+			$bin = inet_pton( $adres );
+			if ( false === $bin || ( null !== $prefiks && $prefiks > 8 * strlen( $bin ) ) ) {
+				continue;
+			}
+
+			$lista[ inet_ntop( $bin ) . ( null === $prefiks ? '' : '/' . $prefiks ) ] = true;
+
+			if ( count( $lista ) >= self::PROXY_LIST_MAX ) {
+				break;
+			}
+		}
+
+		return array_keys( $lista );
 	}
 
 	public static function get_field( string $key, $default = null ) {
@@ -447,6 +506,19 @@ class Settings {
 		// input `value="0"` przed checkboxem, więc odznaczenie i tak jest przesyłane.
 		if ( isset( $input['rag_trusted_proxy'] ) ) {
 			$out['rag_trusted_proxy'] = ( '1' === (string) $input['rag_trusted_proxy'] ) ? '1' : '0';
+		}
+
+		// Lista zaufanych proxy — też WYŁĄCZNIE pod `isset()`: panel na froncie zapisuje
+		// cztery pola i nie może skasować listy, bo wtedy za proxy wszyscy goście wracają
+		// do jednego kubełka. Do bazy trafiają tylko poprawne adresy/zakresy, znormalizowane.
+		if ( isset( $input['rag_trusted_proxies'] ) ) {
+			$out['rag_trusted_proxies'] = implode( "\n", self::proxy_list( (string) $input['rag_trusted_proxies'] ) );
+		}
+
+		// Nagłówek z adresem gościa — whitelista; wartość spoza listy wraca do 'cf'.
+		if ( isset( $input['rag_proxy_header'] ) ) {
+			$naglowek                = (string) $input['rag_proxy_header'];
+			$out['rag_proxy_header'] = in_array( $naglowek, array( 'cf', 'xff' ), true ) ? $naglowek : 'cf';
 		}
 
 		// Temperatura odpowiedzi RAG — 0.0–1.0 (osobna od `temperature` FAQ).

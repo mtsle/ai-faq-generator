@@ -46,6 +46,7 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 		);
 
 		foreach ( $aifaq_tables as $aifaq_table ) {
+			// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 			$wpdb->query( "DROP TABLE IF EXISTS {$aifaq_table}" ); // phpcs:ignore WordPress.DB.PreparedSQL
 		}
 
@@ -119,6 +120,7 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 		delete_option( 'aifaq_daily_usage' );  // Licznik dobowego sufitu witryny.
 		delete_option( 'aifaq_budget_hit' );   // Znacznik przekroczenia sufitu (komunikat).
 		delete_option( 'aifaq_proxy_seen' );   // Sygnał „witryna stoi za proxy" przy wyłączonym przełączniku.
+		delete_option( 'aifaq_retention_failed' ); // Sygnał porażki retencji dla kokpitu (Repository::RETENTION_FAILED_OPTION).
 
 		// --- Transienty o STAŁEJ nazwie ----------------------------------
 		if ( function_exists( 'delete_transient' ) ) {
@@ -157,6 +159,7 @@ if ( ! function_exists( 'aifaq_uninstall_cleanup_site' ) ) {
 			$aifaq_like_value   = $wpdb->esc_like( '_transient_aifaq_' ) . '%';
 			$aifaq_like_timeout = $wpdb->esc_like( '_transient_timeout_aifaq_' ) . '%';
 
+			// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 			$wpdb->query(
 				$wpdb->prepare(
 					"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s", // phpcs:ignore WordPress.DB.PreparedSQL

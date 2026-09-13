@@ -164,6 +164,11 @@ namespace {
 		public function get_var( $sql ) {
 			$this->queries[] = $sql;
 
+			if ( $this->puste_odczyty > 0 ) {
+				$this->puste_odczyty--;
+				return null;
+			}
+
 			if ( ! preg_match( '/SELECT\s+(\w+)\s+FROM\s+\S+\s+WHERE\s+id\s*=\s*(\d+)/i', $sql, $m ) ) {
 				return null;
 			}
@@ -178,8 +183,20 @@ namespace {
 			return $this->rows[ $id ]->$kolumna;
 		}
 
+		/** Fragment SQL => ile razy `query()` zwraca `false` bez zapisu (N14). */
+		public $awarie = array();
+		/** Ile kolejnych `get_var()` oddaje `null` (pusty odczyt po zapisie, N14). */
+		public $puste_odczyty = 0;
+
 		public function query( $sql ) {
 			$this->queries[] = $sql;
+
+			foreach ( $this->awarie as $fragment => $ile ) {
+				if ( $ile > 0 && false !== stripos( $sql, $fragment ) ) {
+					$this->awarie[ $fragment ] = $ile - 1;
+					return false;
+				}
+			}
 
 			$ignoruj = ( 0 === stripos( ltrim( $sql ), 'UPDATE IGNORE' ) );
 
@@ -775,6 +792,37 @@ namespace {
 		'w bazie ląduje tresc przycieta do sufitu (' . AINP\Article::text_length( (string) $wpdb->rows[1]->content ) . ')'
 	);
 	k3t_check( 64 === strlen( (string) $wpdb->rows[1]->content_hash ), 'odcisk liczony z tresci PRZYCIETEJ' );
+
+	// -----------------------------------------------------------------------
+	echo "\n-- NAPRAWA WYNIKU ZAPISU (N14): blad bazy to NIE duplikat --\n";
+	// -----------------------------------------------------------------------
+	/*
+	 * `claim_content()`/`claim_canonical()` wyrzucaly wynik `UPDATE IGNORE` i czytaly
+	 * odcisk z bazy: nieudany zapis wygladal jak „inny wiersz ma ten odcisk", a pozycja
+	 * trwale konczyla jako `skipped` z falszywym powodem. Kolizja (0 zmienionych)
+	 * zostaje duplikatem — pilnuja tego asercje „Ten sam tekst pod dwoma adresami".
+	 */
+	$wpdb         = k3t_reset();
+	$tekst_n14    = '<p>' . str_repeat( 'Karma bytowa to podstawa diety dorosłego psa. ', 40 ) . '</p>';
+	$w_n14        = k3t_wiersz( 1, 'https://psy.pl/karma/', $tekst_n14 );
+	$wpdb->awarie = array( 'UPDATE IGNORE' => 1 );
+	$los          = Runner::prepare_item( $w_n14, array() );
+	k3t_check( 'error' === $los, 'N14: UPDATE IGNORE odcisku tresci → false → `error`, nie `skipped` (jest: ' . $los . ')' );
+	k3t_check( 'skipped' !== (string) $wpdb->rows[1]->status && false === strpos( (string) $wpdb->rows[1]->note, 'Duplikat' ), 'N14: pozycja NIE zamknieta jako duplikat — bez finish(SKIPPED) i bez falszywego powodu' );
+
+	$wpdb                = k3t_reset();
+	$w_n14               = k3t_wiersz( 1, 'https://psy.pl/karma/', $tekst_n14 );
+	$wpdb->puste_odczyty = 1;
+	$los                 = Runner::prepare_item( $w_n14, array() );
+	k3t_check( 'error' === $los, 'N14: odczyt odcisku PUSTY po udanym zapisie → `error` (odcisk nigdy nie jest pusty po zapisie; jest: ' . $los . ')' );
+
+	$wpdb         = k3t_reset();
+	$w_n14        = k3t_wiersz( 1, 'https://psy.pl/wlasciwy-adres/', '' );
+	$GLOBALS['__strony']['https://psy.pl/wlasciwy-adres/'] = k3t_ok( k3t_strona( str_repeat( 'Treść artykułu o pielęgnacji sierści psa. ', 30 ), 5, '<link rel="canonical" href="https://psy.pl/kanoniczny/">' ) );
+	$wpdb->awarie = array( 'UPDATE IGNORE' => 1 );
+	$los          = Runner::prepare_item( $w_n14, array() );
+	k3t_check( 'error' === $los, 'N14: UPDATE IGNORE adresu kanonicznego → false → `error`, nie duplikat (jest: ' . $los . ')' );
+	k3t_check( 'https://psy.pl/wlasciwy-adres/' === (string) $wpdb->rows[1]->url && false === strpos( (string) $wpdb->rows[1]->note, 'kanonicznym' ), 'N14: adres nietkniety i bez powodu „adres kanoniczny"' );
 
 	echo "\n";
 	echo '=== WYNIK: ' . ( $ran - $fail ) . ' / ' . $ran . " asercji ===\n";

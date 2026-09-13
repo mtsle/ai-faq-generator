@@ -2,7 +2,7 @@
 Requires at least: 6.4
 Tested up to: 7.0.2
 Requires PHP: 8.0
-Stable tag: 1.1.0
+Stable tag: 1.2.0
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -154,6 +154,26 @@ narzędzia. Ekran „Narzędzie FAQ" w kokpicie pozostaje przy uprawnieniach adm
 == Changelog ==
 
 Skrót najważniejszych wydań. Pełna historia zmian znajduje się w repozytorium projektu.
+
+= 1.2.0 =
+* **Wynik każdego zapisu do bazy jest sprawdzany.** `$wpdb` nie zgłasza błędu wyjątkiem — błąd to
+  `false`, a „nic nie zmieniono" to `0`. Wtyczka myliła te dwa stany w kilkunastu miejscach.
+* „Wyczyść bazę" odpowiadało „Gotowe" także wtedy, gdy fragmenty zostawały w bazie, a mimo to
+  kasowało podpis indeksu i temat witryny. Teraz porażka daje jasny komunikat, a podpis i temat
+  znikają dopiero po udanym skasowaniu. Kolejność zmieniona tak, żeby awaria zostawiała stan spójny.
+* „Wyczyść dziennik" przy nieudanym kasowaniu danych gości odpowiadało „ok". Teraz zgłasza błąd.
+* Nieudane czyszczenie pamięci podręcznej odpowiedzi nie zapisuje już znacznika „zrobione" —
+  wtyczka ponawia próbę zamiast serwować odpowiedzi sprzed zmiany treści.
+* Automatyczne czyszczenie dziennika i historii, które padło, zostawia ostrzeżenie w kokpicie.
+  Wcześniej dane gości mogły żyć dłużej, niż ustawiono, bez jednego słowa.
+* Nieudane usunięcie fragmentów usuniętych wpisów i nieudane odświeżenie znacznika świeżości
+  trafiają do raportu indeksowania.
+* **Zaufany proxy: nowa lista adresów.** Nagłówek z adresem gościa jest brany pod uwagę wyłącznie
+  dla żądań przychodzących z wpisanych adresów proxy (IP lub CIDR), a nagłówek wybiera się jawnie.
+  Bez listy nagłówki są ignorowane. Wcześniej włączona opcja pozwalała ominąć limit pytań
+  dopisanym nagłówkiem. Kokpit ostrzega, gdy opcja jest włączona bez listy albo wyłączona mimo
+  wykrytego proxy.
+* Nieudany COMMIT nie kończy się już zapisem „zrobione": przeniesienie historii ponowi się.
 
 = 1.1.0 =
 * **Wydanie po audycie całości obu wtyczek.** Opis procesu i wynik: katalog `audyt/` w repozytorium.

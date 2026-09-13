@@ -180,8 +180,13 @@ $wpdb->deleted = 7;
 check( 7 === $repo->purge(), 'purge() zwraca liczbę usuniętych' );
 check( 0 === strpos( $wpdb->last(), 'DELETE FROM' ), 'purge() wykonuje DELETE' );
 $wpdb->deleted = false;
-check( 0 === $repo->purge(), 'błąd zapytania → 0 (nie false)' );
+// ZMIENIONA JAWNIE (naprawa wyniku zapisu, N5). Poprzednia treść brzmiała
+// `0 === purge()` — „błąd zapytania → 0 (nie false)" — i UTRWALAŁA defekt: na tym
+// zerze REST odpowiadał 200 „ok", choć dane gości zostały w bazie (RODO).
+// Kontrakt jest odwrotny: błąd SQL to false, zero to pusty dziennik (T-1 niżej).
+check( false === $repo->purge(), 'błąd zapytania → false (nie 0) — awaria nie udaje pustego dziennika' );
 $wpdb->deleted = 0;
+check( 0 === $repo->purge(), 'T-1: pusty dziennik → 0 (nie false) — zero wierszy to nie błąd' );
 
 echo "
 == prune(): retencja liczona po DACIE, nie po kluczu głównym (audyt przebieg-2, RAU-R07-004) ==
@@ -299,6 +304,17 @@ $datc = $resc->get_data();
 check( 200 === $resc->get_status() && 'ok' === $datc['status'], 'HTTP 200 + ok' );
 check( 12 === $datc['removed'], 'removed = liczba usuniętych' );
 check( isset( $datc['stats'] ), 'odsyła świeże podsumowanie' );
+
+// N5 — konsument REST przy awarii DELETE. Przed naprawą: 200 + status 'ok'.
+$wpdb->deleted = false;
+$rese = $ctl->handle_history_clear( new WP_REST_Request() );
+$date = $rese->get_data();
+check( 500 === $rese->get_status(), 'N5: błąd DELETE dziennika → HTTP 500, nie 200 (jest: ' . $rese->get_status() . ')' );
+check( 'error' === ( $date['status'] ?? '' ) && '' !== (string) ( $date['message'] ?? '' ), 'N5: błąd DELETE → status error + komunikat (kształt błędu jak /admin/clear)' );
+check( ! isset( $date['removed'] ), 'N5: przy błędzie brak `removed` — nie ma liczby usuniętych do pokazania' );
+$wpdb->deleted = 0;
+$resz = $ctl->handle_history_clear( new WP_REST_Request() );
+check( 200 === $resz->get_status() && 'ok' === ( $resz->get_data()['status'] ?? '' ) && 0 === ( $resz->get_data()['removed'] ?? null ), 'N5/T-1: pusty dziennik → 200 ok, removed 0 (zero to nie błąd)' );
 
 echo "\n== HistoryPanel::strings() ==\n";
 $pl = HistoryPanel::strings( 'pl' );

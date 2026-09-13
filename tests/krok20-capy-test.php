@@ -529,8 +529,14 @@ if ( $has_rest && $has_settings ) {
 	$ref    = new ReflectionMethod( 'AIFAQ\Rest\RestController', 'ip_hash' );
 	$ref->setAccessible( true );
 	$hash   = static function () use ( $ref, $rc ) { return (string) $ref->invoke( $rc ); };
-	$set_px = static function ( $on ) {
-		$GLOBALS['__opt']['aifaq_settings'] = array( 'rag_trusted_proxy' => $on ? '1' : '0' );
+	// Naprawa Z4 (decyzja D1): nagłówek tylko od nadawcy z listy zaufanych proxy i tylko
+	// jawnie wybrany. Domyślnie lista pusta i nagłówek 'cf' — jak na świeżej instalacji.
+	$set_px = static function ( $on, $lista = '', $naglowek = 'cf' ) {
+		$GLOBALS['__opt']['aifaq_settings'] = array(
+			'rag_trusted_proxy'   => $on ? '1' : '0',
+			'rag_trusted_proxies' => $lista,
+			'rag_proxy_header'    => $naglowek,
+		);
 	};
 	$clear_headers = static function () {
 		unset( $_SERVER['HTTP_CF_CONNECTING_IP'], $_SERVER['HTTP_X_FORWARDED_FOR'] );
@@ -566,44 +572,99 @@ if ( $has_rest && $has_settings ) {
 	$hash();
 	check( false === get_option( 'aifaq_proxy_seen', false ), 'G (FZ21): brak nagłówków proxy → aifaq_proxy_seen NIE powstaje' );
 
-	// 2. Przełącznik WŁĄCZONY: CF-Connecting-IP wygrywa.
-	$set_px( true );
+	// 2. Przełącznik WŁĄCZONY, nadawca na liście, nagłówek 'cf': CF-Connecting-IP wygrywa.
+	// ZMIENIONA JAWNIE (naprawa Z4): dawniej bez listy i bez wyboru nagłówka — ta asercja
+	// utrwalała „CF wygrywa ZAWSZE", czyli obejście S1/S2. Teraz warunkiem jest nadawca z listy.
+	$set_px( true, '203.0.113.7', 'cf' );
 	$clear_headers();
 	$_SERVER['REMOTE_ADDR']           = '203.0.113.7';
 	$_SERVER['HTTP_CF_CONNECTING_IP'] = '198.51.100.42';
 	$_SERVER['HTTP_X_FORWARDED_FOR']  = '10.0.0.1, 192.0.2.55';
-	check( $ref_cf === $hash(), 'G: rag_trusted_proxy=1 → CF-Connecting-IP WYGRYWA (hash = hash samego 198.51.100.42)' );
+	check( $ref_cf === $hash(), 'G: ON + nadawca z listy + nagłówek cf → CF-Connecting-IP wygrywa (hash = hash samego 198.51.100.42)' );
 
-	// 3. Bez CF: OSTATNI element X-Forwarded-For (FZ20).
-	$set_px( true );
+	// 3. Nagłówek 'xff': łańcuch od prawej, pierwszy adres spoza listy (FZ20 + Z4).
+	// ZMIENIONA JAWNIE (naprawa Z4): dawniej „bez CF → ostatni element XFF" niezależnie
+	// od nadawcy, co przy XFF bez proxy oddawało klientowi całą wartość (S3).
+	$set_px( true, '203.0.113.7', 'xff' );
 	$clear_headers();
 	$_SERVER['REMOTE_ADDR']          = '203.0.113.7';
 	$_SERVER['HTTP_X_FORWARDED_FOR'] = '10.0.0.1, 172.16.0.9, 192.0.2.55';
 	$h_xff                           = $hash();
-	check( $ref_xff_last === $h_xff, 'G (FZ20): bez CF → OSTATNI element XFF (192.0.2.55), nie pierwszy — proxy dokleja na KONIEC' );
-	check( $ref_remote !== $h_xff, 'G: XFF realnie zmienia hash (nie zostaje przy REMOTE_ADDR)' );
+	check( $ref_xff_last === $h_xff, 'G (FZ20): nagłówek xff → pierwszy od PRAWEJ adres spoza listy (192.0.2.55), nie pierwszy od lewej' );
+	check( $ref_remote !== $h_xff, 'G: XFF od zaufanego nadawcy realnie zmienia hash (nie zostaje przy REMOTE_ADDR)' );
 
 	// 4. Oba nagłówki nieobecne → REMOTE_ADDR.
-	$set_px( true );
+	$set_px( true, '203.0.113.7' );
 	$clear_headers();
 	$_SERVER['REMOTE_ADDR'] = '203.0.113.7';
 	check( $ref_remote === $hash(), 'G: przełącznik ON, brak obu nagłówków → REMOTE_ADDR' );
 
 	// 5. Nieprawidłowy IP w nagłówku → REMOTE_ADDR (filter_var FILTER_VALIDATE_IP).
-	$set_px( true );
+	$set_px( true, '203.0.113.7', 'cf' );
 	$clear_headers();
 	$_SERVER['REMOTE_ADDR']           = '203.0.113.7';
 	$_SERVER['HTTP_CF_CONNECTING_IP'] = 'nie-jest-adresem';
 	check( $ref_remote === $hash(), 'G: nieprawidłowy CF-Connecting-IP → cofka do REMOTE_ADDR' );
 
-	$set_px( true );
+	$set_px( true, '203.0.113.7', 'xff' );
 	$clear_headers();
 	$_SERVER['REMOTE_ADDR']          = '203.0.113.7';
 	$_SERVER['HTTP_X_FORWARDED_FOR'] = 'abc, 999.999.999.999';
 	check( $ref_remote === $hash(), 'G: same śmieci w XFF → cofka do REMOTE_ADDR' );
 
+	// ----- Naprawa Z4: scenariusze obejścia z notatki — każdy czerwony na kodzie sprzed naprawy.
+	// S1: własny nginx (bez Cloudflare), przełącznik ON, nagłówek xff. Atakujący dopisuje
+	// CF-Connecting-IP, którego nginx nie usuwa — dawniej wygrywał jako PIERWSZY.
+	$set_px( true, '10.0.0.5', 'xff' );
+	$clear_headers();
+	$_SERVER['REMOTE_ADDR']           = '10.0.0.5';
+	$_SERVER['HTTP_X_FORWARDED_FOR']  = '192.0.2.55';
+	$_SERVER['HTTP_CF_CONNECTING_IP'] = '198.51.100.42';
+	check( $ref_xff_last === $hash(), 'G (S1): własny nginx + nagłówek xff → dopisany przez atakującego CF-Connecting-IP IGNOROWANY, gość z XFF' );
+
+	// S2: witryna za Cloudflare, serwer źródłowy osiągalny po IP. Żądanie spoza zakresów
+	// Cloudflare niesie własny CF-Connecting-IP — nadawca spoza listy, nagłówek bez znaczenia.
+	$set_px( true, "173.245.48.0/20\n2400:cb00::/32", 'cf' );
+	$clear_headers();
+	$_SERVER['REMOTE_ADDR']           = '203.0.113.7';
+	$_SERVER['HTTP_CF_CONNECTING_IP'] = '198.51.100.42';
+	check( $ref_remote === $hash(), 'G (S2): bezpośrednio do serwera źródłowego z CF-Connecting-IP → nadawca spoza listy → REMOTE_ADDR' );
+
+	// S3: X-Forwarded-For bez proxy — przełącznik ON, lista PUSTA (nieskonfigurowana).
+	$set_px( true, '', 'xff' );
+	$clear_headers();
+	$_SERVER['REMOTE_ADDR']          = '203.0.113.7';
+	$_SERVER['HTTP_X_FORWARDED_FOR'] = '192.0.2.55';
+	check( $ref_remote === $hash(), 'G (S3): ON + pusta lista → XFF klienta IGNOROWANY (zamknięta bezpieczna, D1)' );
+
+	// XFF od prawej z POMINIĘCIEM zaufanych: dawniej ostatni element (tu zaufany 10.0.0.9).
+	$set_px( true, '10.0.0.0/8', 'xff' );
+	$clear_headers();
+	$_SERVER['REMOTE_ADDR']          = '10.0.0.5';
+	$_SERVER['HTTP_X_FORWARDED_FOR'] = '198.51.100.42, 192.0.2.55, 10.0.0.9';
+	check( $ref_xff_last === $hash(), 'G (Z4): XFF od prawej pomija zaufane proxy (10.0.0.9) — gość to 192.0.2.55, nie podrobiony początek łańcucha' );
+
+	// CIDR z niepełnym bajtem i IPv6.
+	check( true === \AIFAQ\Rest\GuestIdentity::ip_on_list( '192.0.2.31', array( '192.0.2.16/28' ) ) && false === \AIFAQ\Rest\GuestIdentity::ip_on_list( '192.0.2.32', array( '192.0.2.16/28' ) ), 'G (Z4): CIDR /28 — 192.0.2.31 w zakresie, 192.0.2.32 poza' );
+	check( '198.51.100.42' === \AIFAQ\Rest\GuestIdentity::client_ip( '2001:db8::1', array( '2001:db8::/32' ), 'cf', '198.51.100.42', '' ) && '2001:db9::1' === \AIFAQ\Rest\GuestIdentity::client_ip( '2001:db9::1', array( '2001:db8::/32' ), 'cf', '198.51.100.42', '' ), 'G (Z4): IPv6 CIDR — nadawca z /32 ufany, spoza zakresu nie' );
+
+	// Czytelnik sygnałów w kokpicie (R10): stan nieskonfigurowany i wykryte proxy.
+	$set_px( true, '' );
+	check( 'unconfigured' === \AIFAQ\Rest\GuestIdentity::proxy_notice(), 'G (D1): ON + pusta lista → proxy_notice() = unconfigured (ostrzeżenie w kokpicie)' );
+	$set_px( true, '10.0.0.5' );
+	check( '' === \AIFAQ\Rest\GuestIdentity::proxy_notice(), 'G (D1): ON + lista → brak ostrzeżenia' );
+	$set_px( false );
+	update_option( 'aifaq_proxy_seen', '1', false );
+	check( 'proxy_seen' === \AIFAQ\Rest\GuestIdentity::proxy_notice(), 'G (R10): OFF + aifaq_proxy_seen → proxy_notice() = proxy_seen — sygnał ma czytelnika' );
+	delete_option( 'aifaq_proxy_seen' );
+	$czytelnik = 0;
+	foreach ( token_get_all( (string) file_get_contents( __DIR__ . '/../src/Admin/views/dashboard.php' ) ) as $tok ) {
+		if ( is_array( $tok ) && T_STRING === $tok[0] && 'proxy_notice' === $tok[1] ) { ++$czytelnik; }
+	}
+	check( $czytelnik >= 1, 'G (R10, Z-11): dashboard.php WOŁA proxy_notice() w kodzie (wystąpień: ' . $czytelnik . ')' );
+
 	// 6. Determinizm i brak surowego IP.
-	$set_px( true );
+	$set_px( true, '203.0.113.7', 'cf' );
 	$clear_headers();
 	$_SERVER['REMOTE_ADDR']           = '203.0.113.7';
 	$_SERVER['HTTP_CF_CONNECTING_IP'] = '198.51.100.42';
@@ -622,7 +683,7 @@ if ( $has_rest && $has_settings ) {
 // ===========================================================================
 echo "\n=== Z. Podłoga pokrycia i wartownik końca pliku ===\n";
 // ===========================================================================
-check( $ran >= 40, 'podłoga pokrycia: wykonano co najmniej 40 asercji (jest: ' . $ran . ')' );
+check( $ran >= 50, 'podłoga pokrycia: wykonano co najmniej 50 asercji (jest: ' . $ran . ')' );
 check( true, 'WARTOWNIK: wykonanie doszło do końca pliku (brak cichego Fatala w środku)' );
 
 echo "\nAsercje: " . $ran . ', niezaliczone: ' . $fail . "\n";

@@ -245,6 +245,14 @@ $wpdb->deleted = 1;
 $resp = $c->handle_generations_delete( req( array( 'id' => 3 ) ) );
 check( 200 === $resp->get_status() && true === (bool) $resp->get_data()['deleted'], 'poprawne id → 200 + deleted' );
 check( 3 === $wpdb->delete_id, 'delete trafił we właściwe id' );
+// N11 (naprawa wyniku zapisu): błąd SQL i „nie było wiersza" dawały to samo 200 + deleted:false.
+$wpdb->deleted = false;
+$resp = $c->handle_generations_delete( req( array( 'id' => 3 ) ) );
+check( 500 === $resp->get_status() && 'error' === ( $resp->get_data()['status'] ?? '' ), 'N11: błąd SQL przy usuwaniu → HTTP 500 + status error (jest: ' . $resp->get_status() . ')' );
+$wpdb->deleted = 0;
+$resp = $c->handle_generations_delete( req( array( 'id' => 3 ) ) );
+check( 200 === $resp->get_status() && false === $resp->get_data()['deleted'], 'N11/T-1: brak wiersza → 200 + deleted:false (kształt bez zmian, bool)' );
+$wpdb->deleted = 1;
 
 echo "\n=== H. Bezpiecznik generatora: limit 10/h (dług sprzed Kroku 22 — brak limitowania ścieżki admina) ===\n";
 // Sekcje B-E zużyły już 6 wywołań tego samego, STAŁEGO kubełka
