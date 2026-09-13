@@ -179,7 +179,7 @@ osobny dokument: **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 | | Wtyczka 1 | Wtyczka 2 |
 |---|---|---|
 | Zestawy | **64** w 58 segmentach | **30** w 16 segmentach |
-| Asercje | nieliczone globalnie | **2325**, liczone co do jednej |
+| Asercje | nieliczone globalnie | **2357**, liczone co do jednej |
 | Kryterium zaliczenia | kod wyjścia zestawu | kod wyjścia **oraz** dokładna liczba asercji |
 
 Różnica w kryteriach jest historyczna i celowa. Runner wtyczki 2 nie zalicza segmentu, jeśli
@@ -235,7 +235,7 @@ PHP 8.2 z `mbstring`) wołają CI-owe kopie runnerów z `.github/ci/`:
 | job | runner | kryterium zaliczenia |
 |---|---|---|
 | Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **64 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
-| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **16 segmentów, 30 zestawów, dokładnie 2325 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
+| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **16 segmentów, 30 zestawów, dokładnie 2357 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
 
 > [!WARNING]
 > Zielono u siebie nie znaczy zielono w CI. Testy chodzą na Linuksie, a repozytorium powstaje

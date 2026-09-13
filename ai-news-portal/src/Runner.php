@@ -214,6 +214,24 @@ final class Runner {
 	/** Sufit dlugosci tytulu i zajawki — kolumny `text` mieszcza 65535 bajtow. */
 	public const MAX_TEXT_BYTES = 65000;
 
+	/*
+	 * Komunikaty nieudanego zapisu do tabeli kolejki (naprawa wyniku zapisu, Z2).
+	 * `$wpdb` nie rzuca wyjatkow — blad SQL to `false`, a do tej poprawki
+	 * `finish()`, `mark()` i `set_post_id()` wyrzucaly go bez sladu.
+	 */
+
+	/** Notatka partii przerwanej nieudanym zapisem statusu. */
+	private const NOTE_STATUS_WRITE = 'Nie udało się zapisać statusu pozycji w bazie danych — przebieg zatrzymany, żeby nie wysyłać tej samej pozycji do modelu ponownie.';
+
+	/** Blad pozycji opublikowanej, ktorej statusu nie zapisano. */
+	private const ERROR_WRITE_PUBLISHED = 'Artykuł opublikowany, ale zapis statusu pozycji w bazie danych się nie powiódł — następny przebieg rozpozna istniejący wpis.';
+
+	/** Blad zapisu pozycji, ktora wraca do kolejki. */
+	private const ERROR_WRITE = 'Błąd zapisu w bazie danych — pozycja wróci do kolejki.';
+
+	/** Blad odzysku porzuconych pozycji. */
+	private const ERROR_RECOVER = 'Nie udało się odzyskać pozycji z przerwanego przebiegu — błąd zapisu w bazie danych.';
+
 	/**
 	 * Ile wywolan modelu poszlo w ostatnio przetwarzanej pozycji.
 	 *
@@ -306,7 +324,14 @@ final class Runner {
 			 * zalozenie mniej.
 			 */
 			try {
-				$wynik['recovered'] = self::recover_stalled();
+				$odzyskane = self::recover_stalled();
+
+				// Nieudany UPDATE wygladal jak „nic do odzyskania" (N17).
+				if ( false === $odzyskane ) {
+					$wynik['errors']['recover'] = self::ERROR_RECOVER;
+				} else {
+					$wynik['recovered'] = $odzyskane;
+				}
 			} catch ( \Throwable $e ) {
 				$wynik['errors']['recover'] = $e->getMessage();
 			}
@@ -572,9 +597,10 @@ final class Runner {
 	 * ten ksztalt zapytan, na ktorym stoja testy Kroku 3 i 4. Klient klikajacy
 	 * przyciski i tak generuje ruch, ktory uruchamia WP-Cron.
 	 *
-	 * @return int Ile pozycji wrocilo do kolejki.
+	 * @return int|false Ile pozycji wrocilo do kolejki; `false` = blad zapytania
+	 *                   (dawniej `max( 0, (int) false )` udawalo „nic do odzyskania").
 	 */
-	public static function recover_stalled(): int {
+	public static function recover_stalled(): int|false {
 		global $wpdb;
 
 		$zmienione = $wpdb->query(
@@ -586,6 +612,10 @@ final class Runner {
 				self::stale_before()
 			)
 		); // phpcs:ignore WordPress.DB
+
+		if ( false === $zmienione ) {
+			return false;
+		}
 
 		return max( 0, (int) $zmienione );
 	}
@@ -630,6 +660,19 @@ final class Runner {
 				self::STATUS_FAILED
 			)
 		); // phpcs:ignore WordPress.DB
+
+		/*
+		 * Nieudany UPDATE pokazywal klientowi „Wznowionych pozycji: 0" — jakby nie
+		 * bylo czego wznawiac. Klucz `error` dochodzi WYLACZNIE przy porazce, wiec
+		 * ksztalt sukcesu zostaje bez zmian (N18). Nic nie wrocilo, wiec `ai` = 0.
+		 */
+		if ( false === $zmienione ) {
+			return array(
+				'revived' => 0,
+				'ai'      => 0,
+				'error'   => true,
+			);
+		}
 
 		return array(
 			'revived' => max( 0, (int) $zmienione ),
@@ -1081,6 +1124,12 @@ final class Runner {
 			if ( isset( $wynik[ $los ] ) ) {
 				$wynik[ $los ]++;
 			}
+
+			// Los `error` bez wyjatku to nieudany zapis do tabeli (N13, N14) — pozycja
+			// wraca przez `release()` do kolejki, a klient dostaje powod zamiast ciszy.
+			if ( 'error' === $los && ! isset( $wynik['errors'][ $id ] ) ) {
+				$wynik['errors'][ $id ] = self::ERROR_WRITE;
+			}
 		}
 
 		return $wynik;
@@ -1126,16 +1175,14 @@ final class Runner {
 		$slowo = self::excluded_word( $pozycja, $words );
 
 		if ( '' !== $slowo ) {
-			self::finish( $id, self::STATUS_SKIPPED, Filter::note( $slowo ) );
-			return 'skipped';
+			return self::finish( $id, self::STATUS_SKIPPED, Filter::note( $slowo ) ) ? 'skipped' : 'error';
 		}
 
 		// 1b. Bramka slow wymaganych — tak samo jak przy zapisie, dla wierszy
 		// zebranych, zanim wariant C powstal. Kosztuje zero zadan sieciowych
 		// i stoi PRZED scrapingiem wlasnie po to.
 		if ( ! Filter::has_required( $pozycja, $required ) ) {
-			self::finish( $id, self::STATUS_SKIPPED, Filter::NOTE_OFFTOPIC );
-			return 'skipped';
+			return self::finish( $id, self::STATUS_SKIPPED, Filter::NOTE_OFFTOPIC ) ? 'skipped' : 'error';
 		}
 
 		// Tresc Z KANALU tez przechodzi odsiew boksow: kanal potrafi podac
@@ -1154,30 +1201,42 @@ final class Runner {
 			$wyciete = Article::extract( $pobrane['html'], $url );
 
 			if ( ! $wyciete['ok'] ) {
-				self::finish( $id, self::STATUS_SKIPPED, $wyciete['error'] );
-				return 'skipped';
+				return self::finish( $id, self::STATUS_SKIPPED, $wyciete['error'] ) ? 'skipped' : 'error';
 			}
 
 			$html = (string) $wyciete['html'];
 
 			// 3. Canonical moze odslonic duplikat niewidoczny po adresie z kanalu.
-			if ( '' !== $wyciete['canonical'] && ! self::claim_canonical( $id, (string) $wyciete['canonical'], $row ) ) {
-				self::finish( $id, self::STATUS_SKIPPED, 'Duplikat: ten sam artykuł jest już w tabeli pod adresem kanonicznym' );
-				return 'skipped';
+			if ( '' !== $wyciete['canonical'] ) {
+				$kanoniczny = self::claim_canonical( $id, (string) $wyciete['canonical'], $row );
+
+				// Blad bazy to NIE duplikat (Z-5): bez `finish(SKIPPED)` wiersz wraca
+				// przez `release()` do kolejki, zamiast trwale wypasc z falszywym powodem.
+				if ( null === $kanoniczny ) {
+					return 'error';
+				}
+
+				if ( false === $kanoniczny ) {
+					return self::finish( $id, self::STATUS_SKIPPED, 'Duplikat: ten sam artykuł jest już w tabeli pod adresem kanonicznym' ) ? 'skipped' : 'error';
+				}
 			}
 		}
 
 		$czysta = Article::clean( $html );
 
 		if ( ! Article::is_long_enough( $czysta ) ) {
-			self::finish( $id, self::STATUS_SKIPPED, Article::short_note( $czysta ) );
-			return 'skipped';
+			return self::finish( $id, self::STATUS_SKIPPED, Article::short_note( $czysta ) ) ? 'skipped' : 'error';
 		}
 
 		// 4. Odcisk tresci — dopiero po oczyszczeniu.
-		if ( ! self::claim_content( $id, $czysta ) ) {
-			self::finish( $id, self::STATUS_SKIPPED, 'Duplikat treści: ten sam tekst jest już w tabeli pod innym adresem' );
-			return 'skipped';
+		$odcisk = self::claim_content( $id, $czysta );
+
+		if ( null === $odcisk ) {
+			return 'error';
+		}
+
+		if ( false === $odcisk ) {
+			return self::finish( $id, self::STATUS_SKIPPED, 'Duplikat treści: ten sam tekst jest już w tabeli pod innym adresem' ) ? 'skipped' : 'error';
 		}
 
 		return 'ready';
@@ -1260,7 +1319,15 @@ final class Runner {
 					return $wynik;
 				}
 
-				self::finish( (int) $wiersz->id, self::STATUS_SKIPPED, Filter::NOTE_OFFTOPIC );
+				/*
+				 * Nieudane odsianie zostawia wiersz `new` — nastepna runda wybralaby
+				 * go ponownie i zawyzyla licznik. Koniec skanu z bledem zamiast tego.
+				 */
+				if ( ! self::finish( (int) $wiersz->id, self::STATUS_SKIPPED, Filter::NOTE_OFFTOPIC ) ) {
+					$wynik['errors'][ (int) $wiersz->id ] = self::ERROR_WRITE;
+					return $wynik;
+				}
+
 				$wynik['offtopic']++;
 			}
 		}
@@ -1380,10 +1447,10 @@ final class Runner {
 		$istniejacy = Publisher::existing_post( $id );
 
 		if ( $istniejacy > 0 ) {
-			self::finish( $id, self::STATUS_DONE, '' );
-			self::set_post_id( $id, $istniejacy );
+			$zapisane = self::finish( $id, self::STATUS_DONE, '' );
+			$zapisane = self::set_post_id( $id, $istniejacy ) && $zapisane;
 
-			return self::outcome( 'exists', $istniejacy, 0, '' );
+			return self::outcome( 'exists', $istniejacy, 0, '', ! $zapisane );
 		}
 
 		$werdykt = self::ask_model( $row, $remaining );
@@ -1406,7 +1473,15 @@ final class Runner {
 				 * nalezy do `done` i `skipped`, gdzie tresc albo przeszla
 				 * do wpisu, albo nie jest juz do niczego potrzebna.
 				 */
-				self::mark( $id, self::STATUS_FAILED, $werdykt['note'] );
+				/*
+				 * NIEUDANY zapis `failed` jest najgrozniejszy w calej kolejce (Z2-B):
+				 * `release()` oddaje wiersz jako `new`, a `pick_for_ai()` sortuje
+				 * po `id` i w TEJ SAMEJ partii podaje go znowu — drugie wywolanie
+				 * modelu na ten sam blad. Los `error` z flaga przerywa partie.
+				 */
+				if ( ! self::mark( $id, self::STATUS_FAILED, $werdykt['note'] ) ) {
+					return self::outcome( 'error', 0, $wywolan, $werdykt['note'], true );
+				}
 
 				return self::outcome( 'failed', 0, $wywolan, $werdykt['note'] );
 			}
@@ -1419,13 +1494,17 @@ final class Runner {
 		$wpis = Publisher::publish( $row, $werdykt['data'] );
 
 		if ( ! $wpis['ok'] ) {
-			self::mark( $id, self::STATUS_FAILED, (string) $wpis['error'] );
+			$oznaczone = self::mark( $id, self::STATUS_FAILED, (string) $wpis['error'] );
 
 			// Przy porazce `terms` wpis ISTNIEJE (jako szkic) — bez zapisania
 			// jego numeru nie da sie do niego wrocic inaczej niz szukaniem po meta.
-			self::set_post_id( $id, (int) $wpis['post_id'] );
+			$zapisane = self::set_post_id( $id, (int) $wpis['post_id'] );
 
-			return self::outcome( 'failed', (int) $wpis['post_id'], $wywolan, (string) $wpis['error'] );
+			if ( ! $oznaczone ) {
+				return self::outcome( 'error', (int) $wpis['post_id'], $wywolan, (string) $wpis['error'], true );
+			}
+
+			return self::outcome( 'failed', (int) $wpis['post_id'], $wywolan, (string) $wpis['error'], ! $zapisane );
 		}
 
 		/*
@@ -1433,14 +1512,20 @@ final class Runner {
 		 * `content`, zostawiajac tytul i zajawke — na nich stoi bramka slow
 		 * wymaganych przy kazdym przyszlym przebiegu.
 		 */
-		self::finish( $id, self::STATUS_DONE, '' );
-		self::set_post_id( $id, (int) $wpis['post_id'] );
+		$zapisane = self::finish( $id, self::STATUS_DONE, '' );
+		$zapisane = self::set_post_id( $id, (int) $wpis['post_id'] ) && $zapisane;
 
+		/*
+		 * Artykul JEST opublikowany — to prawda i los to mowi. Nieudany zapis
+		 * statusu to rozjazd dwoch zrodel prawdy (Z2-A): flaga przerywa partie,
+		 * a nastepny przebieg domknie pozycje przez `existing_post()` bez modelu.
+		 */
 		return self::outcome(
 			$wpis['created'] ? 'published' : 'exists',
 			(int) $wpis['post_id'],
 			$wywolan,
-			''
+			'',
+			! $zapisane
 		);
 	}
 
@@ -1478,6 +1563,11 @@ final class Runner {
 
 			$kandydat            = self::pick_for_ai();
 			$wynik['offtopic'] += (int) $kandydat['offtopic'];
+
+			// Nieudane odsianie pozycji poza tematem (klucz tylko przy porazce).
+			foreach ( (array) ( $kandydat['errors'] ?? array() ) as $blad_id => $blad ) {
+				$wynik['errors'][ (int) $blad_id ] = (string) $blad;
+			}
 
 			if ( null === $kandydat['row'] ) {
 				break;
@@ -1528,6 +1618,21 @@ final class Runner {
 				$wynik['note'] = (string) $los['note'];
 				break;
 			}
+
+			/*
+			 * NIEUDANY ZAPIS STATUSU PRZERYWA PARTIE — z tego samego powodu co
+			 * `waiting` (Z-8). Wiersz, ktorego nie dalo sie zamknac, wraca przez
+			 * `release()` jako `new`, a `pick_for_ai()` sortuje po `id` — kolejna
+			 * iteracja wzielaby go ponownie i zaplacila za niego drugi slot.
+			 */
+			if ( ! empty( $los['write_failed'] ) ) {
+				$wynik['status_failed']++;
+				$wynik['errors'][ $id ] = in_array( $los['outcome'], array( 'published', 'exists' ), true )
+					? self::ERROR_WRITE_PUBLISHED
+					: self::ERROR_WRITE;
+				$wynik['note']          = self::NOTE_STATUS_WRITE;
+				break;
+			}
 		}
 
 		return $wynik;
@@ -1553,6 +1658,8 @@ final class Runner {
 			'errors'     => array(),
 			'note'       => '',
 			'budget_hit' => false,
+			// Pozycje, ktorych status nie dal sie zapisac (N12) — addytywnie.
+			'status_failed' => 0,
 		);
 	}
 
@@ -1563,15 +1670,17 @@ final class Runner {
 	 * @param int    $post_id Utworzony wpis.
 	 * @param int    $calls   Ile wywolan modelu poszlo.
 	 * @param string $note    Powod.
+	 * @param bool   $write_failed Czy zapis statusu/numeru wpisu w tabeli padl (N12).
 	 *
-	 * @return array{outcome:string,post_id:int,calls:int,note:string}
+	 * @return array{outcome:string,post_id:int,calls:int,note:string,write_failed:bool}
 	 */
-	private static function outcome( string $outcome, int $post_id, int $calls, string $note ): array {
+	private static function outcome( string $outcome, int $post_id, int $calls, string $note, bool $write_failed = false ): array {
 		return array(
-			'outcome' => $outcome,
-			'post_id' => $post_id,
-			'calls'   => $calls,
-			'note'    => $note,
+			'outcome'      => $outcome,
+			'post_id'      => $post_id,
+			'calls'        => $calls,
+			'note'         => $note,
+			'write_failed' => $write_failed,
 		);
 	}
 
@@ -1586,22 +1695,25 @@ final class Runner {
 	 * @param int $id      Identyfikator wiersza.
 	 * @param int $post_id Identyfikator wpisu.
 	 *
-	 * @return void
+	 * @return bool `false` WYLACZNIE, gdy zapytanie zwrocilo blad (`false`).
+	 *              Brak czego zapisac albo 0 zmienionych wierszy to nie porazka.
 	 */
-	private static function set_post_id( int $id, int $post_id ): void {
+	private static function set_post_id( int $id, int $post_id ): bool {
 		global $wpdb;
 
 		if ( $id <= 0 || $post_id <= 0 ) {
-			return;
+			return true;
 		}
 
-		$wpdb->query(
+		$wynik = $wpdb->query(
 			$wpdb->prepare(
 				'UPDATE ' . Plugin::table() . ' SET post_id = %d WHERE id = %d',
 				$post_id,
 				$id
 			)
 		); // phpcs:ignore WordPress.DB
+
+		return false !== $wynik;
 	}
 
 	/**
@@ -1616,16 +1728,18 @@ final class Runner {
 	 * @param string $status Status.
 	 * @param string $note   Powod.
 	 *
-	 * @return void
+	 * @return bool `false` WYLACZNIE przy bledzie zapytania. Nieudany zapis
+	 *              `failed` oddaje wiersz do kolejki jako `new` — wolajacy MUSI
+	 *              o tym wiedziec, bo `ORDER BY id` poda go ponownie (Z2).
 	 */
-	private static function mark( int $id, string $status, string $note ): void {
+	private static function mark( int $id, string $status, string $note ): bool {
 		global $wpdb;
 
 		if ( $id <= 0 ) {
-			return;
+			return true;
 		}
 
-		$wpdb->query(
+		$wynik = $wpdb->query(
 			$wpdb->prepare(
 				'UPDATE ' . Plugin::table() . ' SET status = %s, note = %s, updated_at = %s WHERE id = %d',
 				$status,
@@ -1634,6 +1748,8 @@ final class Runner {
 				$id
 			)
 		); // phpcs:ignore WordPress.DB
+
+		return false !== $wynik;
 	}
 
 	/**
@@ -1749,18 +1865,16 @@ final class Runner {
 		 * ktora sciezka go ustawila. Teraz obie zostawiaja tresc.
 		 */
 		if ( empty( $pobrane['retryable'] ) ) {
-			self::mark( $id, self::STATUS_FAILED, $blad );
-			return 'failed';
+			return self::mark( $id, self::STATUS_FAILED, $blad ) ? 'failed' : 'error';
 		}
 
 		$proby++;
 
 		if ( $proby >= self::MAX_ATTEMPTS ) {
-			self::mark( $id, self::STATUS_FAILED, $blad . ' (prób: ' . $proby . ')' );
-			return 'failed';
+			return self::mark( $id, self::STATUS_FAILED, $blad . ' (prób: ' . $proby . ')' ) ? 'failed' : 'error';
 		}
 
-		$wpdb->query(
+		$zapisane = $wpdb->query(
 			$wpdb->prepare(
 				'UPDATE ' . Plugin::table() . ' SET status = %s, note = %s, attempts = %d, updated_at = %s WHERE id = %d',
 				self::STATUS_NEW,
@@ -1770,6 +1884,12 @@ final class Runner {
 				$id
 			)
 		); // phpcs:ignore WordPress.DB
+
+		// Nieudany zapis licznika prob: `retry` klamalby, bo licznik nie urosl
+		// i MAX_ATTEMPTS nigdy nie zostaloby osiagniete — pobieranie w nieskonczonosc (Z2-C).
+		if ( false === $zapisane ) {
+			return 'error';
+		}
 
 		return 'retry';
 	}
@@ -1786,9 +1906,10 @@ final class Runner {
 	 * @param int    $id        Identyfikator wiersza.
 	 * @param object $row       Wiersz.
 	 *
-	 * @return bool `false`, gdy adres kanoniczny nalezy juz do innej pozycji.
+	 * @return bool|null `false`, gdy adres kanoniczny nalezy juz do innej pozycji;
+	 *                   `null` przy bledzie bazy (N14).
 	 */
-	private static function claim_canonical( int $id, string $canonical, $row ): bool {
+	private static function claim_canonical( int $id, string $canonical, $row ): ?bool {
 		global $wpdb;
 
 		$hash = Dedup::url_hash( $canonical );
@@ -1808,7 +1929,7 @@ final class Runner {
 			return true;
 		}
 
-		$wpdb->query(
+		$zapis = $wpdb->query(
 			$wpdb->prepare(
 				'UPDATE IGNORE ' . Plugin::table() . ' SET url = %s, url_hash = %s, updated_at = %s WHERE id = %d',
 				$canonical,
@@ -1818,7 +1939,38 @@ final class Runner {
 			)
 		); // phpcs:ignore WordPress.DB
 
-		return $hash === self::read_column( $id, 'url_hash' );
+		if ( false === $zapis ) {
+			return null;
+		}
+
+		return self::claim_verdict( (int) $zapis, $hash, self::read_column( $id, 'url_hash' ) );
+	}
+
+	/**
+	 * Rozstrzyga wynik `UPDATE IGNORE` + odczytu po zapisie (Z-5).
+	 *
+	 * Odczyt po zapisie wolno czytac jako stan biznesowy („inny wiersz ma ten
+	 * odcisk") WYLACZNIE po sprawdzeniu zapisu. Do tej poprawki nieudany UPDATE
+	 * czytal sie jak duplikat i trwale wyrzucal artykul z falszywym powodem,
+	 * a `revive_failed()` wskrzesza tylko `failed`, nie `skipped`.
+	 *
+	 * Wolajacy sprawdza `false === $zapis` SAM, przed odczytem — tu trafia juz
+	 * liczba zmienionych wierszy.
+	 *
+	 * @param int    $zmienione Wiersze zmienione przez `UPDATE IGNORE` (0 przy kolizji).
+	 * @param string $hash      Odcisk, ktory wpisywalismy.
+	 * @param string $odczyt    Odcisk odczytany po zapisie.
+	 *
+	 * @return bool|null `true` = odcisk nasz, `false` = zajety przez inny wiersz,
+	 *                   `null` = odczyt pusty po udanym zapisie (blad bazy).
+	 */
+	private static function claim_verdict( int $zmienione, string $hash, string $odczyt ): ?bool {
+		// Zmieniony wiersz ma odcisk — pusty odczyt po udanym zapisie to blad odczytu.
+		if ( $zmienione > 0 && '' === $odczyt ) {
+			return null;
+		}
+
+		return $hash === $odczyt;
 	}
 
 	/**
@@ -1827,9 +1979,10 @@ final class Runner {
 	 * @param int    $id     Identyfikator wiersza.
 	 * @param string $tresc  Tresc po oczyszczeniu.
 	 *
-	 * @return bool `false`, gdy ten sam tekst wisi juz pod innym adresem.
+	 * @return bool|null `false`, gdy ten sam tekst wisi juz pod innym adresem;
+	 *                   `null` przy bledzie bazy (N14).
 	 */
-	private static function claim_content( int $id, string $tresc ): bool {
+	private static function claim_content( int $id, string $tresc ): ?bool {
 		global $wpdb;
 
 		$hash = Dedup::content_hash( $tresc );
@@ -1838,7 +1991,7 @@ final class Runner {
 			return true;
 		}
 
-		$wpdb->query(
+		$zapis = $wpdb->query(
 			$wpdb->prepare(
 				'UPDATE IGNORE ' . Plugin::table() . ' SET content = %s, content_hash = %s, note = %s, attempts = 0, updated_at = %s WHERE id = %d',
 				wp_encode_emoji( $tresc ),
@@ -1849,7 +2002,11 @@ final class Runner {
 			)
 		); // phpcs:ignore WordPress.DB
 
-		return $hash === self::read_column( $id, 'content_hash' );
+		if ( false === $zapis ) {
+			return null;
+		}
+
+		return self::claim_verdict( (int) $zapis, $hash, self::read_column( $id, 'content_hash' ) );
 	}
 
 	/**
@@ -1863,12 +2020,13 @@ final class Runner {
 	 * @param string $status Status koncowy.
 	 * @param string $note   Powod.
 	 *
-	 * @return void
+	 * @return bool `false` WYLACZNIE przy bledzie zapytania — pozycja NIE jest
+	 *              zamknieta i po `release()` wraca do kolejki jako `new`.
 	 */
-	private static function finish( int $id, string $status, string $note ): void {
+	private static function finish( int $id, string $status, string $note ): bool {
 		global $wpdb;
 
-		$wpdb->query(
+		$wynik = $wpdb->query(
 			$wpdb->prepare(
 				'UPDATE ' . Plugin::table() . ' SET status = %s, note = %s, content = %s, updated_at = %s WHERE id = %d',
 				$status,
@@ -1878,6 +2036,8 @@ final class Runner {
 				$id
 			)
 		); // phpcs:ignore WordPress.DB
+
+		return false !== $wynik;
 	}
 
 	/**

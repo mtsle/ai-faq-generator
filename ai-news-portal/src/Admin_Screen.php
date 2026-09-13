@@ -278,6 +278,18 @@ trait Admin_Screen {
 		delete_transient( $klucz );
 
 		/*
+		 * Nieudany UPDATE nie jest „zerem do wznowienia" (N18). Do tej poprawki
+		 * `Runner::revive_failed()` zamiatal blad do 0 i klient widzial sukces.
+		 */
+		if ( is_array( $wznowione ) && ! empty( $wznowione['error'] ) ) {
+			echo '<div class="notice notice-error"><p>'
+				. esc_html__( 'Nie udało się wznowić pozycji — błąd zapisu w bazie danych. Spróbuj ponownie.', 'ai-news-portal' )
+				. '</p></div>';
+
+			return;
+		}
+
+		/*
 		 * Zero tez dostaje komunikat. Cisza po klikniecu wyglada jak usterka,
 		 * a „nie bylo czego wznawiac" jest odpowiedzia — i to dobra.
 		 */

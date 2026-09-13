@@ -85,16 +85,7 @@ const WZ2_SUFIT = 10;
  * usuwa swoje wpisy. Klucz: `plik|funkcja`, wartość: [liczba naruszeń, pozycja].
  * Wpis musi odpowiadać DOKŁADNIE liczbie naruszeń bez markera.
  */
-const WZ2_DO_NAPRAWY = array(
-	'src/Runner.php|set_post_id'                  => array( 1, 'N12' ),
-	'src/Runner.php|mark'                         => array( 1, 'N12' ),
-	'src/Runner.php|finish'                       => array( 1, 'N12' ),
-	'src/Runner.php|after_failure'                => array( 1, 'N13' ),
-	'src/Runner.php|claim_canonical'              => array( 1, 'N14' ),
-	'src/Runner.php|claim_content'                => array( 1, 'N14' ),
-	'src/Runner.php|recover_stalled'              => array( 1, 'N17' ),
-	'src/Runner.php|revive_failed'                => array( 1, 'N18' ),
-);
+const WZ2_DO_NAPRAWY = array();
 
 /** Liczba wpisów DO NAPRAWY z dnia wdrożenia — może tylko maleć. */
 const WZ2_DO_NAPRAWY_START = 8;

@@ -824,6 +824,21 @@ namespace {
 	k4a_check( false !== strpos( $html, 'Wznowionych pozycji: 5' ), 'komunikat podaje liczbe WZNOWIONYCH, nie liczbe wracajacych do modelu' );
 	k4a_check( false !== strpos( $html, 'W tym 2' ), 'i osobno koszt w slotach dobowej puli' );
 
+	// N18 (naprawa wyniku zapisu): nieudane wznowienie to blad, nie „Wznowionych pozycji: 0".
+	k4a_reset();
+	$GLOBALS['__transient'][ Admin::TRANSIENT_RETRY . 3 ] = array(
+		'revived' => 0,
+		'ai'      => 0,
+		'error'   => true,
+	);
+
+	ob_start();
+	Admin::render_items();
+	$html = (string) ob_get_clean();
+
+	k4a_check( false !== strpos( $html, 'notice-error' ) && false !== strpos( $html, 'Nie udało się wznowić pozycji' ), 'N18: blad wznowienia pokazany jako notice-error z powodem' );
+	k4a_check( false === strpos( $html, 'Wznowionych pozycji: 0' ), 'N18: i NIE jako sukces „Wznowionych pozycji: 0"' );
+
 	// Bez klucza przycisk jest wylaczony i jest o tym slowo.
 	k4a_reset( false );
 	ob_start();

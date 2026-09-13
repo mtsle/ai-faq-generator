@@ -207,8 +207,18 @@ namespace {
 			return '';
 		}
 
+		/** Fragment SQL => ile razy `query()` zwraca `false` bez zapisu (N13, N18). */
+		public $awarie = array();
+
 		public function query( $sql ) {
 			$this->queries[] = $sql;
+
+			foreach ( $this->awarie as $fragment => $ile ) {
+				if ( $ile > 0 && false !== strpos( $sql, $fragment ) ) {
+					$this->awarie[ $fragment ] = $ile - 1;
+					return false;
+				}
+			}
 
 			// Przejecie i oddanie pozycji (etap 5.2).
 			if ( preg_match( "/SET status = '(\w+)', updated_at = '[^']*' WHERE id = (\d+) AND/", $sql, $m ) ) {
@@ -716,6 +726,50 @@ namespace {
 		0 === count( $nieznane ),
 		'zero zapytan nierozpoznanych w calym zestawie (jest: ' . count( $nieznane ) . ( $nieznane ? ' — ' . $nieznane[0] : '' ) . ')'
 	);
+
+	// -----------------------------------------------------------------------
+	echo "\n=== NAPRAWA WYNIKU ZAPISU: licznik prob (N13) i wznowienie (N18) ===\n";
+	// -----------------------------------------------------------------------
+	$k5r_timeout = array(
+		'ok'        => false,
+		'code'      => 0,
+		'body'      => '',
+		'error'     => 'Operation timed out',
+		'reason'    => 'transport',
+		'truncated' => false,
+	);
+
+	// N13: UPDATE licznika prob pada. Przed naprawa los `retry` — licznik nie rosl,
+	// MAX_ATTEMPTS nie zapadalo nigdy, a strona byla pobierana w nieskonczonosc.
+	$wpdb         = k5r_reset();
+	k5r_wiersz( $wpdb, 1, 'https://psy.pl/timeout/', '' );
+	$GLOBALS['__strony']['https://psy.pl/timeout/'] = $k5r_timeout;
+	$wpdb->awarie = array( 'attempts = 1, updated_at' => 1 );
+	$n13          = Runner::prepare_batch( 10 );
+	k5r_check( 0 === (int) $n13['retry'] && 1 === (int) $n13['error'], 'N13: UPDATE attempts → false → los `error`, nie `retry` (retry: ' . $n13['retry'] . ', error: ' . $n13['error'] . ')' );
+	k5r_check( '' !== (string) ( $n13['errors'][1] ?? '' ), 'N13: podsumowanie przygotowania niesie powod dla pozycji #1' );
+	k5r_check( 0 === (int) $wpdb->tabela[1]->attempts && 'new' === $wpdb->tabela[1]->status, 'N13 kontrola: licznik NIE urosl, pozycja wraca do kolejki' );
+
+	// N13: mark(FAILED) przy wyczerpanych probach pada — pozycja NIE jest liczona jako `failed`.
+	$wpdb         = k5r_reset();
+	$ostatnia     = k5r_wiersz( $wpdb, 1, 'https://psy.pl/timeout/', '' );
+	$ostatnia->attempts = 2;
+	$GLOBALS['__strony']['https://psy.pl/timeout/'] = $k5r_timeout;
+	$wpdb->awarie = array( "status = 'failed'" => 1 );
+	$n13b         = Runner::prepare_batch( 10 );
+	k5r_check( 0 === (int) $n13b['failed'] && 1 === (int) $n13b['error'], 'N13: mark(FAILED) → false → `error`, nie `failed` (failed: ' . $n13b['failed'] . ')' );
+
+	// N18: UPDATE wznowienia pada. Przed naprawa: „Wznowionych pozycji: 0" jak przy pustej kolejce.
+	$wpdb         = k5r_reset();
+	$padnieta_n18 = k5r_wiersz( $wpdb, 1, 'https://psy.pl/1/', '<p>treść zachowana</p>', 'failed' );
+	$wpdb->awarie = array( "WHERE status = 'failed'" => 1 );
+	$n18          = Runner::revive_failed();
+	k5r_check( true === ( $n18['error'] ?? null ) && 0 === $n18['revived'], 'N18: UPDATE wznowienia → false → `error` = true, revived 0' );
+	k5r_check( 'failed' === $wpdb->tabela[1]->status, 'N18 kontrola: pozycja nadal `failed`' );
+
+	$wpdb = k5r_reset();
+	$n18z = Runner::revive_failed();
+	k5r_check( 0 === $n18z['revived'] && ! array_key_exists( 'error', $n18z ), 'N18/T-1: nic do wznowienia (0) → revived 0 BEZ klucza `error` — ksztalt sukcesu bez zmian' );
 
 	// -----------------------------------------------------------------------
 	echo "\n--------------------------------------------------\n";
