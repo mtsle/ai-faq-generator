@@ -547,6 +547,7 @@ final class Runner {
 			return;
 		}
 
+		// WYNIK-ZAPISU-POMINIETY: recover_stalled() leczy wiersz processing po STALE_SECONDS
 		$wpdb->query(
 			$wpdb->prepare(
 				'UPDATE ' . Plugin::table() . ' SET status = %s, updated_at = %s WHERE id = %d AND status = %s',

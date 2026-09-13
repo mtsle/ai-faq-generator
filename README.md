@@ -98,17 +98,17 @@ atomowym zamkiem, żeby dwa równoległe uruchomienia nie opublikowały tego sam
     Faq/        3              publikacja par FAQ
     Http/       3              transport HTTP
     Seo/        2              JSON-LD
-  tests/                       63 zestawy + tests/load/ (14 skryptów obciążeniowych)
+  tests/                       64 zestawy + tests/load/ (14 skryptów obciążeniowych)
   assets/                      15 plików — JS, CSS i puste index.php blokujące listowanie
   instrukcje/                  47 plików — 5 PDF-ów, źródła HTML, schematy, zrzuty
   audyt/                       14 plików — opis audytu, raport, dokumentacja zderzana z kodem
   .github/                     workflow „Testy" + CI-owe kopie obu runnerów
 
-ai-news-portal/                wtyczka 2 — 135 plików
+ai-news-portal/                wtyczka 2 — 136 plików
   ai-news-portal.php           plik główny, stałe AINP_*
   uninstall.php                własne sprzątanie
   src/         19              15 klas + 4 szablony frontu
-  tests/       30              29 zestawów
+  tests/       31              30 zestawów
   instrukcje/  60              5 PDF-ów i ich źródła
   assets/      21
 ```
@@ -178,8 +178,8 @@ osobny dokument: **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
 | | Wtyczka 1 | Wtyczka 2 |
 |---|---|---|
-| Zestawy | **63** w 57 segmentach | **29** w 15 segmentach |
-| Asercje | nieliczone globalnie | **2306**, liczone co do jednej |
+| Zestawy | **64** w 58 segmentach | **30** w 16 segmentach |
+| Asercje | nieliczone globalnie | **2325**, liczone co do jednej |
 | Kryterium zaliczenia | kod wyjścia zestawu | kod wyjścia **oraz** dokładna liczba asercji |
 
 Różnica w kryteriach jest historyczna i celowa. Runner wtyczki 2 nie zalicza segmentu, jeśli
@@ -223,6 +223,7 @@ tego, co łatwo cofnąć jedną porządkującą zmianą i czego zwykły test nie
 | [`seo-jsonld-test.php`](tests/seo-jsonld-test.php) | Dokładnie jeden węzeł `WebApplication` i nigdy `WebPage`, `Organization` czy `FAQPage`. Nowa podstrona nie może powstać bez wstępu i wyciągu, bo wtyczki SEO zbudują wtedy opis z pustki. |
 | [`load-harness-guard-test.php`](tests/load-harness-guard-test.php) | Gałęzie obronne skryptów obciążeniowych z `tests/load/`, których żaden runner nie uruchamia, bo wymagają żywej bazy. Strażnik czyta je statycznie, zamiast je odpalać. |
 | [`readme-zgodnosc-test.php`](tests/readme-zgodnosc-test.php) | Zgodność tego README z kodem: każda liczba jest **wyciągana z README i zderzana z wartością policzoną ze źródeł**, a nie porównywana z przepisaną listą. Do tego zero martwych odsyłaczy. Powstał, bo przy wydaniu 1.1.0 tabela CI podawała 60 zestawów zamiast 62 i 2083 asercje zamiast 2306. |
+| [`wynik-zapisu-guard-test.php`](tests/wynik-zapisu-guard-test.php) oraz [bliźniak wtyczki 2](ai-news-portal/tests/wynik-zapisu-guard-test.php) | Każdy zapis `$wpdb` (`query`, `update`, `delete`, `insert`, `replace`) ma wynik rozstrzygnięty względem `false` — błąd SQL to `false`, a „nic nie zmieniono” to `0`, i kod nie może ich mylić. Klasyfikacja idzie **na tokenach PHP**: wyrzucony wynik, rzutowanie `(int)`/`(bool)` i przypisanie bez porównania z `false` to naruszenia. Wyjątek wymaga markera `WYNIK-ZAPISU-POMINIETY` w kodzie **i** wpisu w jawnej tablicy z sufitem. Powstał, bo „Wyczyść bazę” odpowiadało 200 przy nieskasowanej bazie, a nieudany zapis statusu kolejki wtyczki 2 palił drugi slot modelu na ten sam wiersz. |
 | [`etap85-readme-test.php`](ai-news-portal/tests/etap85-readme-test.php) | Zgodność README wtyczki 2 z kodem: nazwa opcji albo liczba, która rozjedzie się z kodem, wywala test, zamiast czekać na kolejnego czytelnika. |
 
 ## CI — workflow „Testy"
@@ -233,8 +234,8 @@ PHP 8.2 z `mbstring`) wołają CI-owe kopie runnerów z `.github/ci/`:
 
 | job | runner | kryterium zaliczenia |
 |---|---|---|
-| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **63 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
-| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **15 segmentów, 29 zestawów, dokładnie 2306 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
+| Wtyczka 1 — AI FAQ Generator | [`.github/ci/testy-wtyczka1.sh`](.github/ci/testy-wtyczka1.sh) | **64 zestawy, 0 niezaliczonych** (kryterium: kod wyjścia zestawu) |
+| Wtyczka 2 — AI News Portal | [`.github/ci/testy-wtyczka2.sh`](.github/ci/testy-wtyczka2.sh) | **16 segmentów, 30 zestawów, dokładnie 2325 asercji** — każdy zestaw musi wykonać `=== N` oczekiwanych asercji, wynik `WYNIK: WSZYSTKIE SEGMENTY OK` |
 
 > [!WARNING]
 > Zielono u siebie nie znaczy zielono w CI. Testy chodzą na Linuksie, a repozytorium powstaje

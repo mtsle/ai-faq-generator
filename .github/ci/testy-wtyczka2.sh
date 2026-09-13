@@ -33,6 +33,7 @@ segments=(
   "S13 Naglowki bezpieczenstwa (Security.php)|krok7-naglowki-test.php:70"
   "S14 Usuwanie bez sladu (uninstall.php)|krok1-uninstall-test.php:45 krok4-uninstall-test.php:30"
   "S15 Zgodnosc dokumentacji z kodem (README.md + readme.txt)|etap85-readme-test.php:147"
+  "S16 Wynik zapisu wpdb sprawdzany (false != 0): straznik statyczny|wynik-zapisu-guard-test.php:19"
 )
 
 total_suites=0; total_fail=0; total_asercji=0; total_oczekiwanych=0

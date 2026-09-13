@@ -137,7 +137,7 @@ Księgowość różni się między wtyczkami:
 > i nie podnosisz liczby — segment jest czerwony. To celowe: test, który po cichu przestał
 > cokolwiek sprawdzać, dalej świeciłby na zielono.
 
-Dodatkowo **23 zestawy wtyczki 1 mają własną podłogę pokrycia w środku pliku** (`$ran >= N`).
+Dodatkowo **24 zestawy wtyczki 1 mają własną podłogę pokrycia w środku pliku** (`$ran >= N`).
 Jeśli dokładasz do takiego zestawu asercję, podnieś tam N w tym samym commicie.
 
 Nowy zestaw testów wpina się jako segment do **obu kopii runnera** — tej w `.github/ci/`

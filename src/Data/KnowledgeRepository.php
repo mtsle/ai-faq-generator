@@ -85,6 +85,7 @@ class KnowledgeRepository extends Repository {
 	public function replace_for_post( int $post_id, array $chunks ): int {
 		global $wpdb;
 
+		// WYNIK-ZAPISU-POMINIETY: START TRANSACTION — brak transakcji (MyISAM) degraduje zapis do nieatomowego, opisane w docblocku
 		$wpdb->query( 'START TRANSACTION' ); // phpcs:ignore WordPress.DB
 
 		// try/finally: wyjątek między START a COMMIT/ROLLBACK NIE może zostawić
@@ -98,6 +99,7 @@ class KnowledgeRepository extends Repository {
 			 * ta gałąź czyni z obietnicy warunek.
 			 */
 			if ( false === $this->delete_by_post( $post_id ) ) {
+				// WYNIK-ZAPISU-POMINIETY: ROLLBACK w galezi bledu — metoda juz zwraca porazke, nie ma dokad eskalowac
 				$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB
 				return 0;
 			}
@@ -121,6 +123,7 @@ class KnowledgeRepository extends Repository {
 			}
 
 			if ( $failed ) {
+				// WYNIK-ZAPISU-POMINIETY: ROLLBACK w galezi bledu — metoda juz zwraca porazke, nie ma dokad eskalowac
 				$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB
 				return 0;
 			}
@@ -128,6 +131,7 @@ class KnowledgeRepository extends Repository {
 			$wpdb->query( 'COMMIT' ); // phpcs:ignore WordPress.DB
 			return $inserted;
 		} catch ( \Throwable $e ) {
+			// WYNIK-ZAPISU-POMINIETY: ROLLBACK w galezi bledu — metoda juz zwraca porazke, nie ma dokad eskalowac
 			$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB
 			return 0;
 		}

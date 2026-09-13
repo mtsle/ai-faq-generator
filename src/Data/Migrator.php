@@ -85,6 +85,7 @@ class Migrator {
 		$transakcja = is_object( $wpdb ) && method_exists( $wpdb, 'query' );
 
 		if ( $transakcja ) {
+			// WYNIK-ZAPISU-POMINIETY: START TRANSACTION — brak transakcji degraduje migracje do nieatomowej
 			$wpdb->query( 'START TRANSACTION' ); // phpcs:ignore WordPress.DB
 		}
 
@@ -107,6 +108,7 @@ class Migrator {
 
 				if ( false === $wstawiony ) {
 					if ( $transakcja ) {
+						// WYNIK-ZAPISU-POMINIETY: ROLLBACK w galezi bledu — metoda juz zwraca false
 						$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB
 					}
 
@@ -115,6 +117,7 @@ class Migrator {
 			}
 		} catch ( \Throwable $e ) {
 			if ( $transakcja ) {
+				// WYNIK-ZAPISU-POMINIETY: ROLLBACK w galezi bledu — metoda juz zwraca false
 				$wpdb->query( 'ROLLBACK' ); // phpcs:ignore WordPress.DB
 			}
 

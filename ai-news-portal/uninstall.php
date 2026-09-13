@@ -67,6 +67,7 @@ if ( ! function_exists( 'ainp_uninstall_cleanup_site' ) ) {
 			 * niezarejestrowanym CPT zwraca pusta tablice — bez tego zapytania
 			 * w `term_relationships` zostalyby sieroty.
 			 */
+			// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 			$wpdb->query( "DELETE FROM {$wpdb->term_relationships} WHERE object_id IN ({$ainp_lista})" );
 
 			// Wpis + jego meta, wersje i komentarze. Bez `true` wpis wyladowalby w koszu.
@@ -76,6 +77,7 @@ if ( ! function_exists( 'ainp_uninstall_cleanup_site' ) ) {
 		}
 
 		// Meta osierocone (wpis skasowany wczesniej reka klienta, meta zostala).
+		// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 		$wpdb->query(
 			"DELETE pm FROM {$wpdb->postmeta} pm
 			 LEFT JOIN {$wpdb->posts} p ON p.ID = pm.post_id
@@ -99,13 +101,16 @@ if ( ! function_exists( 'ainp_uninstall_cleanup_site' ) ) {
 			$ainp_tt_lista   = implode( ',', $ainp_tt_ids );
 			$ainp_term_lista = implode( ',', $ainp_term_ids );
 
+			// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 			$wpdb->query( "DELETE FROM {$wpdb->term_relationships} WHERE term_taxonomy_id IN ({$ainp_tt_lista})" );
+			// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 			$wpdb->query( "DELETE FROM {$wpdb->term_taxonomy} WHERE term_taxonomy_id IN ({$ainp_tt_lista})" );
 
 			/*
 			 * Sam termin kasujemy tylko wtedy, gdy nie uzywa go zadna inna taksonomia —
 			 * `wp_terms` jest wspolne dla calego WordPressa.
 			 */
+			// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 			$wpdb->query(
 				"DELETE t FROM {$wpdb->terms} t
 				 LEFT JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
@@ -122,6 +127,7 @@ if ( ! function_exists( 'ainp_uninstall_cleanup_site' ) ) {
 			 * Ta sama oslona co przy `wp_terms` wyzej, o jedna tabele dalej.
 			 * Ustalenie U10 z testu 15 (Krok 4).
 			 */
+			// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 			$wpdb->query(
 				"DELETE tm FROM {$wpdb->termmeta} tm
 				 LEFT JOIN {$wpdb->terms} t ON t.term_id = tm.term_id
@@ -132,6 +138,7 @@ if ( ! function_exists( 'ainp_uninstall_cleanup_site' ) ) {
 		// ---------------------------------------------------------------------------
 		// 3. Tabela materialow.
 		// ---------------------------------------------------------------------------
+		// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 		$wpdb->query( "DROP TABLE IF EXISTS {$ainp_table}" );
 
 		// ---------------------------------------------------------------------------
@@ -163,6 +170,7 @@ if ( ! function_exists( 'ainp_uninstall_cleanup_site' ) ) {
 		);
 
 		foreach ( $ainp_wzorce as $ainp_wzorzec ) {
+			// WYNIK-ZAPISU-POMINIETY: odinstalowanie nie ma kanalu raportowania
 			$wpdb->query(
 				$wpdb->prepare( "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s", $ainp_wzorzec )
 			);
